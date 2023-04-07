@@ -108,6 +108,7 @@ GbxFloat = Float32l
 
 GbxVec2 = Struct("x" / GbxFloat, "y" / GbxFloat)
 GbxVec3 = Struct("x" / GbxFloat, "y" / GbxFloat, "z" / GbxFloat)
+GbxVec4 = Struct("x" / GbxFloat, "y" / GbxFloat, "z" / GbxFloat, "w" / GbxFloat)
 GbxInt3 = Struct("x" / Int32sl, "y" / Int32sl, "z" / Int32sl)
 GbxBox = Struct(
     "x1" / GbxFloat,
@@ -285,11 +286,22 @@ BodyChunkId_to_struct = {}
 
 GbxNodesWithoutBody = set([0x09159000, 0x2F0BC000, 0x09187000])
 
+
+def print_chunk_id(obj, ctx):
+    print(f"Parsed {obj.chunk_id}")
+    return obj
+
+
+def print_next_chunk_id(obj, ctx):
+    print(f"Parsing... {obj}")
+    return obj
+
+
 GbxBodyChunks = RepeatUntil(
     lambda obj, lst, ctx: obj is None or obj.chunk_id == 0xFACADE01,
     Select(
         Struct(
-            "chunk_id" / GbxChunkId,
+            "chunk_id" / GbxChunkId * print_next_chunk_id,
             StopIf(this.chunk_id == 0xFACADE01),
             "chunk"
             / Select(
@@ -312,10 +324,11 @@ GbxBodyChunks = RepeatUntil(
                 ),
                 Struct("chunk_parse_failed" / GreedyBytes),
             ),
-        ),
+        )
+        * print_chunk_id,
         Pass,
     ),
-)  # TODO create new context for GbxBody? I think no
+)
 
 GbxBody = IfThenElse(
     lambda this: this.header.class_id in GbxNodesWithoutBody,
@@ -454,11 +467,74 @@ Chunk_0900600B = Struct(
     "splits "
     / PrefixedArray(Int32ul, Struct("u01" / Int32sl, "u02" / Int32sl, "u03" / GbxBox))
 )
+
+flags_09006 = 0
+count_09006 = 0
+
+
+def set_count(obj, ctx):
+    global count_09006
+    count_09006 = obj
+    return obj
+
+
+def convert_chunk_flags_to_flags(chunk_flags, ctx):
+    flags = 0
+    flags |= chunk_flags & 15
+    flags |= (chunk_flags << 1) & 0x20
+    flags |= (chunk_flags << 2) & 0x80
+    flags |= (chunk_flags << 2) & 0x100
+    flags |= (chunk_flags << 13) & 0x100000
+    flags |= (chunk_flags << 13) & 0x200000
+    flags |= (chunk_flags << 13) & 0x400000
+
+    global flags_09006
+    flags_09006 = flags
+
+    return flags
+
+
+def convert_flags_to_chunk_flags(flags, ctx):
+    chunk_flags = flags & 15
+    chunk_flags |= (flags >> 1) & 0x10
+    chunk_flags |= (flags >> 2) & 0x20
+    chunk_flags |= (flags >> 2) & 0x40
+    chunk_flags |= (flags >> 13) & 0x80
+    chunk_flags |= (flags >> 13) & 0x100
+    chunk_flags |= (flags >> 13) & 0x200
+
+    return chunk_flags
+
+
 Chunk_0900600D = Struct(
-    "flags" / Int32ul,
-    "num_tex_coord_sets" / ExprValidator(Int32ul, obj_ == 0),
-    "count" / Int32ul,
+    "flags"
+    / ExprAdapter(Int32ul, convert_chunk_flags_to_flags, convert_flags_to_chunk_flags),
+    "num_tex_coord_sets" / Int32ul,
+    "count" / Int32ul * set_count,
     "vertex_streams" / PrefixedArray(Int32ul, GbxNodeRef),
+    "tex_coord_sets"
+    / Array(
+        this.num_tex_coord_sets,
+        Struct(
+            "version" / Int32ul,
+            "count" / If(this.version >= 3, Int32ul),
+            "flags" / If(this.version >= 3, Int32ul),
+            "tex_coords"
+            / Array(
+                this.count,
+                Struct(
+                    "uv" / GbxVec2,
+                    "u01" / If(lambda this: 1 <= this._.version < 3, Int32sl),
+                    "u02" / If(lambda this: this._.version == 2, Int32sl),
+                ),
+            ),
+            "u01"
+            / If(
+                lambda this: this.flags,
+                Array(lambda this: this.count * (this.flags & 0xFF), GbxFloat),
+            ),
+        ),
+    ),
     "u01" / GbxBox,
 )
 Chunk_0900600E = Struct(
@@ -509,8 +585,34 @@ Chunk_0900C003 = Struct(
 
 # 0902C CPlugVisual3D
 
+
+def get_flags(this):
+    global flags_09006
+    return flags_09006
+
+
+def is_flag_bit_set(bit):
+    return (flags_09006 & (1 << bit)) != 0
+
+
 Chunk_0902C002 = Struct("u01" / GbxNodeRef)
 Chunk_0902C004 = Struct(
+    "flags" / Computed(get_flags),
+    "u01" / Computed(lambda this: not is_flag_bit_set(22) or False),
+    "u02" / Computed(lambda this: not is_flag_bit_set(22) or is_flag_bit_set(8)),
+    "u03" / Computed(lambda this: is_flag_bit_set(20)),
+    "u04" / Computed(lambda this: is_flag_bit_set(21)),
+    "vertices"
+    / Array(
+        lambda this: count_09006,
+        Struct(
+            "pos" / GbxVec3,
+            "vert_u01" / If(lambda this: this._.u01 and this._.u03, Int32sl),
+            "vert_u02" / If(lambda this: this._.u01 and not this._.u03, GbxVec3),
+            "vert_u03" / If(lambda this: this._.u02 and this._.u04, Int32sl),
+            "vert_u04" / If(lambda this: this._.u02 and not this._.u04, GbxVec4),
+        ),
+    ),
     "nb_tangents1" / ExprValidator(Int32ul, obj_ == 0),
     "nb_tangents2" / ExprValidator(Int32ul, obj_ == 0),
 )

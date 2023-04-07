@@ -51,6 +51,15 @@ def tree_widget_item(key, value):
 
         return item
     else:
+        if type(value).__name__ == "bytes":
+            return QTreeWidgetItem_WithData(
+                Container(type=type(value).__name__, value=value),
+                [
+                    key,
+                    type(value).__name__,
+                    str(value[:12]) + ("..." if len(value) > 12 else ""),
+                ],
+            )
         return QTreeWidgetItem_WithData(
             Container(type=type(value).__name__, value=value),
             [key, type(value).__name__, str(value)],
@@ -173,8 +182,7 @@ def create_custom_material(material_name):
                         is_natural=False,
                     ),
                 ),
-                Container(chunk_id=0x090FD002,
-                          chunk=Container(version=0, u01=0)),
+                Container(chunk_id=0x090FD002, chunk=Container(version=0, u01=0)),
                 Container(
                     chunk_id=0xFACADE01,
                 ),
@@ -219,8 +227,7 @@ def create_custom_material2(material_name):
                         is_natural=False,
                     ),
                 ),
-                Container(chunk_id=0x090FD002,
-                          chunk=Container(version=0, u01=0)),
+                Container(chunk_id=0x090FD002, chunk=Container(version=0, u01=0)),
                 Container(
                     chunk_id=0xFACADE01,
                 ),
@@ -250,51 +257,51 @@ def parse_node(file_path, node_offset=0, path=None):
         print("  " * depth + f"- {file_name} ({len(data.nodes) - 1} nodes)")
 
         # get all folders
-        external_folders = data.reference_table.external_folders
-        root_folder_name = os.path.dirname(file_path) + "\\"
-        all_folders = [root_folder_name]
-        if external_folders is not None:
-            root_folder_name += "..\\" * external_folders.ancestor_level
-            construct_all_folders(
-                all_folders, root_folder_name, external_folders)
+        # external_folders = data.reference_table.external_folders
+        # root_folder_name = os.path.dirname(file_path) + "\\"
+        # all_folders = [root_folder_name]
+        # if external_folders is not None:
+        #     root_folder_name += "..\\" * external_folders.ancestor_level
+        #     construct_all_folders(
+        #         all_folders, root_folder_name, external_folders)
 
         # parse external nodes
-        for external_node in data.reference_table.external_nodes:
-            if external_node.ref.endswith(".Material.Gbx"):
-                material_name = external_node.ref.split(".")[0]
-                data.nodes[external_node.node_index] = create_custom_material2(
-                    material_name
-                )
-                print(
-                    "  " * (depth + 1) +
-                    f"- {material_name} Material (1 custom node)"
-                )
-            else:
-                # print(external_node)
-                ext_node_data, nb_sub_nodes, win = parse_node(
-                    all_folders[external_node.folder_index] +
-                    external_node.ref,
-                    node_offset,
-                    path[:],
-                )
-                nb_nodes += nb_sub_nodes
-                node_offset += nb_sub_nodes
-                data.nodes[external_node.node_index] = ext_node_data
-                data.nodes.extend(ext_node_data.nodes[1:])
-                # if external_node.ref == "CactusE.HitShape.Gbx":
-                #     app = QApplication.instance() or QApplication(sys.argv)
-                #     app.exec()
+        # for external_node in data.reference_table.external_nodes:
+        #     if external_node.ref.endswith(".Material.Gbx"):
+        #         material_name = external_node.ref.split(".")[0]
+        #         data.nodes[external_node.node_index] = create_custom_material2(
+        #             material_name
+        #         )
+        #         print(
+        #             "  " * (depth + 1) +
+        #             f"- {material_name} Material (1 custom node)"
+        #         )
+        #     else:
+        #         # print(external_node)
+        #         ext_node_data, nb_sub_nodes, win = parse_node(
+        #             all_folders[external_node.folder_index] +
+        #             external_node.ref,
+        #             node_offset,
+        #             path[:],
+        #         )
+        #         nb_nodes += nb_sub_nodes
+        #         node_offset += nb_sub_nodes
+        #         data.nodes[external_node.node_index] = ext_node_data
+        #         data.nodes.extend(ext_node_data.nodes[1:])
+        #         # if external_node.ref == "CactusE.HitShape.Gbx":
+        #         #     app = QApplication.instance() or QApplication(sys.argv)
+        #         #     app.exec()
 
-        for i, n in enumerate(data.nodes):
-            if n is not None and not "path" in n:
-                n.path = f"{path} [node={i}]"
+        # for i, n in enumerate(data.nodes):
+        #     if n is not None and not "path" in n:
+        #         n.path = f"{path} [node={i}]"
 
-        data2 = GbxStructWithoutBodyParsed.parse(
-            raw_bytes, gbx_data={}, nodes=[])
-        data2.header.body_compression = "uncompressed"
-        raw_bytes_uncompressed = GbxStructWithoutBodyParsed.build(
-            data2, gbx_data={}, nodes=[]
-        )
+        # data2 = GbxStructWithoutBodyParsed.parse(
+        #     raw_bytes, gbx_data={}, nodes=[])
+        # data2.header.body_compression = "uncompressed"
+        # raw_bytes_uncompressed = GbxStructWithoutBodyParsed.build(
+        #     data2, gbx_data={}, nodes=[]
+        # )
 
         return (
             data,
@@ -353,21 +360,54 @@ if __name__ == "__main__":
     file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\test_circle.Item.Gbx"
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\CactusVerySmall.Item.Gbx"
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Static\\Vegetation\\CactusE.Mesh.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\Flag8m.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Dyna\\ObstaclePusher\\ObstaclePusher8mPiston.Mesh.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\MainBodyHigh.Solid.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Dyna\\Flag\\Flag.Mesh.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Dyna\\Flag\\Flag.DynaObject.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Dyna\\ObstaclePusher\\ObstaclePusher8mPiston.DynaObject.Gbx"
+
     # file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\Eggs_4.Item.Gbx"
     data, nb_nodes, win = parse_node(file)
     print(f"total nodes: {nb_nodes}")
 
     # Export obj
-    export_dir = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\"
-    idx = 11
-    vertices = data.nodes[idx+1].body[0].chunk.vertices_coords
-    normals = data.nodes[idx+1].body[0].chunk.normals
-    uv0 = data.nodes[idx+1].body[0].chunk.others.uv0
-    indices = data.nodes[idx].body[8].chunk.index_buffer[0].chunk.indices
-    obj_filepath = export_dir + os.path.basename(file).split(".")[0] + ".obj"
-    print(obj_filepath)
-    export_obj(obj_filepath, vertices,
-               normals, uv0, indices, "ItemCactus")
+    # mats = ["TechnicsTrims", "ScreenPusher", "ItemObstacleLight", "DecalObstaclePusher"]
+    # for i, idx in enumerate(data.body[0].chunk.visuals):
+    #     export_dir = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\"
+    #     vertices = data.nodes[idx + 1].body[0].chunk.vertices_coords
+    #     normals = data.nodes[idx + 1].body[0].chunk.normals
+    #     uv0 = data.nodes[idx + 1].body[0].chunk.others.uv0
+    #     indices = data.nodes[idx].body[8].chunk.index_buffer[0].chunk.indices
+    #     obj_filepath = export_dir + os.path.basename(file).split(".")[0] + f"_{idx}.obj" # TODO add LOD
+    #     mat = mats[data.body[0].chunk.shaded_geoms[i].material_index]
+    #     print(obj_filepath)
+    #     export_obj(obj_filepath, vertices, normals, uv0, indices, mat)
+
+    # Export obj animation
+    # export_dir = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\"
+    # vertices = [v.pos for v in data.nodes[3].body[7].chunk.vertices]
+    # normals = [v.vert_u02 for v in data.nodes[3].body[7].chunk.vertices]
+    # uv0 = [v.uv for v in data.nodes[3].body[4].chunk.tex_coord_sets[0].tex_coords]
+    # indices = data.nodes[3].body[8].chunk.index_buffer[0].chunk.indices
+    # sub_visuals = data.nodes[3].body[1].chunk.sub_visuals
+    # for i, vis in enumerate(sub_visuals):
+    #     start_index = vis.x
+    #     if i == len(sub_visuals) - 1:
+    #         end_index = len(vertices)
+    #     else:
+    #         end_index = sub_visuals[i + 1].x
+    #     obj_filepath = (
+    #         export_dir + os.path.basename(file).split(".")[0] + f"_lod4_{i}.obj"
+    #     )
+    #     export_obj(
+    #         obj_filepath,
+    #         vertices[start_index:end_index],
+    #         normals[start_index:end_index],
+    #         uv0[start_index:end_index],
+    #         indices,
+    #         "ItemFlag",
+    #     )
 
     # file2 = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\test_gbx1.Item.Gbx"
     # data2, nb_nodes2, win2 = parse_node(file2)
