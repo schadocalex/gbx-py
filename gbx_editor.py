@@ -20,6 +20,8 @@ from construct import Container, ListContainer, RawCopy, Struct, Adapter, Subcon
 from widgets.hex_editor import GbxHexEditor
 from widgets.inspector import Inspector
 
+from export_obj import export_obj
+
 
 def container_iter(ctn):
     for key, value in ctn.items():
@@ -171,7 +173,8 @@ def create_custom_material(material_name):
                         is_natural=False,
                     ),
                 ),
-                Container(chunk_id=0x090FD002, chunk=Container(version=0, u01=0)),
+                Container(chunk_id=0x090FD002,
+                          chunk=Container(version=0, u01=0)),
                 Container(
                     chunk_id=0xFACADE01,
                 ),
@@ -216,7 +219,8 @@ def create_custom_material2(material_name):
                         is_natural=False,
                     ),
                 ),
-                Container(chunk_id=0x090FD002, chunk=Container(version=0, u01=0)),
+                Container(chunk_id=0x090FD002,
+                          chunk=Container(version=0, u01=0)),
                 Container(
                     chunk_id=0xFACADE01,
                 ),
@@ -251,7 +255,8 @@ def parse_node(file_path, node_offset=0, path=None):
         all_folders = [root_folder_name]
         if external_folders is not None:
             root_folder_name += "..\\" * external_folders.ancestor_level
-            construct_all_folders(all_folders, root_folder_name, external_folders)
+            construct_all_folders(
+                all_folders, root_folder_name, external_folders)
 
         # parse external nodes
         for external_node in data.reference_table.external_nodes:
@@ -261,12 +266,14 @@ def parse_node(file_path, node_offset=0, path=None):
                     material_name
                 )
                 print(
-                    "  " * (depth + 1) + f"- {material_name} Material (1 custom node)"
+                    "  " * (depth + 1) +
+                    f"- {material_name} Material (1 custom node)"
                 )
             else:
                 # print(external_node)
                 ext_node_data, nb_sub_nodes, win = parse_node(
-                    all_folders[external_node.folder_index] + external_node.ref,
+                    all_folders[external_node.folder_index] +
+                    external_node.ref,
                     node_offset,
                     path[:],
                 )
@@ -282,7 +289,8 @@ def parse_node(file_path, node_offset=0, path=None):
             if n is not None and not "path" in n:
                 n.path = f"{path} [node={i}]"
 
-        data2 = GbxStructWithoutBodyParsed.parse(raw_bytes, gbx_data={}, nodes=[])
+        data2 = GbxStructWithoutBodyParsed.parse(
+            raw_bytes, gbx_data={}, nodes=[])
         data2.header.body_compression = "uncompressed"
         raw_bytes_uncompressed = GbxStructWithoutBodyParsed.build(
             data2, gbx_data={}, nodes=[]
@@ -342,38 +350,51 @@ if __name__ == "__main__":
     file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\test_gbx2.Item.Gbx"
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\PlaceParam\\RoadSign.PlaceParam.Gbx"
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\PlaceParam\\TunnelSupport.PlaceParam.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\CactusVerySmall.Item.Gbx"
     file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\test_circle.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\CactusVerySmall.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Static\\Vegetation\\CactusE.Mesh.Gbx"
     # file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\Eggs_4.Item.Gbx"
     data, nb_nodes, win = parse_node(file)
     print(f"total nodes: {nb_nodes}")
 
+    # Export obj
+    export_dir = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\"
+    idx = 11
+    vertices = data.nodes[idx+1].body[0].chunk.vertices_coords
+    normals = data.nodes[idx+1].body[0].chunk.normals
+    uv0 = data.nodes[idx+1].body[0].chunk.others.uv0
+    indices = data.nodes[idx].body[8].chunk.index_buffer[0].chunk.indices
+    obj_filepath = export_dir + os.path.basename(file).split(".")[0] + ".obj"
+    print(obj_filepath)
+    export_obj(obj_filepath, vertices,
+               normals, uv0, indices, "ItemCactus")
+
     # file2 = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\test_gbx1.Item.Gbx"
     # data2, nb_nodes2, win2 = parse_node(file2)
 
-    ###### MODIFICATIONS
+    # MODIFICATIONS
 
-    ### compression
+    # compression
     # data.header.body_compression = "compressed"
 
-    ### author
+    # author
     # data.header.chunks.data[0].meta.id = ""
     # data.header.chunks.data[0].meta.author = "schadocalex"
     # data.header.chunks.data[0].catalog_position = 1
 
-    ### merge external nodes
+    # merge external nodes
     # data.header.num_nodes = nb_nodes + 1
     # data.reference_table.num_external_nodes = 0
     # data.reference_table.external_folders = None
     # data.reference_table.external_nodes = []
 
-    ### bypass variants?
+    # bypass variants?
     # data.body[12].chunk.entity_model = 2
 
-    ### lightmap
+    # lightmap
     # data.body[16].chunk.disable_lightmap = True
 
-    ### make mesh not collidable
+    # make mesh not collidable
     # data.nodes[2].body.collidable = False
     # data.nodes[2].body.collidable_ref = -1
 
