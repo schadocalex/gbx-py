@@ -140,10 +140,8 @@ class GbxHexEditor(QWidget):
         self.hex_widget.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
-        self.hex_widget.setVerticalScrollBar(
-            self.addr_widget.verticalScrollBar())
-        self.ascii_widget.setVerticalScrollBar(
-            self.hex_widget.verticalScrollBar())
+        self.hex_widget.setVerticalScrollBar(self.addr_widget.verticalScrollBar())
+        self.ascii_widget.setVerticalScrollBar(self.hex_widget.verticalScrollBar())
 
         # inspector
 
@@ -160,7 +158,10 @@ class GbxHexEditor(QWidget):
             set_selection(self.hex_widget, start_idx, end_idx, cursor_idx)
             set_selection(self.ascii_widget, start_idx, end_idx, cursor_idx)
 
-            on_select(self.raw_bytes[min(start_idx, end_idx):])
+            on_select(
+                self.raw_bytes[min(start_idx, end_idx) :],
+                self.raw_bytes[min(start_idx, end_idx) : max(start_idx, end_idx)],
+            )
 
         self.hex_widget.cursorPositionChanged.connect(hex_cursor_pos_changed)
 
@@ -170,9 +171,9 @@ class GbxHexEditor(QWidget):
         self.setFixedWidth(860)
 
     def set_bytes(self, raw_bytes):
-        if len(raw_bytes) >= 4000:
+        if len(raw_bytes) >= 10000:
             print(f"too many bytes {len(raw_bytes)}")
-            raw_bytes = raw_bytes[:4000]
+            raw_bytes = raw_bytes[:10000]
         self.raw_bytes = raw_bytes
 
         self.addr_widget.set_bytes(raw_bytes)

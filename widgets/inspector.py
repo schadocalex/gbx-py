@@ -27,6 +27,11 @@ class Hex_Inspector(AInspector):
             self.labels[i].setText(text)
 
 
+class Count_Inspector(AInspector):
+    def inspect(self, raw_bytes):
+        self.labels[0].setText(str(len(raw_bytes) + 1))
+
+
 class Vec3_tenb_Inspector(AInspector):
     def inspect(self, raw_bytes):
         for label in self.labels:
@@ -72,6 +77,7 @@ class Inspector(QWidget):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        self.count_inspector = Count_Inspector(1)
         self.hex_inspector = Hex_Inspector(4)
         self.uint8_widget = inspector_from_format("<B", 16)
         self.int8_widget = inspector_from_format("<b", 16)
@@ -85,6 +91,7 @@ class Inspector(QWidget):
         self.vec_tenb_widget = Vec3_tenb_Inspector(4)
 
         layout = QFormLayout()
+        layout.addRow("count", self.count_inspector)
         layout.addRow("hex", self.hex_inspector)
         layout.addRow("UInt16", self.uint16_widget)
         layout.addRow("Int16", self.int16_widget)
@@ -98,7 +105,8 @@ class Inspector(QWidget):
         layout.addRow("Vec3_tenb", self.vec_tenb_widget)
         self.setLayout(layout)
 
-    def inspect(self, raw_bytes):
+    def inspect(self, raw_bytes, selection):
+        self.count_inspector.inspect(selection)
         self.hex_inspector.inspect(raw_bytes)
         self.uint16_widget.inspect(raw_bytes)
         self.int16_widget.inspect(raw_bytes)

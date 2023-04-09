@@ -176,7 +176,7 @@ GbxIso4 = Struct(
 GbxInt3 = Struct("x" / Int32sl, "y" / Int32sl, "z" / Int32sl)
 
 
-class GbxFileTime(Adapter):
+class AGbxFileTime(Adapter):
     EPOCH_START = datetime.datetime(1601, 1, 1)
 
     def _decode(self, file_time, context, path):
@@ -188,6 +188,8 @@ class GbxFileTime(Adapter):
         time_delta = date_time - self.EPOCH_START
         return int(time_delta / datetime.timedelta(microseconds=1)) * 10
 
+
+GbxFileTime = AGbxFileTime(Int64ul)
 
 GbxCollectionIds = {
     0: "Desert Speed",
@@ -284,16 +286,18 @@ GbxMeta = Struct(
 
 BodyChunkId_to_struct = {}
 
-GbxNodesWithoutBody = set([0x09159000, 0x2F0BC000, 0x09187000])
+GbxNodesWithoutBody = set(
+    [0x09144000, 0x09145000, 0x09159000, 0x09187000, 0x2F0BC000, 0x2F086000]
+)
 
 
 def print_chunk_id(obj, ctx):
-    print(f"Parsed {obj.chunk_id}")
+    # print(f"Parsed {obj.chunk_id}")
     return obj
 
 
 def print_next_chunk_id(obj, ctx):
-    print(f"Parsing... {obj}")
+    # print(f"Parsing... {obj}")
     return obj
 
 
@@ -470,11 +474,18 @@ Chunk_0900600B = Struct(
 
 flags_09006 = 0
 count_09006 = 0
+has_vertices = False
 
 
 def set_count(obj, ctx):
     global count_09006
     count_09006 = obj
+    return obj
+
+
+def set_has_vertices(obj, ctx):
+    global has_vertices
+    has_vertices = len(obj) > 0
     return obj
 
 
@@ -511,7 +522,7 @@ Chunk_0900600D = Struct(
     / ExprAdapter(Int32ul, convert_chunk_flags_to_flags, convert_flags_to_chunk_flags),
     "num_tex_coord_sets" / Int32ul,
     "count" / Int32ul * set_count,
-    "vertex_streams" / PrefixedArray(Int32ul, GbxNodeRef),
+    "vertex_streams" / PrefixedArray(Int32ul, GbxNodeRef) * set_has_vertices,
     "tex_coord_sets"
     / Array(
         this.num_tex_coord_sets,
@@ -559,7 +570,15 @@ Chunk_09006010 = Struct(
 GbxSurfMesh = Struct(
     "version" / ExprValidator(Int32ul, obj_ == 7),
     "vertices" / PrefixedArray(Int32ul, GbxVec3),
-    "triangles" / PrefixedArray(Int32ul, Sequence(GbxInt3, Int32sl)),
+    "triangles"
+    / PrefixedArray(
+        Int32ul,
+        Struct(
+            "face" / GbxInt3,
+            "material_id" / GbxPlugSurfaceMaterialId,
+            "material_index" / Int16sl,
+        ),
+    ),
 )
 Chunk_0900C003 = Struct(
     "version" / Int32ul,
@@ -603,14 +622,17 @@ Chunk_0902C004 = Struct(
     "u03" / Computed(lambda this: is_flag_bit_set(20)),
     "u04" / Computed(lambda this: is_flag_bit_set(21)),
     "vertices"
-    / Array(
-        lambda this: count_09006,
-        Struct(
-            "pos" / GbxVec3,
-            "vert_u01" / If(lambda this: this._.u01 and this._.u03, Int32sl),
-            "vert_u02" / If(lambda this: this._.u01 and not this._.u03, GbxVec3),
-            "vert_u03" / If(lambda this: this._.u02 and this._.u04, Int32sl),
-            "vert_u04" / If(lambda this: this._.u02 and not this._.u04, GbxVec4),
+    / If(
+        has_vertices,
+        Array(
+            lambda this: count_09006,
+            Struct(
+                "pos" / GbxVec3,
+                "vert_u01" / If(lambda this: this._.u01 and this._.u03, Int32sl),
+                "vert_u02" / If(lambda this: this._.u01 and not this._.u03, GbxVec3),
+                "vert_u03" / If(lambda this: this._.u02 and this._.u04, Int32sl),
+                "vert_u04" / If(lambda this: this._.u02 and not this._.u04, GbxVec4),
+            ),
         ),
     ),
     "nb_tangents1" / ExprValidator(Int32ul, obj_ == 0),
@@ -671,6 +693,10 @@ Chunk_09056000 = Struct(
             0x60: Struct(
                 "uv0" / GbxVec2[this._.num_vertices],
             ),
+            0x70: Struct(
+                "color" / GbxColor[this._.num_vertices],
+                "uv0" / GbxVec2[this._.num_vertices],
+            ),
             0x80: Struct(
                 "uv0" / GbxVec2[this._.num_vertices],
                 "t1" / GbxVec3Tenb[this._.num_vertices],
@@ -695,6 +721,22 @@ Chunk_09056000 = Struct(
                 "t1" / GbxVec3Tenb[this._.num_vertices],
                 "t2" / GbxVec3Tenb[this._.num_vertices],
             ),
+            0xC0: Struct(
+                "color" / GbxColor[this._.num_vertices],
+                "color2" / GbxColor[this._.num_vertices],
+                "uv0" / GbxVec2[this._.num_vertices],
+                "uv1" / GbxVec2[this._.num_vertices],
+                "t1" / GbxVec3Tenb[this._.num_vertices],
+                "t2" / GbxVec3Tenb[this._.num_vertices],
+            ),
+            0xD0: Struct(
+                "color" / GbxColor[this._.num_vertices],
+                "uv0" / GbxVec2[this._.num_vertices],
+                "uv1" / GbxVec2[this._.num_vertices],
+                "uv2" / GbxVec2[this._.num_vertices],
+                "t1" / GbxVec3Tenb[this._.num_vertices],
+                "t2" / GbxVec3Tenb[this._.num_vertices],
+            ),
         },
     ),
 )
@@ -702,8 +744,7 @@ Chunk_09056000 = Struct(
 # 09057 CPlugIndexBuffer
 
 Chunk_09057001 = Struct(
-    "flags" / Int32ul,
-    # "rest" / GreedyBytes,
+    "flags" / Int32ul,  # TODO check if not 2 what that means
     "indices" / PrefixedArray(Int32ul, Int16sl),
 )
 
@@ -720,6 +761,31 @@ Chunk_09079001 = Struct(
 )
 Chunk_09079007 = Struct(
     "custom_material" / GbxNodeRef,
+)
+
+# 09144 DynaObject
+Chunk_09144000 = Struct(
+    "version" / Int32ul,
+    "u01" / Int32sl,
+    "u02" / Int32sl,
+    "static_mesh" / GbxNodeRef,
+    "move_shape" / GbxNodeRef,
+    "hit_shape" / GbxNodeRef,
+    "u03" / GbxFloat,
+    "u04" / GbxFloat,
+    "u05" / GbxFloat,
+    "u06" / GbxFloat,
+    "rest" / Bytes(43),
+)
+
+# 09145 Prefab?
+Chunk_09145000 = Struct(
+    "version" / Int32ul,
+    "creation_time" / GbxFileTime,
+    "url" / GbxString,
+    "u01" / Int32sl[3],
+    "u02" / GbxNodeRef,
+    "rest" / GreedyBytes,
 )
 
 # 09159 CPlugStaticObjectModel
@@ -831,7 +897,7 @@ Chunk_090BB000 = (
             ),
         ),
         StopIf(this.version < 4),
-        "file_time" / GbxFileTime(Int64ul),
+        "file_time" / GbxFileTime,
         StopIf(this.version < 5),
         "u03" / GbxString,
         StopIf(this.version < 7),
@@ -1091,6 +1157,39 @@ Chunk_2E027000 = Struct(
     "version" / ExprValidator(Int32ul, obj_ >= 4), "static_object" / GbxNodeRef
 )
 
+# 2F086 VegetTreeModel
+Chunk_2F086000 = Struct(
+    "u01" / Bytes(4 * 4),  # version + lod 4 2 1?, number of things?
+    "u02"  # parts?
+    / PrefixedArray(
+        Int32ul,
+        Struct(
+            "texture_d" / GbxNodeRef,
+            "texture_n" / GbxNodeRef,
+            "texture_r" / GbxNodeRef,
+            "image_d" / GbxNodeRef,
+            "image_n" / GbxNodeRef,
+            "image_r" / GbxNodeRef,
+            "u01" / GbxNodeRef[3],
+            "u02" / GbxBoolByte,
+        ),
+    ),
+    "u03" / PrefixedArray(Int32ul, GbxLookbackString),
+    "u04" / Bytes(6),
+    "mesh1" / GbxNodeRef,
+    "u05" / Bytes(3),
+    "mesh2" / GbxNodeRef,
+    "u06" / Bytes(3),
+    "mesh3" / GbxNodeRef,
+    "u07" / Bytes(7),
+    "mesh4" / GbxNodeRef,
+    "u08" / Bytes(3),
+    "mesh5" / GbxNodeRef,
+    "u09" / Bytes(3),
+    "mesh6" / GbxNodeRef,
+    "rest" / GreedyBytes,
+)
+
 # 2F0BC ???
 Chunk_2F0BC000 = Struct(
     "version" / Int32ul,
@@ -1135,6 +1234,10 @@ BodyChunkId_to_struct.update(
         0x090FD000: Chunk_090FD000,
         0x090FD001: Chunk_090FD001,
         0x090FD002: Chunk_090FD002,
+        # 09144
+        0x09144000: Chunk_09144000,
+        # 09145
+        0x09145000: Chunk_09145000,
         # 09159
         0x09159000: Chunk_09159000,
         # 09187
@@ -1167,6 +1270,8 @@ BodyChunkId_to_struct.update(
         0x2E026000: Chunk_2E026000,
         # 2E027
         0x2E027000: Chunk_2E027000,
+        # 2F086
+        0x2F086000: Chunk_2F086000,
         # 2F0BC
         0x2F0BC000: Chunk_2F0BC000,
     }
