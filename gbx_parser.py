@@ -1062,7 +1062,7 @@ Chunk_09145000 = Struct(
 # 09159 CPlugStaticObjectModel
 Chunk_09159000 = Select(
     Struct(
-        "u01" / Int32sl,
+        "version" / Int32sl,
         "mesh" / GbxNodeRef,
         "collidable" / GbxBoolByte,
         "collidable_ref"
@@ -1685,6 +1685,7 @@ def create_gbx_struct(gbx_body):
             "class_id" / GbxChunkId,
             "chunks"
             / Select(
+                Struct("size" / ExprValidator(Int32ul, obj_ == 0)),
                 Struct(
                     "corrupted_size"
                     / ExprAdapter(Int32ul, lambda obj, ctx: obj, lambda obj, ctx: 0),
@@ -1694,7 +1695,6 @@ def create_gbx_struct(gbx_body):
                         lambda obj, ctx: obj[0] < 1000 and obj[1] < 1000,
                     ),
                 ),  # fix corrupted chunk size
-                Struct("size" / ExprValidator(Int32ul, obj_ == 0)),
                 Prefixed(
                     Int32ul,
                     Struct(
