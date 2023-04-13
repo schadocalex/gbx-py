@@ -111,14 +111,23 @@ GbxChunkId = Hex(Int32ul)
 
 GbxString = PascalString(Int32ul, "utf-8")
 
+
+def check_bool(obj, ctx):
+    if obj == 0x01:
+        return True
+    if obj == 0x00:
+        return False
+    raise Exception("Not a bool!")
+
+
 GbxBool = ExprAdapter(
     Int32ul,
-    decoder=lambda obj, ctx: obj == 0x01,
+    decoder=check_bool,
     encoder=lambda obj, ctx: 0x01 if obj else 0x00,
 )
 GbxBoolByte = ExprAdapter(
     Byte,
-    decoder=lambda obj, ctx: obj == 0x01,
+    decoder=check_bool,
     encoder=lambda obj, ctx: 0x01 if obj else 0x00,
 )
 
@@ -858,7 +867,8 @@ Chunk_0900C003 = Struct(
     / Struct(
         "type" / GbxESurfType,
         "data" / Switch(this.type, {GbxESurfType.Mesh: GbxSurfMesh}),
-        "u01" / If(this._.surf_version >= 2, GbxVec3),
+        "u01"
+        / If(this._.surf_version >= 2, GbxVec3),  # mainDir? like for boost its dir?
     ),
     "materials"
     / PrefixedArray(
@@ -1201,7 +1211,7 @@ Chunk_090BB000 = (
         "creation_cmd" / GbxString,
         StopIf(this.version < 15),
         "material_count_<v29" / If(this.version < 29, Int32ul),
-        "u14" / If(this.version >= 30, Int32ul),  # material_count?
+        "u14" / If(this.version >= 30, Int32sl),  # material_count?
         "custom_materials"
         / Array(
             lambda this: this.material_count
@@ -1222,7 +1232,7 @@ Chunk_090BB000 = (
         ),  # TODO
         "u19" / PrefixedArray(Int32ul, Int32sl),
         StopIf(this.version < 24),
-        "u20" / Int32sl,
+        "u20" / Bytes(4),
         StopIf(this.version < 25),
         "u21" / GbxNodeRef,
         "u22" / GbxVec2,
