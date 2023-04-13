@@ -4,6 +4,7 @@ import datetime
 import lzo
 
 from construct import (
+    Int8sl,
     Struct,
     Const,
     Check,
@@ -56,18 +57,25 @@ from construct import (
     Peek,
     RepeatUntil,
 )
+from numpy import byte
 from gbx_enums import (
+    GbxEAutoTerrainPlaceType,
+    GbxEDirection,
+    GbxEMultiDirByte,
     GbxEProdState,
     GbxEItemType,
     GbxEDefaultCam,
     GbxELayerType,
-    GbxEWaypointType,
+    GbxEWayPointType,
     GbxETexAddress,
     GbxESurfType,
     GbxEPlugSurfacePhysicsId,
     GbxEPlugSurfaceGameplayId,
     GbxEFillDir,
     GbxEFillAlign,
+    GbxEMultiDir,
+    GbxECardinalDir,
+    GbxEVariantBaseType,
 )
 
 GbxCompressedBody = Struct(
@@ -87,6 +95,16 @@ class CompressedLZ0(Tunnel):
                 compressed_body=lzo.compress(raw_bytes, 1, False),
             )
         )
+
+
+class EndWithFACADE01(Tunnel):
+    def _decode(self, raw_bytes, context, path):
+        if Int32ul.parse(raw_bytes[-4:]) != 0xFACADE01:
+            print(" -- might be corrupted -- ")
+        return raw_bytes
+
+    def _encode(self, raw_bytes, context, path):
+        return raw_bytes
 
 
 GbxChunkId = Hex(Int32ul)
@@ -121,6 +139,16 @@ GbxBox = Struct(
 GbxColor = Struct("r" / Byte, "g" / Byte, "b" / Byte, "a" / Byte)
 GbxPlugSurfaceMaterialId = Struct(
     "physics_id" / GbxEPlugSurfacePhysicsId, "gameplay_id" / GbxEPlugSurfaceGameplayId
+)
+
+GbxBytesUntilFacade = Struct(
+    "bytes_until_facade"
+    / ExprAdapter(
+        RepeatUntil(lambda x, lst, ctx: lst[-4:] == [0x01, 0xDE, 0xCA, 0xFA], Byte),
+        lambda obj, ctx: bytes(obj[:-4]),
+        lambda obj, ctx: GreedyBytes.build(obj),
+    ),
+    Seek(-4, 1),
 )
 
 
@@ -233,7 +261,8 @@ def decode_lookbackstring(obj, ctx):
                 return ""
     elif flags == 0:
         if idx not in GbxCollectionIds:
-            raise AttributeError(f"Unknown collection id: {idx}")
+            print(f" -- Unknown collection id: {idx} -- ")
+            return f"Unknown collection id: {idx}"
         return GbxCollectionIds[idx]
     elif idx == 0:
         ctx._root._params.gbx_data["lookbackstring"].append(obj.string)
@@ -324,7 +353,7 @@ GbxBodyChunks = RepeatUntil(
                 Switch(
                     this.chunk_id,
                     BodyChunkId_to_struct,
-                    default=Struct("unknown_chunk" / GreedyBytes),
+                    default=Struct("unknown_chunk" / GbxBytesUntilFacade),
                 ),
                 Struct("chunk_parse_failed" / GreedyBytes),
             ),
@@ -341,7 +370,8 @@ GbxBody = IfThenElse(
         BodyChunkId_to_struct,
         default=Struct("unknown_chunk_in_node_ref" / GreedyBytes),
     ),
-    GbxBodyChunks,
+    GbxBodyChunks
+    # EndWithFACADE01(GbxBodyChunks),
 )
 
 
@@ -354,7 +384,7 @@ def need_node_body(this):
         else:
             raise Exception(f"Unknwon state")
     else:
-        raise Exception(f"Unknwon node ref index: {this.index}")
+        print(f"Unknown node ref index: {this.index}")
 
 
 class TGbxNodeRef(int):
@@ -429,6 +459,247 @@ GbxMaterial = Struct(
 
 
 # Body Chunks
+
+# 03036 CGameCtnBlockUnitInfo
+Chunk_03036000 = GbxBytesUntilFacade
+
+# 0304E CGameCtnBlockInfo
+Chunk_0304E00F = Struct(
+    "no_respawn" / GbxBool,
+)
+Chunk_0304E013 = Struct(
+    "icon_auto_use_ground" / GbxBool,
+)
+Chunk_0304E017 = Struct(
+    "u01" / GbxBool,
+)
+Chunk_0304E020 = Struct(
+    "version" / Int32ul,
+    "char_phy_special_property" / GbxNodeRef,
+    "u01" / If(this.version < 7, GbxNodeRef),
+    StopIf(this.version < 2),
+    "podium_info" / GbxNodeRef,  # CGamePodiumInfo
+    StopIf(this.version < 3),
+    "intro_info" / GbxNodeRef,  # CGamePodiumInfo
+    StopIf(this.version < 4),
+    "char_phy_special_property_customizable" / GbxBool,
+    "u02" / If(this.version == 5, GbxBool),
+    StopIf(this.version < 8),
+    "u03" / GbxBool,
+    "u04" / If(this.u03, Struct("u01" / GbxString, "u02" / GbxString)),
+)
+Chunk_0304E023 = Struct(
+    "variant_base_ground" / GbxBodyChunks,
+    "variant_base_air" / GbxBodyChunks,
+)
+Chunk_0304E026 = Struct("wayPointType" / GbxEWayPointType)
+Chunk_0304E027 = Struct(
+    "listVersion" / ExprValidator(Int32ul, obj_ == 10),
+    "wayPointType"
+    / PrefixedArray(Int32ul, GbxNodeRef),  # CGameCtnBlockInfoVariantGround
+)
+Chunk_0304E028 = Struct(
+    "symmetricalBlockInfoId" / GbxLookbackString,
+    "dir" / GbxEDirection,
+)
+Chunk_0304E029 = Struct(
+    "fogVolumeBox" / GbxNodeRef,  # CPlugFogVolumeBox
+)
+Chunk_0304E02A = Struct(
+    "version" / Int32ul,
+    "sound1" / GbxNodeRef,
+    "sound2" / GbxNodeRef,
+    "sound1Loc" / If(lambda this: this.version < 3 or this.sound1 > 0, GbxIso4),
+    "sound2Loc" / If(lambda this: this.version < 3 or this.sound1 > 0, GbxIso4),
+)
+Chunk_0304E02B = Struct(
+    "version" / Int32ul,
+    "u01" / Int32sl,
+)
+Chunk_0304E02C = Struct(
+    "version" / Int32ul,
+    "additionalVariantsAir"
+    / PrefixedArray(Int32ul, GbxNodeRef),  # CGameCtnBlockInfoVariantAir
+)
+Chunk_0304E02F = Struct(
+    "version" / Int32ul,
+    "isPillar" / GbxBoolByte,
+    "pillarShapeMultiDir" / GbxEMultiDirByte,
+    StopIf(this.version < 1),
+    "u01" / Byte,
+)
+Chunk_0304E031 = Struct(
+    "rest" / GbxBytesUntilFacade,
+)
+
+# 03120 CGameCtnAutoTerrain
+Chunk_03120001 = Struct(
+    "offset" / GbxInt3,
+    "genealogy" / GbxNodeRef,  # CGameCtnZoneGenealogy
+)
+
+# 03122 CGameCtnBlockInfoMobil
+Chunk_03122002 = Struct(
+    "version" / Int32ul,
+    "solid_decals"
+    / PrefixedArray(
+        Int32ul,
+        Struct(
+            "u01" / Int32sl,
+            "rest" / GreedyBytes,
+        ),
+    ),
+    "u01" / Int32ul,
+)
+Chunk_03122003 = Struct(
+    "version" / ExprValidator(Int32ul, obj_ >= 2),
+    "u01" / Int32sl,
+    StopIf(this.version < 1),
+    "has_geom_transformation" / GbxBoolByte,
+    "geom_transformation"
+    / If(
+        this.has_geom_transformation,
+        Struct("translation" / GbxVec3, "rotation" / GbxVec3),
+    ),
+    StopIf(this.version < 2),
+    "solid_fid" / GbxNodeRef,
+    "u14" / If(this.version >= 14, GbxNodeRef),  # CPlugSolid
+    StopIf(this.version < 3),
+    "prefab_fid" / GbxNodeRef,  # CPlugPrefab
+    StopIf(this.version < 4),
+    "u12" / GbxBool,
+    StopIf(this.version < 6),
+    "u13" / GbxNodeRef,
+    StopIf(this.version < 7),
+    "u15" / GbxNodeRef,
+    StopIf(this.version < 9),
+    "u16" / Int32sl,
+    StopIf(this.version < 16),
+    "u17" / Int32sl,
+    StopIf(this.version < 17),
+    "u18" / Int32sl,
+    StopIf(this.version < 18),
+    "u19" / Bytes(29),
+    "u27" / PrefixedArray(Int32ul, GbxNodeRef),
+    "u28" / Int32sl,
+)
+Chunk_03122004 = Struct(
+    "version" / Int32ul,
+    "list_version" / ExprValidator(Int32sl, obj_ == 10),
+    "dyna_links" / PrefixedArray(Int32ul, GbxNodeRef),  # CGameCtnBlockInfoMobilLink
+)
+
+# 0315B CGameCtnBlockInfoVariant
+Chunk_0315B002 = Struct("multi_dir" / GbxEMultiDir)
+Chunk_0315B003 = Struct(
+    "version" / Int32ul,
+    "symmetrical_variant_index" / Int32sl,
+    "cardinal_dir" / If(this.version == 0, Int32ul),
+    StopIf(this.version < 1),
+    "cardinal_dir" / GbxECardinalDir,
+    "variant_base_type" / GbxEVariantBaseType,
+    StopIf(this.version < 2),
+    "no_pillar_below_index" / Int8sl,
+)
+Chunk_0315B004 = Struct("u01" / Int16sl)
+Chunk_0315B005 = Struct(
+    "version" / Int32ul,
+    "mobils"
+    / PrefixedArray(
+        Int32ul, PrefixedArray(Int32ul, GbxNodeRef)  # CGameCtnBlockInfoMobil
+    ),
+    StopIf(this.version < 2),
+    "u02" / Int32sl,
+    "u03" / Int32sl,
+    StopIf(this.version < 3),
+    "u04" / Int32sl,
+)
+Chunk_0315B006 = Struct(
+    "version" / Int32ul,
+    "u01" / If(this.version < 9, GbxNodeRef),
+    "screenInteractionTriggerSolid" / GbxNodeRef,
+    "waypointTriggerSolid" / GbxNodeRef,
+    "u04" / If(this.version >= 11, GbxNodeRef),
+    "u05" / If(this.version >= 11, GbxNodeRef),
+    "u02" / If(this.version < 9, Int32sl),
+    StopIf(this.version < 2),
+    "gate" / GbxNodeRef,  # CGameGateModel
+    StopIf(this.version < 3),
+    "teleporter" / GbxNodeRef,  # CGameTeleporterModel
+    StopIf(this.version < 5),
+    "u03" / GbxNodeRef,
+    StopIf(this.version < 6),
+    "turbine" / GbxNodeRef,  # CGameTurbineModel
+    StopIf(this.version < 7),
+    "flockModel" / GbxNodeRef,  # CPlugFlockModel
+    "flockEmmiter"
+    / If(this.flockModel > 0, PrefixedArray(Int32ul, Struct("TODO" / GreedyBytes))),
+    StopIf(this.version < 8),
+    "spawnModel" / GbxNodeRef,  # CGameSpawnModel
+    StopIf(this.version < 10),
+    "entitySpawners" / PrefixedArray(Int32ul, GbxNodeRef),  # CPlugEntitySpawner
+)
+Chunk_0315B007 = Struct(
+    "version" / Int32ul,
+    "probe" / GbxNodeRef,  # CPlugProbe
+)
+Chunk_0315B008 = Struct(
+    "version" / Int32ul,
+    "blockUnitModels" / PrefixedArray(Int32ul, GbxNodeRef),  # CGameCtnBlockUnitInfo
+    "u01" / Int32sl,
+    "hasManualSymmetryH" / GbxBool,
+    "hasManualSymmetryV" / GbxBool,
+    "hasManualSymmetryD1" / GbxBool,
+    "hasManualSymmetryD2" / GbxBool,
+    "spawn"
+    / IfThenElse(
+        this.version < 2,
+        Struct("spawnTrans" / GbxVec3, "spawnYaw" / GbxVec3, "spawnPitch" / GbxVec3),
+        Struct(
+            "spawnTrans" / GbxVec3,
+            "u01" / GbxVec3,  # SpawnYaw, SpawnPitch, SpawnRoll
+        ),
+    ),
+    "name" / GbxString,
+)
+Chunk_0315B009 = Struct(
+    "version" / Int32ul,
+    "u01"
+    / PrefixedArray(
+        Int32ul,
+        Struct(
+            "u01" / GbxNodeRef,
+            "u02" / Bytes(16),
+        ),
+    ),  # PlacedPillarParam
+    StopIf(this.version < 1),
+    "u02"
+    / PrefixedArray(
+        Int32ul, Struct("version" / Int32sl, "u06" / Byte)
+    ),  # ReplacedPillarParam
+)
+Chunk_0315B00A = Struct(
+    "version" / ExprValidator(Int32ul, obj_ >= 3),
+    "compoundModel" / GbxNodeRef,  # CGameObjectPhyCompoundModel
+)
+Chunk_0315B00B = Struct(
+    "version" / Int32ul,
+    "waterVolumes"
+    / PrefixedArray(Int32ul, Struct("TODO" / GreedyBytes)),  # WaterArchive
+)
+Chunk_0315B00D = Struct(
+    "version" / Int32sl,
+    "u01" / Int32sl,
+)
+
+# 0315C CGameCtnBlockInfoVariantGround
+Chunk_0315C001 = Struct(
+    "version" / Int32ul,
+    "listVersion" / ExprValidator(Int32ul, obj_ == 10),
+    "autoTerrains" / PrefixedArray(Int32ul, GbxNodeRef),  # CGameCtnAutoTerrain
+    "autoTerrainHeightOffset" / Int32sl,
+    "autoTerrainPlaceType" / GbxEAutoTerrainPlaceType,
+)
 
 # 09003 CPlugCrystal
 Chunk_09003003 = Struct(
@@ -783,13 +1054,13 @@ Chunk_09145000 = Struct(
     "version" / Int32ul,
     "creation_time" / GbxFileTime,
     "url" / GbxString,
-    "u01" / Int32sl[3],
+    "u01" / Bytes(12),
     "u02" / GbxNodeRef,
     "rest" / GreedyBytes,
 )
 
 # 09159 CPlugStaticObjectModel
-Chunk_09159000 = (
+Chunk_09159000 = Select(
     Struct(
         "u01" / Int32sl,
         "mesh" / GbxNodeRef,
@@ -800,10 +1071,6 @@ Chunk_09159000 = (
         ),  # HitShape, what is it? TODO
         StopIf(lambda this: not this.collidable and this.collidable_ref != -1),
         "trigger_area" / GbxNodeRef,  # CPlugSurface
-        # "ustruct"
-        # / If(
-        #     True,
-        # Struct(
         "u04" / GbxIso4,
         "u05" / Int32sl,  # -1
         "u06" / Int32sl,  # 0
@@ -815,10 +1082,14 @@ Chunk_09159000 = (
         "u12" / Int32sl,
         "u13" / GbxIso4,
         "u14" / Int32sl,
-        #     ),
-        # ),
-    )
-    * "Static Object Model"
+    ),
+    Struct(
+        "u01" / Int32sl,
+        "mesh" / GbxNodeRef,
+        "rest_model"
+        / GreedyBytes
+        * (lambda obj, ctx: print(">>>>" + ctx._root._params.filename)),
+    ),
 )
 
 # 09187 NPlugItemPlacement_SClass
@@ -846,6 +1117,12 @@ Chunk_09187000 = Struct(
         ),
     ),
     "group_cur_patch_layouts" / PrefixedArray(Int32ul, Int32sl),
+)
+
+# 09189 CPlugMediaClipList
+Chunk_09189000 = Struct(
+    "u01" / Int32ul,
+    "MediaClipFids" / PrefixedArray(Int32ul, GbxNodeRef),
 )
 
 # 090BB CPlugSolid2Model
@@ -904,11 +1181,11 @@ Chunk_090BB000 = (
         "material_folder_name" / GbxString,
         "u09" / If(this.version >= 19, GbxString),
         StopIf(this.version < 8),
-        "lights" / PrefixedArray(Int32ul, Pass),  # TODO
+        "lights" / PrefixedArray(ExprValidator(Int32ul, obj_ == 0), Pass),  # TODO
         "material_insts_lt_v16"
-        / If(this.version < 16, PrefixedArray(Int32ul, Pass)),  # TODO
+        / If(this.version < 16, PrefixedArray(Int32ul, GbxNodeRef)),
         StopIf(this.version < 10),
-        "light_user_models" / PrefixedArray(Int32ul, Pass),  # TODO
+        "lightUserModels" / PrefixedArray(Int32ul, GbxNodeRef),
         "light_insts"
         / PrefixedArray(
             Int32ul, Struct("model_index" / Int32ul, "socket_index" / Int32ul)
@@ -1022,6 +1299,18 @@ Chunk_090FD002 = Struct(
     "u01" / Int32sl,
 )
 
+# 09128 CPlugRoadChunk
+Chunk_09128000 = Struct(
+    "version" / Int32ul,
+    "u01" / Bytes(12),
+    "u02" / PrefixedArray(Int32ul, GbxBox),
+    "u03" / GbxVec3,
+    "u04" / Bytes(15),
+    "u05" / GbxLookbackString,
+    "u06" / Bytes(13),
+    "u07" / GbxVec3,
+)
+
 # 2E001 CGameCtnCollector
 Chunk_2E001009 = (
     Struct(
@@ -1050,10 +1339,10 @@ Chunk_2E001011 = Struct(
     "version" / Int32ul,
     "is_internal" / GbxBool,
     "is_advanced" / GbxBool,
-    "catalog_position" / Int32ul,
+    "catalogPosition" / Int32sl,
     "prod_state" / If(this.version >= 1, GbxEProdState),
 )
-Chunk_2E001012 = Struct("u01" / Int32ul[4])
+Chunk_2E001012 = Struct("u01" / Bytes(16))
 
 # 2E002 CGameItemModel
 Chunk_2E002008 = (
@@ -1109,17 +1398,17 @@ Chunk_2E00201E = Struct(
     StopIf(this.version < 5),
     "u02" / GbxString,
     StopIf(this.version < 6),
-    "u03" / Int32sl,
+    "baseItem" / GbxNodeRef,
 )
 Chunk_2E00201F = Struct(
     "version" / ExprValidator(Int32ul, obj_ >= 10),
-    "waypoint_type" / GbxEWaypointType,
-    "disable_lightmap" / GbxBool,
+    "waypointType" / GbxEWayPointType,
+    "disableLightmap" / GbxBool,
     "u01" / Int32sl,
     StopIf(this.version < 11),
     "u02" / Byte,
     StopIf(this.version < 12),
-    "u03" / Int32sl,
+    "defaultPodiumClips" / GbxNodeRef,  # Podium only?
     "u04" / Int32sl,
 )
 Chunk_2E002020 = Struct(
@@ -1149,7 +1438,7 @@ Chunk_2E026000 = Struct(
     "version" / Int32ul,
     "item_type" / GbxEItemType,
     "mesh_crystal" / GbxNodeRef,
-    "rest" / GreedyBytes,
+    "rest" / GbxBytesUntilFacade,
 )
 
 # 2E027 CGameCommonItemEntityModel
@@ -1187,7 +1476,7 @@ Chunk_2F086000 = Struct(
     "mesh5" / GbxNodeRef,
     "u09" / Bytes(3),
     "mesh6" / GbxNodeRef,
-    "rest" / GreedyBytes,
+    "rest" / GbxBytesUntilFacade,
 )
 
 # 2F0BC ???
@@ -1201,6 +1490,43 @@ Chunk_2F0BC000 = Struct(
 
 BodyChunkId_to_struct.update(
     {
+        # 03036
+        0x03036000: Chunk_03036000,
+        # 0304E
+        0x0304E00F: Chunk_0304E00F,
+        0x0304E013: Chunk_0304E013,
+        0x0304E017: Chunk_0304E017,
+        0x0304E020: Chunk_0304E020,
+        0x0304E023: Chunk_0304E023,
+        0x0304E026: Chunk_0304E026,
+        0x0304E027: Chunk_0304E027,
+        0x0304E028: Chunk_0304E028,
+        0x0304E029: Chunk_0304E029,
+        0x0304E02A: Chunk_0304E02A,
+        0x0304E02B: Chunk_0304E02B,
+        0x0304E02C: Chunk_0304E02C,
+        0x0304E02F: Chunk_0304E02F,
+        0x0304E031: Chunk_0304E031,
+        # 03120
+        0x03120001: Chunk_03120001,
+        # 03122
+        0x03122002: Chunk_03122002,
+        0x03122003: Chunk_03122003,
+        0x03122004: Chunk_03122004,
+        # 0315B
+        0x0315B002: Chunk_0315B002,
+        0x0315B003: Chunk_0315B003,
+        0x0315B004: Chunk_0315B004,
+        0x0315B005: Chunk_0315B005,
+        0x0315B006: Chunk_0315B006,
+        0x0315B007: Chunk_0315B007,
+        0x0315B008: Chunk_0315B008,
+        0x0315B009: Chunk_0315B009,
+        0x0315B00A: Chunk_0315B00A,
+        0x0315B00B: Chunk_0315B00B,
+        0x0315B00D: Chunk_0315B00D,
+        # 0315C
+        0x0315C001: Chunk_0315C001,
         # 09003
         0x09003003: Chunk_09003003,
         0x09003005: Chunk_09003005,
@@ -1242,6 +1568,10 @@ BodyChunkId_to_struct.update(
         0x09159000: Chunk_09159000,
         # 09187
         0x09187000: Chunk_09187000,
+        # 09189
+        0x09189000: Chunk_09189000,
+        # 09128
+        0x09128000: Chunk_09128000,
         # 2E001
         0x2E001009: Chunk_2E001009,
         0x2E00100B: Chunk_2E00100B,
@@ -1333,7 +1663,7 @@ def get_nodes_array(obj, ctx):
 
 
 def load_external_nodes(obj, ctx):
-    ctx._root._params.nodes[obj.node_index] = "TODO"
+    ctx._root._params.nodes[obj.node_index] = obj.ref
 
     return obj
 
@@ -1354,9 +1684,19 @@ def create_gbx_struct(gbx_body):
             Const(b"R"),  # or E?
             "class_id" / GbxChunkId,
             "chunks"
-            / Prefixed(
-                Int32ul,
-                Select(
+            / Select(
+                Struct(
+                    "corrupted_size"
+                    / ExprAdapter(Int32ul, lambda obj, ctx: obj, lambda obj, ctx: 0),
+                    "nb_nodes"
+                    / ExprValidator(
+                        Peek(Int32ul[2]),
+                        lambda obj, ctx: obj[0] < 1000 and obj[1] < 1000,
+                    ),
+                ),  # fix corrupted chunk size
+                Struct("size" / ExprValidator(Int32ul, obj_ == 0)),
+                Prefixed(
+                    Int32ul,
                     Struct(
                         "entries"
                         / PrefixedArray(
@@ -1409,7 +1749,6 @@ def create_gbx_struct(gbx_body):
                             ),
                         ),
                     ),
-                    Pass,
                 ),
             ),
             "num_nodes" / ExprAdapter(Int32ul, set_nodes_array, get_nodes_array),

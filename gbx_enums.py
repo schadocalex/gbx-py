@@ -66,7 +66,7 @@ GbxELayerType = Enum(
     Trigger=14,
     SpawnPosition=15,
 )
-GbxEWaypointType = Enum(
+GbxEWayPointType = Enum(
     Int32ul, Start=0, Finish=1, Checkpoint=2, No=3, StartFinish=4, Dispenser=5
 )
 GbxETexAddress = Enum(Int32ul, Wrap=0, Mirror=1, Clamp=2, Border=3)
@@ -198,3 +198,27 @@ GbxEPlugSurfaceGameplayId = Enum(
 )
 GbxEFillDir = Enum(Int32ul, U=0, V=1)
 GbxEFillAlign = Enum(Int32ul, Center=0, Begin=1, End=2)
+GbxEMultiDir = Enum(
+    Int32ul,
+    SameDir=0,
+    SymmetricalDirs=1,
+    AllDir=2,
+    OpposedDirOnly=3,
+    PerpendicularDirsOnly=4,
+    NextDirOnly=5,
+    PreviousDirOnly=6,
+)
+GbxEMultiDirByte = Enum(
+    Byte,
+    SameDir=0,
+    SymmetricalDirs=1,
+    AllDir=2,
+    OpposedDirOnly=3,
+    PerpendicularDirsOnly=4,
+    NextDirOnly=5,
+    PreviousDirOnly=6,
+)
+GbxECardinalDir = Enum(Byte, North=0, East=1, South=2, West=3)
+GbxEVariantBaseType = Enum(Byte, Inherit=0, No=1, Conductor=2, Generator=3)
+GbxEAutoTerrainPlaceType = Enum(Int32ul, Auto=0, Force=1, DoNotPlace=2, DoNotDestroy=3)
+GbxEDirection = Enum(Int32ul, North=0, East=1, South=2, West=3)

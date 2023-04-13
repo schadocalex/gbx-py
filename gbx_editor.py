@@ -110,7 +110,7 @@ def GbxEditorUi(raw_bytes, parsed_data):
 
     def on_item_select(new_bytes):
         hex_editor.set_bytes(new_bytes)
-        inspector.inspect(new_bytes)
+        inspector.inspect(new_bytes, [])
 
     tree = GbxDataViewer(parsed_data, on_item_select)
 
@@ -236,7 +236,11 @@ def create_custom_material2(material_name):
     )
 
 
-def parse_node(file_path, node_offset=0, path=None):
+def parse_node(file_path, parse_deps=True, node_offset=0, path=None, need_ui=True):
+    file_path = os.path.abspath(file_path)
+    file_path2 = file_path.replace(
+        "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\", ""
+    )
     if path is None:
         path = []
     depth = len(path)
@@ -248,13 +252,16 @@ def parse_node(file_path, node_offset=0, path=None):
 
         gbx_data = {}
         nodes = []
-        data = GbxStruct.parse(raw_bytes, gbx_data=gbx_data, nodes=nodes)
+        print("  " * depth + f"- {file_path2}")
+        data = GbxStruct.parse(
+            raw_bytes, gbx_data=gbx_data, nodes=nodes, filename=file_path2
+        )
         data.nodes = ListContainer(nodes)
         data.node_offset = node_offset
         data.path = path
         nb_nodes = len(data.nodes) - 1
         node_offset += len(data.nodes) - 1
-        print("  " * depth + f"- {file_name} ({len(data.nodes) - 1} nodes)")
+        # print("  " * depth + f"- {file_path2} ({len(data.nodes) - 1} nodes)")
 
         # get all folders
         external_folders = data.reference_table.external_folders
@@ -273,28 +280,32 @@ def parse_node(file_path, node_offset=0, path=None):
                 data.nodes[external_node.node_index] = create_custom_material2(
                     material_name
                 )
+                # print(
+                #     "  " * (depth + 1) + f"- {material_name} Material (1 custom node)"
+                # )
+            elif external_node.ref in path:
                 print(
-                    "  " * (depth + 1) + f"- {material_name} Material (1 custom node)"
+                    "  " * (depth + 1)
+                    + f"- {external_node.ref} (Cyclic dependency detected?)"
                 )
-            else:
-                continue
+            elif parse_deps:
+                # continue
                 # print(external_node)
                 ext_node_data, nb_sub_nodes, win = parse_node(
                     all_folders[external_node.folder_index] + external_node.ref,
+                    parse_deps,
                     node_offset,
                     path[:],
+                    False,
                 )
                 nb_nodes += nb_sub_nodes
                 node_offset += nb_sub_nodes
                 data.nodes[external_node.node_index] = ext_node_data
                 data.nodes.extend(ext_node_data.nodes[1:])
-                # if external_node.ref == "CactusE.HitShape.Gbx":
-                #     app = QApplication.instance() or QApplication(sys.argv)
-                #     app.exec()
 
-        # for i, n in enumerate(data.nodes):
-        #     if n is not None and not "path" in n and type(n) is not str:
-        #         n.path = f"{path} [node={i}]"
+        for i, n in enumerate(data.nodes):
+            if n is not None and not "path" in n and type(n) is not str:
+                n.path = f"{path} [node={i}]"
 
         # data2 = GbxStructWithoutBodyParsed.parse(raw_bytes, gbx_data={}, nodes=[])
         # data2.header.body_compression = "uncompressed"
@@ -305,7 +316,7 @@ def parse_node(file_path, node_offset=0, path=None):
         return (
             data,
             nb_nodes,
-            GbxEditorUi(raw_bytes, data) if len(path) == 1 else None,
+            GbxEditorUi(raw_bytes, data) if need_ui else None,
         )
 
 
@@ -370,17 +381,45 @@ if __name__ == "__main__":
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\FallTreeSmall.Item.Gbx"
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\VegetTreeModel\\FallTreeVerySmall.VegetTreeModel.Gbx"
 
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\RoadTech\\Straight_Air.Prefab.Gbx"
     file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\Straight_Air.Prefab.Gbx"
 
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Water\\Base_Air.Prefab.Gbx"
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Water\\WallCross_Air.Prefab.Gbx"
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Water\\WallVFCMiddle_Air.Prefab.Gbx"
 
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\TrackToGrass\\Straight.Prefab.Gbx"
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\GameCtnBlockInfo\\GameCtnBlockInfoClassic\\RoadTechStraight.EDClassic.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\RoadTech\\Straight_Air.Prefab.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\GameCtnBlockInfo\\GameCtnBlockInfoClassic\\StructureSupportCross.EDClassic.Gbx"
 
-    # file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\Eggs_4.Item.Gbx"
-    data, nb_nodes, win = parse_node(file)
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Structure\\Pillar_FCBGround.Prefab.Gbx"
+
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\Clouds\\Media\\Solid\\Cloudy\\Cloudy01.Solid.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ShowFogger16M.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\CactusMedium.Item.Gbx"
+
+    # with open("result.csv", "w") as f:
+    #     import glob
+
+    #     for filename in glob.glob(
+    #         "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\*.Item.Gbx"
+    #     ):
+    #         data, nb_nodes, win2 = parse_node(filename, False, need_ui=False)
+    #         for ext in data.reference_table.external_nodes:
+    #             f.write(f"\t{ext.node_index}\t{ext.ref}")
+    #         f.write(f"\n")
+
+    # for chunk in data.body:
+    #     if chunk is not None and chunk.chunk_id == 0x2E00201E:
+    #         f.write(
+    #             f"{chunk.chunk.u01} \t {chunk.chunk.u02} \t {chunk.chunk.u03} "
+    #         )
+    #     if chunk is not None and chunk.chunk_id == 0x2E00201F:
+    #         f.write(
+    #             f"\t {chunk.chunk.u01} \t {chunk.chunk.u02} \t {chunk.chunk.u03} \t {chunk.chunk.u04}\n"
+    #         )
+
+    data, nb_nodes, win = parse_node(file, False, need_ui=True)
     print(f"total nodes: {nb_nodes}")
 
     # Export obj better
@@ -426,17 +465,7 @@ if __name__ == "__main__":
     #     )
     #     start_index += len(faces[i])
 
-    # normals = data.nodes[idx + 1].body[0].chunk.normals
-    # uv0 = data.nodes[idx + 1].body[0].chunk.others.uv0
-    # indices = data.nodes[idx].body[8].chunk.index_buffer[0].chunk.indices
-    # obj_filepath = (
-    #     export_dir + os.path.basename(file).split(".")[0] + f"_{idx}.obj"
-    # )  # TODO add LOD
-    # mat = mats[data.nodes[2].body[0].chunk.shaded_geoms[i].material_index]
-    # print(obj_filepath)
-    # export_obj(obj_filepath, vertices, normals, uv0, indices, mat)
-
-    # Export obj animation
+    # Export obj animation (flag)
     # export_dir = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\"
     # vertices = [v.pos for v in data.nodes[3].body[7].chunk.vertices]
     # normals = [v.vert_u02 for v in data.nodes[3].body[7].chunk.vertices]
@@ -460,20 +489,6 @@ if __name__ == "__main__":
     #         indices,
     #         "ItemFlag",
     #     )
-
-    # Export tree
-    # for i, idx in enumerate(range(19, 24, 2)):
-    #     export_dir = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\"
-    #     vertices = data.nodes[idx + 1].body[0].chunk.vertices_coords
-    #     normals = data.nodes[idx + 1].body[0].chunk.normals
-    #     uv0 = data.nodes[idx + 1].body[0].chunk.others.uv2
-    #     indices = data.nodes[idx].body[8].chunk.index_buffer[0].chunk.indices
-    #     obj_filepath = (
-    #         export_dir + os.path.basename(file).split(".")[0] + f"_{idx}.obj"
-    #     )  # TODO add LOD
-    #     mat = ""  # mats[data.body[0].chunk.shaded_geoms[i].material_index]
-    #     print(obj_filepath)
-    #     export_obj(obj_filepath, vertices, normals, uv0, indices, mat)
 
     # file2 = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\test_gbx1.Item.Gbx"
     # data2, nb_nodes2, win2 = parse_node(file2)
