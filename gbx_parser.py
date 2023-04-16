@@ -117,7 +117,8 @@ def check_bool(obj, ctx):
         return True
     if obj == 0x00:
         return False
-    raise Exception("Not a bool!")
+    print("Not a bool!")
+    return False
 
 
 GbxBool = ExprAdapter(
@@ -137,6 +138,14 @@ GbxVec2 = Struct("x" / GbxFloat, "y" / GbxFloat)
 GbxVec3 = Struct("x" / GbxFloat, "y" / GbxFloat, "z" / GbxFloat)
 GbxVec4 = Struct("x" / GbxFloat, "y" / GbxFloat, "z" / GbxFloat, "w" / GbxFloat)
 GbxInt3 = Struct("x" / Int32sl, "y" / Int32sl, "z" / Int32sl)
+GbxPose3D = Struct(
+    "x" / GbxFloat,
+    "y" / GbxFloat,
+    "z" / GbxFloat,
+    "yaw" / GbxFloat,
+    "pitch" / GbxFloat,
+    "roll" / GbxFloat,
+)
 GbxBox = Struct(
     "x1" / GbxFloat,
     "y1" / GbxFloat,
@@ -234,6 +243,7 @@ GbxCollectionIds = {
     3: "Island",
     4: "Bay",
     7: "Basic",
+    11: "Valley",
     26: "Stadium2020",
 }
 
@@ -325,7 +335,7 @@ GbxMeta = Struct(
 BodyChunkId_to_struct = {}
 
 GbxNodesWithoutBody = set(
-    [0x09144000, 0x09145000, 0x09159000, 0x09187000, 0x2F0BC000, 0x2F086000]
+    [0x09144000, 0x09145000, 0x09159000, 0x09187000, 0x2F0BC000, 0x2F086000, 0x2F0CA000]
 )
 
 
@@ -745,6 +755,7 @@ Chunk_09003005 = Struct(
 
 # 09006 CPlugVisual
 Chunk_09006001 = Struct("u01" / GbxNodeRef)
+Chunk_09006004 = Struct("u01" / GbxNodeRef)
 Chunk_09006005 = Struct("sub_visuals" / PrefixedArray(Int32ul, GbxInt3))
 Chunk_09006009 = Struct("has_vertex_normals " / GbxBool)
 Chunk_0900600B = Struct(
@@ -830,7 +841,7 @@ Chunk_0900600D = Struct(
 )
 Chunk_0900600E = Struct(
     *Chunk_0900600D.subcons,
-    "bitmap_elem_to_packs" / PrefixedArray(Int32ul, Struct("u01" / Int32sl[5])),
+    "bitmapElemToPacks" / PrefixedArray(Int32ul, Struct("u01" / Bytes(20))),
 )
 Chunk_0900600F = Struct(
     "version" / Int32ul,
@@ -866,7 +877,8 @@ Chunk_0900C003 = Struct(
     "surf"
     / Struct(
         "type" / GbxESurfType,
-        "data" / Switch(this.type, {GbxESurfType.Mesh: GbxSurfMesh}),
+        "data"
+        / Switch(this.type, {GbxESurfType.Mesh: GbxSurfMesh}, GbxBytesUntilFacade),
         "u01"
         / If(this._.surf_version >= 2, GbxVec3),  # mainDir? like for boost its dir?
     ),
@@ -1047,15 +1059,15 @@ Chunk_09079007 = Struct(
 # 09144 DynaObject
 Chunk_09144000 = Struct(
     "version" / Int32ul,
-    "u01" / Int32sl,
-    "u02" / Int32sl,
-    "static_mesh" / GbxNodeRef,
-    "move_shape" / GbxNodeRef,
-    "hit_shape" / GbxNodeRef,
-    "u03" / GbxFloat,
-    "u04" / GbxFloat,
-    "u05" / GbxFloat,
-    "u06" / GbxFloat,
+    "isStatic" / GbxBool,
+    "DynamizeOnSpawn" / GbxBool,
+    "mesh" / GbxNodeRef,
+    "StaticShape" / GbxNodeRef,
+    "DynaShape" / GbxNodeRef,
+    "BreakSpeedKmh" / GbxFloat,
+    "Mass" / GbxFloat,
+    "LightAliveDurationSc_Min" / GbxFloat,
+    "LightAliveDurationSc_Max" / GbxFloat,
     "rest" / Bytes(43),
 )
 
@@ -1441,6 +1453,13 @@ Chunk_2E020000 = Struct(
     "fly_v_offset" / Float32l,
     "pivot_snap_distance" / Float32l,
 )
+Chunk_2E020001 = Struct(
+    "snapPositions" / PrefixedArray(Int32ul, GbxVec3),
+)
+Chunk_2E020004 = Struct(
+    "u01" / Bytes(4),  # 0
+    "snapPositions" / PrefixedArray(Int32ul, GbxPose3D),
+)
 Chunk_2E020005 = Struct("item_placement" / GbxNodeRef)
 
 # 2E026 CGameCommonItemEntityModelEdition
@@ -1498,6 +1517,9 @@ Chunk_2F0BC000 = Struct(
     ),
 )
 
+# 2F0CA KinematicConstraint
+Chunk_2F0CA000 = Struct("rest" / GreedyBytes)
+
 BodyChunkId_to_struct.update(
     {
         # 03036
@@ -1542,6 +1564,7 @@ BodyChunkId_to_struct.update(
         0x09003005: Chunk_09003005,
         # 09006
         0x09006001: Chunk_09006001,
+        0x09006004: Chunk_09006004,
         0x09006005: Chunk_09006005,
         0x09006009: Chunk_09006009,
         0x0900600B: Chunk_0900600B,
@@ -1605,6 +1628,8 @@ BodyChunkId_to_struct.update(
         0x2E002020: Chunk_2E002020,
         # 2E020
         0x2E020000: Chunk_2E020000,
+        0x2E020001: Chunk_2E020001,
+        0x2E020004: Chunk_2E020004,
         0x2E020005: Chunk_2E020005,
         # 2E026
         0x2E026000: Chunk_2E026000,
@@ -1614,6 +1639,8 @@ BodyChunkId_to_struct.update(
         0x2F086000: Chunk_2F086000,
         # 2F0BC
         0x2F0BC000: Chunk_2F0BC000,
+        # 2F0CA
+        0x2F0CA000: Chunk_2F0CA000,
     }
 )
 

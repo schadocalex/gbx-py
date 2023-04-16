@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Slot, QSize, Qt
 from PySide6.QtGui import QTextCursor
 
-from gbx_parser import GbxStruct, GbxStructWithoutBodyParsed
+from gbx_parser import GbxPose3D, GbxStruct, GbxStructWithoutBodyParsed
 from construct import Container, ListContainer, RawCopy, Struct, Adapter, Subconstruct
 
 from widgets.hex_editor import GbxHexEditor
@@ -236,15 +236,7 @@ def create_custom_material2(material_name):
     )
 
 
-def parse_node(
-    file_path,
-    parse_deps=True,
-    node_offset=0,
-    path=None,
-    need_ui=True,
-    weird=False,
-    weird2=False,
-):
+def parse_node(file_path, parse_deps=True, node_offset=0, path=None, need_ui=True):
     file_path = os.path.abspath(file_path)
     file_path2 = file_path.replace(
         "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\", ""
@@ -264,8 +256,6 @@ def parse_node(
         data = GbxStruct.parse(
             raw_bytes, gbx_data=gbx_data, nodes=nodes, filename=file_path2
         )
-        if weird:
-            nodes = nodes[:3] + nodes[4:]
         data.nodes = ListContainer(nodes)
         data.node_offset = node_offset
         data.path = path
@@ -285,6 +275,8 @@ def parse_node(
         for external_node in data.reference_table.external_nodes:
             if external_node.ref.endswith(".dds"):
                 continue
+            if external_node.ref.endswith(".wav"):
+                continue
             elif external_node.ref.endswith(".Material.Gbx"):
                 material_name = external_node.ref.split(".")[0]
                 data.nodes[external_node.node_index] = create_custom_material2(
@@ -299,20 +291,13 @@ def parse_node(
                     + f"- {external_node.ref} (Cyclic dependency detected?)"
                 )
             elif parse_deps:
-                if weird and external_node.node_index == 3:
-                    continue
-                if weird and external_node.node_index == 4:
-                    continue
-                # if weird2 and external_node.node_index == 2:
-                #     continue
-                print(external_node.ref + " " + str(node_offset))
+                # print(external_node.ref + " " + str(node_offset))
                 ext_node_data, nb_sub_nodes, win = parse_node(
                     all_folders[external_node.folder_index] + external_node.ref,
                     parse_deps,
                     node_offset,
                     path[:],
                     False,
-                    weird2=node_offset == 3,
                 )
                 nb_nodes += nb_sub_nodes
                 node_offset += nb_sub_nodes
@@ -416,14 +401,27 @@ if __name__ == "__main__":
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Static\\Vegetation\\CactusB.Mesh.Gbx"
     file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\test_circle.Item.Gbx"
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\Winter.Item.Gbx"
+
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\SupportTubeStraightX1.Item.Gbx"
+
+    file = "C:\\Users\\schad\\Openplanet4\\Extract\\GameData\\Items\\Valley\\Trains\\Loco.Item.Gbx"
+    file = "C:\\Users\\schad\\Openplanet4\\Extract\\GameData\\Valley\\Media\\Mesh\\Loco.Mesh.gbx"
+
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ObstaclePusher4m.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\ObstaclePusher\\ObstaclePusher4m.Prefab.Gbx"
+
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ObstacleTube6m.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ObstacleTube6mRotateLevel0.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\ObstacleTube\\ObstacleTube6m.Prefab.Gbx"
+
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\CactusMedium.Item.Gbx"
 
-    data, nb_nodes, win = parse_node(file, True, need_ui=True, weird=True)
+    data, nb_nodes, win = parse_node(file, True, need_ui=True)
     print(f"total nodes: {nb_nodes}")
 
-    file2 = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\test_circle.Item.Gbx"
-    data2, nb_nodes2, win2 = parse_node(file2, True, need_ui=True)
-    print(f"total nodes: {nb_nodes}")
+    # file2 = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\test_circle.Item.Gbx"
+    # data2, nb_nodes2, win2 = parse_node(file2, True, need_ui=True)
+    # print(f"total nodes: {nb_nodes}")
 
     # with open("result.csv", "w") as f:
     #     import glob
@@ -446,31 +444,34 @@ if __name__ == "__main__":
     #             f"\t {chunk.chunk.u01} \t {chunk.chunk.u02} \t {chunk.chunk.u03} \t {chunk.chunk.u04}\n"
     #         )
 
-    # Export obj better
-    # obj_chunk = data.nodes[2].body[0].chunk
+    # Export obj
+    # obj_class = data.nodes[1].nodes[1].nodes[1]
+    # obj_chunk = obj_class.body[0].chunk
     # for i, geom in enumerate(obj_chunk.shaded_geoms):
     #     export_dir = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\"
     #     idx = obj_chunk.visuals[geom.visual_index]
-    #     vertices = data.nodes[idx + 1].body[0].chunk.vertices_coords
-    #     normals = data.nodes[idx + 1].body[0].chunk.normals
-    #     uv0 = data.nodes[idx + 1].body[0].chunk.others.uv0
-    #     indices = data.nodes[idx].body[8].chunk.index_buffer[0].chunk.indices
+    #     vertices = obj_class.nodes[idx + 1].body[0].chunk.vertices_coords
+    #     normals = obj_class.nodes[idx + 1].body[0].chunk.normals
+    #     uv0 = obj_class.nodes[idx + 1].body[0].chunk.others.uv0
+    #     indices = obj_class.nodes[idx].body[8].chunk.index_buffer[0].chunk.indices
     #     obj_filepath = (
     #         export_dir
     #         + os.path.basename(file).split(".")[0]
     #         + f"_lod{geom.lod}_{idx}.obj"
     #     )
     #     mat_idx = obj_chunk.materials[geom.material_index]
-    #     mat = data.nodes[mat_idx].body[0].chunk.material_name
+    #     mat = obj_class.nodes[mat_idx].body[0].chunk.material_name
     #     print(obj_filepath)
     #     export_obj(obj_filepath, vertices, normals, uv0, indices, mat)
 
     # Export surf
     # export_dir = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\"
-    # surf_chunk = data.nodes[17].body[0].chunk
+    # surf_class = data.nodes[1].nodes[2]
+    # surf_chunk = surf_class.body[0].chunk
     # vertices = surf_chunk.surf.data.vertices
     # mats = [
-    #     data.nodes[m.material].body[0].chunk.material_name for m in surf_chunk.materials
+    #     surf_class.nodes[m.material].body[0].chunk.material_name
+    #     for m in surf_chunk.materials
     # ]
     # faces = []
     # for tri in surf_chunk.surf.data.triangles:
@@ -519,90 +520,77 @@ if __name__ == "__main__":
 
     # MODIFICATIONS
 
-    # compression
-    data.header.body_compression = "compressed"
+    # # compression
+    # data.header.body_compression = "compressed"
 
-    # author
-    data.header.chunks.data[0].meta.id = ""
-    data.header.chunks.data[0].meta.author = "schadocalex"
-    data.header.chunks.data[0].catalog_position = 1
-    data.header.chunks.data[2] = bytes([0, 0, 0, 0, 0, 0, 0, 0])
-    data.body[1].chunk.meta.id = ""
-    data.body[1].chunk.meta.author = "schadocalex"
-    data.body[1].chunk.catalog_position = 1
-    data.body[4].chunk.version = 3
-    data.body[5].chunk.catalogPosition = 1
-    data.body[16].chunk.u02 = 1
-    data.body[17].chunk.u01 = 0
-    data.body[14].chunk.default_placement = 3
-    data.nodes[3] = data2.nodes[7]
+    # # author
+    # data.header.chunks.data[0].meta.id = ""
+    # data.header.chunks.data[0].meta.author = "schadocalex"
+    # data.header.chunks.data[0].catalog_position = 1
+    # data.body[1].chunk.meta.id = ""
+    # data.body[1].chunk.meta.author = "schadocalex"
+    # data.body[5].chunk.catalogPosition = 1
 
-    data.nodes[2] = data2.nodes[2]
-    data.nodes[2].body.mesh = 4
-    data.nodes[2].body.collidable = True
-    data.nodes[2].body.collidable_ref = None
+    # # dont use hit shape, else won't load (maybe due to materials, todo explore)
+    # data.nodes[2] = data2.nodes[2]
+    # data.nodes[2].body.mesh = 5
+    # data.nodes[2].body.collidable = True
+    # data.nodes[2].body.collidable_ref = None
 
-    data.nodes[4].body[0].chunk.material_count = 2
-    data.nodes[4].body[0].chunk.list_version_02 = None
-    data.nodes[4].body[0].chunk.material_folder_name = "Stadium\\Media\\Material\\"
-    data.nodes[4].body[0].chunk.u14 = 1  # TODO test wo
-    data.nodes[4].body[0].chunk.custom_materials = ListContainer(
-        [
-            Container(
-                material_name="",
-                material_user_inst=data.nodes[4].body[0].chunk.materials[0],
-            ),
-            Container(
-                material_name="",
-                material_user_inst=data.nodes[4].body[0].chunk.materials[1],
-            ),
-        ]
-    )
-    data.nodes[4].body[0].chunk.materials = None
-    # data.nodes[4].body[0].chunk.u20 = bytes([0,0,0,0])  # TODO test wo
+    # # change material to custom materials (for now)
+    # data.nodes[5].body[0].chunk.material_count = 2
+    # data.nodes[5].body[0].chunk.list_version_02 = None
+    # data.nodes[5].body[0].chunk.material_folder_name = "Stadium\\Media\\Material\\"
+    # data.nodes[5].body[0].chunk.custom_materials = ListContainer(
+    #     [
+    #         Container(
+    #             material_name="",
+    #             material_user_inst=data.nodes[5].body[0].chunk.materials[0],
+    #         ),
+    #         Container(
+    #             material_name="",
+    #             material_user_inst=data.nodes[5].body[0].chunk.materials[1],
+    #         ),
+    #     ]
+    # )
+    # data.nodes[5].body[0].chunk.materials = None
 
-    # merge external nodes
-    data.header.num_nodes = nb_nodes + 1
-    data.reference_table.num_external_nodes = 0
-    data.reference_table.external_folders = None
-    data.reference_table.external_nodes = []
+    # # remove external nodes because we merge them
+    # data.header.num_nodes = nb_nodes + 1
+    # data.reference_table.num_external_nodes = 0
+    # data.reference_table.external_folders = None
+    # data.reference_table.external_nodes = []
 
-    # bypass variants?
-    # data.header.chunks = data2.header.chunks
-    # data.header.chunks.data[0].file_name = os.path.basename(file).split(".")[0]
-    data.nodes[1].header.class_id = 0x2E027000
-    data.nodes[1].body = ListContainer(
-        [
-            Container(
-                chunk_id=0x2E027000,
-                chunk=Container(
-                    version=4,
-                    static_object=2,
-                ),
-            ),
-            Container(chunk_id=0xFACADE01),
-        ]
-    )
+    # # bypass variants
+    # data.nodes[1].header.class_id = 0x2E027000
+    # data.nodes[1].body = ListContainer(
+    #     [
+    #         Container(
+    #             chunk_id=0x2E027000,
+    #             chunk=Container(
+    #                 version=4,
+    #                 static_object=2,
+    #             ),
+    #         ),
+    #         Container(chunk_id=0xFACADE01),
+    #     ]
+    # )
 
-    # unkwown prop
-    tmp = bytearray(data.body[6].chunk.u01)
-    tmp[8] = 0
-    data.body[6].chunk.u01 = bytes(tmp)
+    # # snap positions
+    # data.nodes[4].body[1].chunk.content.snapPositions = ListContainer(
+    #     [Container(x=0, y=0, z=0)]
+    # )
+    # data.nodes[4].body[2].chunk.content.snapPositions = ListContainer(
+    #     [Container(x=0, y=7, z=0, yaw=0, pitch=-90, roll=0)]
+    # )
 
-    # lightmap
-    # data.body[16].chunk.disable_lightmap = True
-
-    # make mesh not collidable
-    # data.nodes[2].body.collidable = False
-    # data.nodes[2].body.collidable_ref = -1
-
-    bytes3, win3 = generate_node(data)
-    with open(
-        "C:\\Users\\schad\\Documents\\Trackmania\\Items\\Export\\"
-        + os.path.basename(file).replace(".Item", ".Item"),
-        "wb",
-    ) as f:
-        f.write(bytes3)
+    # bytes3, win3 = generate_node(data)
+    # with open(
+    #     "C:\\Users\\schad\\Documents\\Trackmania\\Items\\Export\\"
+    #     + os.path.basename(file).replace(".Item", ".Item"),
+    #     "wb",
+    # ) as f:
+    #     f.write(bytes3)
 
     app = QApplication.instance() or QApplication(sys.argv)
     app.exec()
