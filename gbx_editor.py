@@ -419,9 +419,8 @@ if __name__ == "__main__":
     data, nb_nodes, win = parse_node(file, True, need_ui=True)
     print(f"total nodes: {nb_nodes}")
 
-    # file2 = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\test_circle.Item.Gbx"
-    # data2, nb_nodes2, win2 = parse_node(file2, True, need_ui=True)
-    # print(f"total nodes: {nb_nodes}")
+    file2 = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\test_circle.Item.Gbx"
+    data2, nb_nodes2, win2 = parse_node(file2, True, need_ui=True)
 
     # with open("result.csv", "w") as f:
     #     import glob
@@ -515,68 +514,66 @@ if __name__ == "__main__":
     #         "ItemFlag",
     #     )
 
-    # file2 = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\test_gbx1.Item.Gbx"
-    # data2, nb_nodes2, win2 = parse_node(file2)
-
     # MODIFICATIONS
 
-    # # compression
-    # data.header.body_compression = "compressed"
+    # compression
+    data.header.body_compression = "compressed"
 
-    # # author
-    # data.header.chunks.data[0].meta.id = ""
-    # data.header.chunks.data[0].meta.author = "schadocalex"
-    # data.header.chunks.data[0].catalog_position = 1
-    # data.body[1].chunk.meta.id = ""
-    # data.body[1].chunk.meta.author = "schadocalex"
-    # data.body[5].chunk.catalogPosition = 1
+    # author
+    data.header.chunks.data[0].meta.id = ""
+    data.header.chunks.data[0].meta.author = "schadocalex"
+    data.header.chunks.data[0].catalog_position = 1
+    data.header.chunks.data[2] = bytes([0, 0, 0, 0, 0, 0, 0, 0])
+    data.body[1].chunk.meta.id = ""
+    data.body[1].chunk.meta.author = "schadocalex"
+    data.body[5].chunk.catalogPosition = 1
 
-    # # dont use hit shape, else won't load (maybe due to materials, todo explore)
-    # data.nodes[2] = data2.nodes[2]
-    # data.nodes[2].body.mesh = 5
-    # data.nodes[2].body.collidable = True
-    # data.nodes[2].body.collidable_ref = None
+    # dont use hit shape, else won't load (maybe due to materials, todo explore)
+    data.nodes[2] = data2.nodes[2]
+    data.nodes[2].body.mesh = 5
+    data.nodes[2].body.collidable = True
+    data.nodes[2].body.collidable_ref = None
 
-    # # change material to custom materials (for now)
-    # data.nodes[5].body[0].chunk.material_count = 2
-    # data.nodes[5].body[0].chunk.list_version_02 = None
-    # data.nodes[5].body[0].chunk.material_folder_name = "Stadium\\Media\\Material\\"
-    # data.nodes[5].body[0].chunk.custom_materials = ListContainer(
-    #     [
-    #         Container(
-    #             material_name="",
-    #             material_user_inst=data.nodes[5].body[0].chunk.materials[0],
-    #         ),
-    #         Container(
-    #             material_name="",
-    #             material_user_inst=data.nodes[5].body[0].chunk.materials[1],
-    #         ),
-    #     ]
-    # )
-    # data.nodes[5].body[0].chunk.materials = None
+    # change material to custom materials (for now)
+    data.nodes[5].body[0].chunk.material_count = 2
+    data.nodes[5].body[0].chunk.list_version_02 = None
+    data.nodes[5].body[0].chunk.material_folder_name = "Stadium\\Media\\Material\\"
+    data.nodes[5].body[0].chunk.custom_materials = ListContainer(
+        [
+            Container(
+                material_name="",
+                material_user_inst=data.nodes[5].body[0].chunk.materials[0],
+            ),
+            Container(
+                material_name="",
+                material_user_inst=data.nodes[5].body[0].chunk.materials[1],
+            ),
+        ]
+    )
+    data.nodes[5].body[0].chunk.materials = None
 
-    # # remove external nodes because we merge them
-    # data.header.num_nodes = nb_nodes + 1
-    # data.reference_table.num_external_nodes = 0
-    # data.reference_table.external_folders = None
-    # data.reference_table.external_nodes = []
+    # remove external nodes because we merge them
+    data.header.num_nodes = nb_nodes + 1
+    data.reference_table.num_external_nodes = 0
+    data.reference_table.external_folders = None
+    data.reference_table.external_nodes = []
 
-    # # bypass variants
-    # data.nodes[1].header.class_id = 0x2E027000
-    # data.nodes[1].body = ListContainer(
-    #     [
-    #         Container(
-    #             chunk_id=0x2E027000,
-    #             chunk=Container(
-    #                 version=4,
-    #                 static_object=2,
-    #             ),
-    #         ),
-    #         Container(chunk_id=0xFACADE01),
-    #     ]
-    # )
+    # bypass variants
+    data.nodes[1].header.class_id = 0x2E027000
+    data.nodes[1].body = ListContainer(
+        [
+            Container(
+                chunk_id=0x2E027000,
+                chunk=Container(
+                    version=4,
+                    static_object=2,
+                ),
+            ),
+            Container(chunk_id=0xFACADE01),
+        ]
+    )
 
-    # # snap positions
+    # snap positions
     # data.nodes[4].body[1].chunk.content.snapPositions = ListContainer(
     #     [Container(x=0, y=0, z=0)]
     # )
@@ -584,13 +581,13 @@ if __name__ == "__main__":
     #     [Container(x=0, y=7, z=0, yaw=0, pitch=-90, roll=0)]
     # )
 
-    # bytes3, win3 = generate_node(data)
-    # with open(
-    #     "C:\\Users\\schad\\Documents\\Trackmania\\Items\\Export\\"
-    #     + os.path.basename(file).replace(".Item", ".Item"),
-    #     "wb",
-    # ) as f:
-    #     f.write(bytes3)
+    bytes3, win3 = generate_node(data)
+    with open(
+        "C:\\Users\\schad\\Documents\\Trackmania\\Items\\Export\\"
+        + os.path.basename(file).replace(".Item", ".Item"),
+        "wb",
+    ) as f:
+        f.write(bytes3)
 
     app = QApplication.instance() or QApplication(sys.argv)
     app.exec()
