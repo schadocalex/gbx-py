@@ -1455,6 +1455,7 @@ Chunk_2E020000 = Struct(
 )
 Chunk_2E020001 = Struct(
     "snapPositions" / PrefixedArray(Int32ul, GbxVec3),
+    "u01" / Bytes(4),  # 0
 )
 Chunk_2E020004 = Struct(
     "u01" / Bytes(4),  # 0
@@ -1628,8 +1629,8 @@ BodyChunkId_to_struct.update(
         0x2E002020: Chunk_2E002020,
         # 2E020
         0x2E020000: Chunk_2E020000,
-        # 0x2E020001: Chunk_2E020001,
-        # 0x2E020004: Chunk_2E020004,
+        0x2E020001: Chunk_2E020001,
+        0x2E020004: Chunk_2E020004,
         0x2E020005: Chunk_2E020005,
         # 2E026
         0x2E026000: Chunk_2E026000,

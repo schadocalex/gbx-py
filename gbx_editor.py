@@ -402,8 +402,6 @@ if __name__ == "__main__":
     file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\test_circle.Item.Gbx"
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\Winter.Item.Gbx"
 
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\SupportTubeStraightX1.Item.Gbx"
-
     file = "C:\\Users\\schad\\Openplanet4\\Extract\\GameData\\Items\\Valley\\Trains\\Loco.Item.Gbx"
     file = "C:\\Users\\schad\\Openplanet4\\Extract\\GameData\\Valley\\Media\\Mesh\\Loco.Mesh.gbx"
 
@@ -414,6 +412,7 @@ if __name__ == "__main__":
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ObstacleTube6mRotateLevel0.Item.Gbx"
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\ObstacleTube\\ObstacleTube6m.Prefab.Gbx"
 
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\SupportTubeStraightX1.Item.Gbx"
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\CactusMedium.Item.Gbx"
 
     data, nb_nodes, win = parse_node(file, True, need_ui=True)
@@ -574,12 +573,12 @@ if __name__ == "__main__":
     )
 
     # snap positions
-    # data.nodes[4].body[1].chunk.content.snapPositions = ListContainer(
-    #     [Container(x=0, y=0, z=0)]
-    # )
-    # data.nodes[4].body[2].chunk.content.snapPositions = ListContainer(
-    #     [Container(x=0, y=7, z=0, yaw=0, pitch=-90, roll=0)]
-    # )
+    data.nodes[4].body[1].chunk.content.snapPositions = ListContainer(
+        [Container(x=0, y=0, z=0)]
+    )
+    data.nodes[4].body[2].chunk.content.snapPositions = ListContainer(
+        [Container(x=0, y=7, z=0, yaw=0, pitch=-90, roll=0)]
+    )
 
     bytes3, win3 = generate_node(data)
     with open(
