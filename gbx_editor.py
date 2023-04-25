@@ -200,19 +200,19 @@ def create_custom_material2(material_name):
                     chunk_id=0x090FD000,
                     chunk=Container(
                         version=11,
-                        is_using_game_material=False,
-                        material_name="TM_" + material_name + "_asset",
+                        isUsingGameMaterial=False,
+                        materialName="TM_" + material_name + "_asset",
                         model="",
-                        base_texture="",
-                        surface_physic_id=6,
-                        surface_gameplay_id=0,
+                        baseTexture="",
+                        surfacePhysicId=6,
+                        surfaceGameplayId=0,
                         link=material_name,
                         csts=[],
                         color=[],
-                        uv_anim=[],
+                        uvAnim=[],
                         u07=[],
-                        user_textures=[],
-                        hiding_group="",
+                        userTextures=[],
+                        hidingGroup="",
                     ),
                 ),
                 Container(
@@ -246,13 +246,20 @@ def parse_node(file_path, parse_deps=True, node_offset=0, path=None, need_ui=Tru
     depth = len(path)
     file_name = os.path.basename(file_path)
     path.append(file_name)
+    nf = "NOT FOUND" if not os.path.exists(file_path) else ""
+    print("  " * depth + f"- {file_path2} {nf}")
+    # if nf:
+    #     return (
+    #         Container(header=Container()),
+    #         0,
+    #         None,
+    #     )
 
     with open(file_path, "rb") as f:
         raw_bytes = f.read()
 
         gbx_data = {}
         nodes = []
-        print("  " * depth + f"- {file_path2}")
         data = GbxStruct.parse(
             raw_bytes, gbx_data=gbx_data, nodes=nodes, filename=file_path2
         )
@@ -273,18 +280,22 @@ def parse_node(file_path, parse_deps=True, node_offset=0, path=None, need_ui=Tru
 
         # parse external nodes
         for external_node in data.reference_table.external_nodes:
-            if external_node.ref.endswith(".dds"):
+            if not external_node.ref.endswith(
+                ".gbx"
+            ) and not external_node.ref.endswith(".Gbx"):
                 continue
-            if external_node.ref.endswith(".wav"):
+            elif external_node.ref.endswith(".Texture.gbx"):
+                continue
+            elif external_node.ref.endswith(".Light.gbx"):
                 continue
             elif external_node.ref.endswith(".Material.Gbx"):
                 material_name = external_node.ref.split(".")[0]
                 data.nodes[external_node.node_index] = create_custom_material2(
                     material_name
                 )
-                # print(
-                #     "  " * (depth + 1) + f"- {material_name} Material (1 custom node)"
-                # )
+            # print(
+            #     "  " * (depth + 1) + f"- {material_name} Material (1 custom node)"
+            # )
             elif external_node.ref in path:
                 print(
                     "  " * (depth + 1)
@@ -324,7 +335,15 @@ def parse_node(file_path, parse_deps=True, node_offset=0, path=None, need_ui=Tru
 def generate_node(data):
     gbx_data = {}
     nodes = data.nodes[:]
-    # data.header.body_compression = "uncompressed"
+
+    # compression
+    data.header.body_compression = "compressed"
+
+    # remove external nodes because we merge them
+    data.reference_table.num_external_nodes = 0
+    data.reference_table.external_folders = None
+    data.reference_table.external_nodes = []
+
     new_bytes = GbxStruct.build(data, gbx_data=gbx_data, nodes=nodes)
     for n in nodes:
         if n is not None and type(n) is not str:
@@ -336,13 +355,245 @@ def generate_node(data):
     new_data = GbxStruct.parse(new_bytes, gbx_data=gbx_data, nodes=nodes)
     new_data.nodes = ListContainer(nodes)
 
-    data2 = GbxStructWithoutBodyParsed.parse(new_bytes, gbx_data={}, nodes=[])
-    data2.header.body_compression = "uncompressed"
-    new_bytes_uncompressed = GbxStructWithoutBodyParsed.build(
-        data2, gbx_data={}, nodes=[]
+    # data2 = GbxStructWithoutBodyParsed.parse(new_bytes, gbx_data={}, nodes=[])
+    # data2.header.body_compression = "uncompressed"
+    # new_bytes_uncompressed = GbxStructWithoutBodyParsed.build(
+    #     data2, gbx_data={}, nodes=[]
+    # )
+
+    return new_bytes, GbxEditorUi(new_bytes, new_data)
+
+
+def cactus(data):
+    # author
+    data.header.chunks.data[0].meta.id = ""
+    data.header.chunks.data[0].meta.author = "schadocalex"
+    data.header.chunks.data[0].catalog_position = 1
+    data.header.chunks.data[2] = bytes([0, 0, 0, 0, 0, 0, 0, 0])
+    data.body[1].chunk.meta.id = ""
+    data.body[1].chunk.meta.author = "schadocalex"
+    data.body[5].chunk.catalogPosition = 1
+
+    # dont use hit shape, else won't load (maybe due to materials, todo explore)
+    # data.nodes[2] = data2.nodes[2]
+    # data.nodes[2].body.mesh = 5
+    # data.nodes[2].body.collidable = True
+    # data.nodes[2].body.collidableRef = None
+
+    # change material to custom materials (for now)
+    data.nodes[5].body[0].chunk.material_count = 2
+    data.nodes[5].body[0].chunk.list_version_02 = None
+    data.nodes[5].body[0].chunk.materialFolderName = "Stadium\\Media\\Material\\"
+    data.nodes[5].body[0].chunk.custom_materials = ListContainer(
+        [
+            Container(
+                material_name="",
+                material_user_inst=data.nodes[5].body[0].chunk.materials[0],
+            ),
+            Container(
+                material_name="",
+                material_user_inst=data.nodes[5].body[0].chunk.materials[1],
+            ),
+        ]
+    )
+    data.nodes[5].body[0].chunk.materials = None
+
+    # change surf mats
+    # data.nodes[6].body[0].chunk.materials[0].hasMaterial = True
+    # data.nodes[6].body[0].chunk.materials[0].materialsId = (
+    #     data.nodes[6].body[0].chunk.materialsIds[0]
+    # )
+    # data.nodes[6].body[0].chunk.materials[1].hasMaterial = True
+    # data.nodes[6].body[0].chunk.materials[1].materialsId = (
+    #     data.nodes[6].body[0].chunk.materialsIds[1]
+    # )
+    data.nodes[6].body[0].chunk.materials = ListContainer([])
+
+    # bypass variants
+    data.nodes[1].header.class_id = 0x2E027000
+    data.nodes[1].body = ListContainer(
+        [
+            Container(
+                chunk_id=0x2E027000,
+                chunk=Container(
+                    version=4,
+                    static_object=2,
+                ),
+            ),
+            Container(chunk_id=0xFACADE01),
+        ]
     )
 
-    return new_bytes, GbxEditorUi(new_bytes_uncompressed, new_data)
+    # snap positions
+    # data.nodes[4].body[1].chunk.content.flags = 32 + 1
+    data.nodes[4].body[1].chunk.content.pivotPositions = ListContainer(
+        [Container(x=0, y=0, z=0), Container(x=0, y=7, z=0)]
+    )
+    data.nodes[4].body[2].chunk.content.magnetLocs = ListContainer(
+        [Container(x=0, y=7, z=0, yaw=0, pitch=-90, roll=0)]
+    )
+
+    return generate_node(data)
+
+
+def rotator(data):
+    for node in data.nodes:
+        if node and node.header.class_id == 0x090BB000:
+            update_090BB000(node)
+
+    # author
+    # data.header.chunks.data[0].meta.id = ""
+    # data.header.chunks.data[0].meta.author = "schadocalex"
+    # data.header.chunks.data[0].catalog_position = 1
+    # data.header.chunks.data[2] = bytes([0, 0, 0, 0, 0, 0, 0, 0])
+
+    if data.header.class_id == 0x2E002000:
+        data.body[1].chunk.meta.id = ""
+        data.body[1].chunk.meta.author = "schadocalex"
+        data.body[5].chunk.catalogPosition = 1
+
+    # remove modifier?
+    data.body[12].chunk.modifier = -1
+
+    # # dont use hit shape, else won't load (maybe due to materials, todo explore)
+    # # data.nodes[2] = data2.nodes[2]
+    # # data.nodes[2].body.mesh = 5
+    # # data.nodes[2].body.collidable = True
+    # # data.nodes[2].body.collidableRef = None
+
+    # # change material to custom materials (for now)
+
+    # # change surf mats
+    # # data.nodes[6].body[0].chunk.materials[0].hasMaterial = True
+    # # data.nodes[6].body[0].chunk.materials[0].materialsId = (
+    # #     data.nodes[6].body[0].chunk.materialsIds[0]
+    # # )
+    # # data.nodes[6].body[0].chunk.materials[1].hasMaterial = True
+    # # data.nodes[6].body[0].chunk.materials[1].materialsId = (
+    # #     data.nodes[6].body[0].chunk.materialsIds[1]
+    # # )
+    # data.nodes[6].body[0].chunk.materials = ListContainer([])
+
+    # # bypass variants
+    # data.nodes[1].header.class_id = 0x2E027000
+    # data.nodes[1].body = ListContainer(
+    #     [
+    #         Container(
+    #             chunk_id=0x2E027000,
+    #             chunk=Container(
+    #                 version=4,
+    #                 static_object=2,
+    #             ),
+    #         ),
+    #         Container(chunk_id=0xFACADE01),
+    #     ]
+    # )
+
+    # # snap positions
+    # # data.nodes[4].body[1].chunk.content.flags = 32 + 1
+    # data.nodes[4].body[1].chunk.content.pivotPositions = ListContainer(
+    #     [Container(x=0, y=0, z=0), Container(x=0, y=7, z=0)]
+    # )
+    # data.nodes[4].body[2].chunk.content.magnetLocs = ListContainer(
+    #     [Container(x=0, y=7, z=0, yaw=0, pitch=-90, roll=0)]
+    # )
+
+    return generate_node(data)
+
+
+def update_090BB000(node):
+    # change material to custom materials
+
+    node.body[0].chunk.list_version_02 = None
+    node.body[0].chunk.materialFolderName = "Stadium\\Media\\Material\\"
+
+    custom_materials = []
+    for mat in node.body[0].chunk.materials:
+        custom_materials.append(
+            Container(
+                material_name="",
+                material_user_inst=mat,
+            )
+        )
+
+    node.body[0].chunk.material_count = len(custom_materials)
+    node.body[0].chunk.custom_materials = ListContainer(custom_materials)
+    node.body[0].chunk.materials = None
+
+    # remove lights
+    node.body[0].chunk.lights = ListContainer([])
+
+
+def update_0900C000(node):
+    # remove native materials from surf
+    node.body[0].chunk.materials = ListContainer([])
+
+
+def trigger(data, data2):
+    for node in data.nodes:
+        if type(node) == Container:
+            if node.header.class_id == 0x090BB000:
+                update_090BB000(node)
+            if node.header.class_id == 0x0900C000:
+                update_0900C000(node)
+
+    # author
+    data.header.chunks.data[0].meta.id = ""
+    data.header.chunks.data[0].meta.author = "schadocalex"
+    data.header.chunks.data[0].catalog_position = 1
+    data.header.chunks.data[2] = bytes([0, 0, 0, 0, 0, 0, 0, 0])
+
+    if data.header.class_id == 0x2E002000:
+        data.body[1].chunk.meta.id = ""
+        data.body[1].chunk.meta.author = "schadocalex"
+        data.body[5].chunk.catalogPosition = 1
+
+    # replace static model
+    # data.nodes[1].header.class_id = 0x2E027000
+    # data.nodes[1].body = ListContainer(
+    #     [
+    #         Container(
+    #             chunk_id=0x2E027000,
+    #             chunk=Container(
+    #                 version=4,
+    #                 staticObject=1,
+    #             ),
+    #         ),
+    #         Container(chunk_id=0xFACADE01),
+    #     ]
+    # )
+    # change surf mats
+    # data.nodes[6].body[0].chunk.materials[0].hasMaterial = True
+    # data.nodes[6].body[0].chunk.materials[0].materialsId = (
+    #     data.nodes[6].body[0].chunk.materialsIds[0]
+    # )
+    # data.nodes[6].body[0].chunk.materials[1].hasMaterial = True
+    # data.nodes[6].body[0].chunk.materials[1].materialsId = (
+    #     data.nodes[6].body[0].chunk.materialsIds[1]
+    # )
+    # data.nodes[1].body.url = ""
+
+    # data.nodes[1].body.subEntityModelsCount = 1
+    # data.nodes[1].body.subEntityModels = ListContainer(
+    #     [data.nodes[1].body.subEntityModels[0]]
+    # )
+
+    # data.nodes[1].body.subEntityModels[1].model = 1
+    # data.nodes[1].body.subEntityModels[1].pos.x = 16
+
+    # remove modifier?
+    # data.body[12].chunk.modifier = -1
+
+    # # dont use hit shape, else won't load (maybe due to materials, todo explore)
+    # data.nodes[4].update(data2.nodes[2])
+    # data.nodes[4].body.mesh = 2
+
+    # data.nodes[4].body.collidable = False
+    # data.nodes[4].body.collidableRef = None
+    # data.nodes[4].body.uRest = data2.nodes[2].body.uRest
+    # data.nodes[56] = data2.nodes[13]
+
+    return generate_node(data)
 
 
 if __name__ == "__main__":
@@ -408,18 +659,36 @@ if __name__ == "__main__":
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ObstaclePusher4m.Item.Gbx"
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\ObstaclePusher\\ObstaclePusher4m.Prefab.Gbx"
 
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ObstacleTube6m.Item.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ObstacleTube6mRotateLevel0.Item.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\ObstacleTube\\ObstacleTube6m.Prefab.Gbx"
-
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\SupportTubeStraightX1.Item.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Materials\\test.Mat.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Material\\ItemCactus.Material.Gbx"
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\CactusMedium.Item.Gbx"
+
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ObstacleTube6m.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\ObstacleTube\\ObstacleTube6m.Prefab.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ObstacleTube6mRotateLevel1.Item.Gbx"
+
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\InflatableMat4mCurve3.Item.Gbx"
+
+    file = "C:\\Users\\schad\\Documents\\Maniaplanet\\Items\\test.Mesh.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\test.Item.Gbx"
+
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\Gate\\Special4m.Prefab.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\InflatableMat\\InflatableMat4mCurve3.Prefab.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\InflatableTube\\InflatableTubeStraight.Prefab.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\InflatableMat\\InflatableMat4mCurve3OutFC.Prefab.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\InflatableMat\\InflatableMat4mCurve3.Prefab.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\InflatableMat\\InflatableMat1mFC.Prefab.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\GateSpecial4mTurbo.Item.Gbx"
 
     data, nb_nodes, win = parse_node(file, True, need_ui=True)
     print(f"total nodes: {nb_nodes}")
 
-    file2 = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\test_circle.Item.Gbx"
-    data2, nb_nodes2, win2 = parse_node(file2, True, need_ui=True)
+    # file2 = "C:\\Users\\schad\\Documents\\Trackmania\\Materials\\wall2.Mat.Gbx"
+    # # file2 = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Material_BlockCustom\\CustomBricks.Material.Gbx"
+    # # file2 = "C:\\Users\\schad\\Documents\\Maniaplanet\\Materials\\wall.Mat.Gbx"
+    # file2 = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\test_circle.Item.Gbx"
+    # data2, nb_nodes2, win2 = parse_node(file2, False, need_ui=True)
 
     # with open("result.csv", "w") as f:
     #     import glob
@@ -443,28 +712,53 @@ if __name__ == "__main__":
     #         )
 
     # Export obj
-    # obj_class = data.nodes[1].nodes[1].nodes[1]
-    # obj_chunk = obj_class.body[0].chunk
-    # for i, geom in enumerate(obj_chunk.shaded_geoms):
-    #     export_dir = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\"
-    #     idx = obj_chunk.visuals[geom.visual_index]
-    #     vertices = obj_class.nodes[idx + 1].body[0].chunk.vertices_coords
-    #     normals = obj_class.nodes[idx + 1].body[0].chunk.normals
-    #     uv0 = obj_class.nodes[idx + 1].body[0].chunk.others.uv0
-    #     indices = obj_class.nodes[idx].body[8].chunk.index_buffer[0].chunk.indices
-    #     obj_filepath = (
-    #         export_dir
-    #         + os.path.basename(file).split(".")[0]
-    #         + f"_lod{geom.lod}_{idx}.obj"
-    #     )
-    #     mat_idx = obj_chunk.materials[geom.material_index]
-    #     mat = obj_class.nodes[mat_idx].body[0].chunk.material_name
-    #     print(obj_filepath)
-    #     export_obj(obj_filepath, vertices, normals, uv0, indices, mat)
+    # for node in data.nodes:
+    #     if type(node) == Container and node.header.class_id == 0x090BB000:
+    #         obj_chunk = node.body[0].chunk
+    #         for i, geom in enumerate(obj_chunk.shaded_geoms):
+    #             export_dir = (
+    #                 "C:\\Users\\schad\\Documents\\Trackmania\\Items\\ExportObj\\"
+    #             )
+    #             idx = obj_chunk.visuals[geom.visual_index]
+    #             vertices = data.nodes[idx + 1].body[0].chunk.vertices_coords
+    #             normals = data.nodes[idx + 1].body[0].chunk.normals
+    #             uv0 = data.nodes[idx + 1].body[0].chunk.others.uv0
+    #             indices = data.nodes[idx].body[8].chunk.index_buffer[0].chunk.indices
+    #             obj_filepath = (
+    #                 export_dir
+    #                 + os.path.basename(file).split(".")[0]
+    #                 + f"_lod{geom.lod}_{idx}.obj"
+    #             )
+    #             mat_idx = obj_chunk.materials[geom.material_index]
+    #             mat = data.nodes[mat_idx].body[0].chunk.material_name
+    #             print(obj_filepath)
+    #             export_obj(obj_filepath, vertices, normals, uv0, indices, mat)
+
+    # for node in data.nodes:
+    #     if node and node.header.class_id == 0x09145000:
+    #         obj_chunk = node.nodes[node.nodes[node.body.u02].body.mesh].body[0].chunk
+    #         for i, geom in enumerate(obj_chunk.shaded_geoms):
+    #             export_dir = (
+    #                 "C:\\Users\\schad\\Documents\\Trackmania\\Items\\ExportObj\\"
+    #             )
+    #             idx = obj_chunk.visuals[geom.visual_index]
+    #             vertices = node.nodes[idx + 1].body[0].chunk.vertices_coords
+    #             normals = node.nodes[idx + 1].body[0].chunk.normals
+    #             uv0 = node.nodes[idx + 1].body[0].chunk.others.uv0
+    #             indices = node.nodes[idx].body[8].chunk.index_buffer[0].chunk.indices
+    #             obj_filepath = (
+    #                 export_dir
+    #                 + os.path.basename(file).split(".")[0]
+    #                 + f"_lod{geom.lod}_{node.node_offset}_{idx}.obj"
+    #             )
+    #             mat_idx = obj_chunk.materials[geom.material_index]
+    #             mat = node.nodes[mat_idx].body[0].chunk.material_name
+    #             print(obj_filepath)
+    #             export_obj(obj_filepath, vertices, normals, uv0, indices, mat)
 
     # Export surf
     # export_dir = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\"
-    # surf_class = data.nodes[1].nodes[2]
+    # surf_class = data.nodes[6]
     # surf_chunk = surf_class.body[0].chunk
     # vertices = surf_chunk.surf.data.vertices
     # mats = [
@@ -473,10 +767,10 @@ if __name__ == "__main__":
     # ]
     # faces = []
     # for tri in surf_chunk.surf.data.triangles:
-    #     assert tri.material_index >= 0
-    #     while tri.material_index >= len(faces):
+    #     assert tri.materialIndex >= 0
+    #     while tri.materialIndex >= len(faces):
     #         faces.append([])
-    #     faces[tri.material_index].append(tri.face)
+    #     faces[tri.materialIndex].append(tri.face)
     # start_index = 0
     # for i in range(len(faces)):
     #     obj_filepath = export_dir + os.path.basename(file).split(".")[0] + f"_{i}.obj"
@@ -515,78 +809,25 @@ if __name__ == "__main__":
 
     # MODIFICATIONS
 
-    # compression
-    data.header.body_compression = "compressed"
+    # data.nodes[3].body[0].chunk.materialFolderName = ""
 
-    # author
-    data.header.chunks.data[0].meta.id = ""
-    data.header.chunks.data[0].meta.author = "schadocalex"
-    data.header.chunks.data[0].catalog_position = 1
-    data.header.chunks.data[2] = bytes([0, 0, 0, 0, 0, 0, 0, 0])
-    data.body[1].chunk.meta.id = ""
-    data.body[1].chunk.meta.author = "schadocalex"
-    data.body[5].chunk.catalogPosition = 1
+    # data.nodes[6].body = data2.body
+    # data.nodes[6].body[0].chunk.userTextures[
+    #     0
+    # ].texture = ":user:\\Materials\\RoadTech_D.dds"
+    # # TODO test basetexture without .dds
+    # bytes3, win3 = generate_node(data)
 
-    # dont use hit shape, else won't load (maybe due to materials, todo explore)
-    data.nodes[2] = data2.nodes[2]
-    data.nodes[2].body.mesh = 5
-    data.nodes[2].body.collidable = True
-    data.nodes[2].body.collidable_ref = None
+    # bytes3, win3 = cactus(data)
+    # bytes3, win3 = rotator(data)
+    # bytes3, win3 = trigger(data, data2)
 
-    # change material to custom materials (for now)
-    data.nodes[5].body[0].chunk.material_count = 2
-    data.nodes[5].body[0].chunk.list_version_02 = None
-    data.nodes[5].body[0].chunk.material_folder_name = "Stadium\\Media\\Material\\"
-    data.nodes[5].body[0].chunk.custom_materials = ListContainer(
-        [
-            Container(
-                material_name="",
-                material_user_inst=data.nodes[5].body[0].chunk.materials[0],
-            ),
-            Container(
-                material_name="",
-                material_user_inst=data.nodes[5].body[0].chunk.materials[1],
-            ),
-        ]
-    )
-    data.nodes[5].body[0].chunk.materials = None
-
-    # remove external nodes because we merge them
-    data.header.num_nodes = nb_nodes + 1
-    data.reference_table.num_external_nodes = 0
-    data.reference_table.external_folders = None
-    data.reference_table.external_nodes = []
-
-    # bypass variants
-    data.nodes[1].header.class_id = 0x2E027000
-    data.nodes[1].body = ListContainer(
-        [
-            Container(
-                chunk_id=0x2E027000,
-                chunk=Container(
-                    version=4,
-                    static_object=2,
-                ),
-            ),
-            Container(chunk_id=0xFACADE01),
-        ]
-    )
-
-    # snap positions
-    data.nodes[4].body[1].chunk.content.snapPositions = ListContainer(
-        [Container(x=0, y=0, z=0)]
-    )
-    data.nodes[4].body[2].chunk.content.snapPositions = ListContainer(
-        [Container(x=0, y=7, z=0, yaw=0, pitch=-90, roll=0)]
-    )
-
-    bytes3, win3 = generate_node(data)
-    with open(
-        "C:\\Users\\schad\\Documents\\Trackmania\\Items\\Export\\"
-        + os.path.basename(file).replace(".Item", ".Item"),
-        "wb",
-    ) as f:
-        f.write(bytes3)
+    # with open(
+    #     "C:\\Users\\schad\\Documents\\Trackmania\\Items\\Export\\"
+    #     + os.path.basename(file).replace(".Item", ".Item"),
+    #     "wb",
+    # ) as f:
+    #     f.write(bytes3)
 
     app = QApplication.instance() or QApplication(sys.argv)
     app.exec()
