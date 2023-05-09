@@ -207,6 +207,17 @@ GbxVec3Tenb = AGbxVec3_10b(Int32ul)
 
 GbxDict = PrefixedArray(Int32ul, Struct("key" / GbxString, "value" / GbxString))
 
+GbxMat3x3 = Struct(
+    "XX" / GbxFloat,
+    "XY" / GbxFloat,
+    "XZ" / GbxFloat,
+    "YX" / GbxFloat,
+    "YY" / GbxFloat,
+    "YZ" / GbxFloat,
+    "ZX" / GbxFloat,
+    "ZY" / GbxFloat,
+    "ZZ" / GbxFloat,
+)
 GbxIso4 = Struct(
     "XX" / GbxFloat,
     "XY" / GbxFloat,
@@ -1099,13 +1110,13 @@ def newPropSubEntityModel(obj, ctx):
     return obj
 
 
-# 09145 Prefab? Macroitem?
+# 09145 SPlugPrefab
 Chunk_09145000 = Select(
     Struct(
         "version" / Int32ul,
         "creationTime" / GbxFileTime,
         "url" / GbxString,
-        "u01" / Bytes(4),
+        "u01" / Bytes(4),  # kind of timestamp?
         "subEntityModelsCount" / Int32ul,
         "u02" / Bytes(4),
         "subEntityModels"
@@ -1115,7 +1126,9 @@ Chunk_09145000 = Select(
                 "model" / GbxNodeRef,
                 "rot" / GbxQuat,
                 "pos" / GbxVec3,
-                "u01" / Bytes(8),
+                "params"
+                / Pass,  # TODO switch on class: 0x2F0B6000 NPlugDynaObjectModel_SInstanceParams, 0x2F0C8000 NPlugDyna_SPrefabConstraintParams, else Pass
+                "u01" / Bytes(8),  # LodGroupId?
             ),
         ),
     ),
@@ -1136,47 +1149,19 @@ Chunk_09159000 = Select(
     Struct(
         "version" / Int32sl,
         "mesh" / GbxNodeRef,
-        "collidable" / GbxBoolByte,
-        "collidableRef"
-        / If(
-            lambda this: not this.collidable, GbxNodeRef
-        ),  # HitShape, what is it? TODO
-        # StopIf(lambda this: not this.collidable and this.collidableRef != -1),
-        "uRest"
-        / Select(
-            Struct(
-                ExprValidator(  # TODO check if parent is X or Y
-                    Peek(Int32sl),
-                    lambda obj, ctx: obj is not None
-                    and (ctx._building or -1 <= obj < 1000)
-                    and obj != 0,
-                ),
-                "trigger_area" / GbxNodeRef,  # CPlugSurface
-                "u04" / GbxIso4,
-                "u05" / Int32sl,  # -1
-                "u06" / Int32sl,  # 0
-                "u07" / Int32sl,  # -1
-                "u08" / Int32sl,
-                "u09" / Int32sl,
-                "u10" / Int32sl,
-                "u11" / Int32sl,
-                "u12" / Int32sl,
-                "u13" / GbxIso4,
-                "u14" / Int32sl,
-            ),
-            Pass,
-        ),
+        "isMeshCollidable" / GbxBoolByte,
+        "collidableShape" / If(lambda this: not this.isMeshCollidable, GbxNodeRef),
     )
 )
 
 # 0915D
-Chunk_0915D000 = Struct("gameSkin" / GbxNodeRef, "folder" / GbxString)
+Chunk_0915D000 = Struct("Remapping" / GbxNodeRef, "RemapFolder" / GbxString)
 Chunk_0915D001 = Struct("name" / GbxLookbackString)
 
 # 09179
 Chunk_09179000 = Struct(
     "version" / Int32ul,
-    "u01" / GbxNodeRef,
+    "surf" / GbxNodeRef,
 )
 
 # 09187 NPlugItemPlacement_SClass
@@ -1223,7 +1208,7 @@ Chunk_090BB000 = (
             Struct(
                 "visual_index" / Int32sl,
                 "material_index" / Int32sl,
-                "u01" / Int32sl,
+                "u01" / Int32sl,  # unused, -1
                 StopIf(this._._.version < 1),
                 "lod" / Int32sl,
                 StopIf(this._._.version < 32),
@@ -1239,7 +1224,7 @@ Chunk_090BB000 = (
         "materials" / If(this.material_count == 0, PrefixedArray(Int32ul, GbxNodeRef)),
         "skel" / GbxNodeRef,
         StopIf(this.version < 1),
-        "u04" / PrefixedArray(Int32ul, Float32l),  # lod distance?
+        "lodDistances" / PrefixedArray(Int32ul, Float32l),  # lod distance?
         StopIf(this.version < 2),
         "vis_cst_type" / Int32sl,  # 1 - static
         StopIf(this.version < 3),
@@ -1277,10 +1262,13 @@ Chunk_090BB000 = (
                 "u03" / If(this.u02, GbxNodeRef),  # CPlugLight
                 "u04" / If(lambda this: not this.u02, GbxString),
                 "u05" / GbxIso4,
-                "u06" / Bytes(24),
-                "u12" / If(lambda this: False, Bytes(12)),  # this._.version >= 26 ??
+                "u06" / Bytes(12),  # 6*4bytes
+                "u12"
+                / If(
+                    this._.version >= 26, Bytes(12)
+                ),  # 3*4bytes, [1] and [2] = 0 if version < 26
                 "u15" / GbxBool,
-                "u16" / If(this.u15, Bytes(12)),
+                "u16" / If(this.u15, Bytes(12)),  # 3*4bytes
             ),
         ),
         "material_insts_lt_v16"
@@ -1296,6 +1284,7 @@ Chunk_090BB000 = (
         StopIf(this.version < 12),
         "flags" / Int32ul,
         # if version < 28, flags are adjusted, TODO?
+        # flags &= 0xfffffbff
         StopIf(this.version < 13),
         "u12" / Int32sl,
         StopIf(this.version < 14),
@@ -1325,7 +1314,7 @@ Chunk_090BB000 = (
         StopIf(this.version < 24),
         "u20" / Bytes(4),
         StopIf(this.version < 25),
-        "u21" / GbxNodeRef,
+        "icon" / GbxNodeRef,  # CPlugFileImg
         "u22" / GbxVec2,
         StopIf(this.version < 27),
         "u24" / GbxLookbackString,
@@ -1480,7 +1469,7 @@ Chunk_2E002012 = Struct(
     "orbitalRadiusBase" / GbxFloat,
     "orbitalPreviewAngle" / GbxFloat,
 )
-Chunk_2E002015 = Struct("object_info_type" / GbxEItemType) * "Item type"
+Chunk_2E002015 = Struct("itemType" / GbxEItemType) * "Item type"
 Chunk_2E002019 = (
     Struct(
         "version" / Int32ul,
@@ -1489,20 +1478,20 @@ Chunk_2E002019 = (
         StopIf(this.version < 3),
         "default_weapon_name" / GbxLookbackString,
         StopIf(this.version < 4),
-        "phy_model_custom" / GbxNodeRef,
+        "PhyModelCustom" / GbxNodeRef,
         StopIf(this.version < 5),
-        "vis_model_custom" / GbxNodeRef,
+        "VisModelCustom" / GbxNodeRef,
         StopIf(this.version < 6),
         "u01" / Int32ul,  # actions?
         StopIf(this.version < 7),
         "default_cam" / GbxEDefaultCam,
         StopIf(this.version < 8),
-        "entityModelEdition" / GbxNodeRef,
-        "entityModel" / GbxNodeRef,
+        "EntityModelEdition" / GbxNodeRef,
+        "EntityModel" / GbxNodeRef,
         StopIf(this.version < 13),
-        "u02" / GbxNodeRef,
+        "vfxFile" / GbxNodeRef,
         StopIf(this.version < 15),
-        "modifier" / GbxNodeRef,
+        "MaterialModifier" / GbxNodeRef,
     )
     * "Model"
 )
@@ -1527,10 +1516,10 @@ Chunk_2E00201F = Struct(
     "disableLightmap" / GbxBool,
     "u01" / Int32sl,
     StopIf(this.version < 11),
-    "u02" / Byte,
+    "u08" / Byte,
     StopIf(this.version < 12),
-    "defaultPodiumClips" / GbxNodeRef,  # Podium only?
-    "u04" / Int32sl,
+    "PodiumClipList" / GbxNodeRef,  # Podium only?
+    "IntroClipList" / GbxNodeRef,
 )
 Chunk_2E002020 = Struct(
     "version" / ExprValidator(Int32ul, obj_ >= 3),
@@ -1582,6 +1571,21 @@ Chunk_2E026000 = Struct(
 Chunk_2E027000 = Struct(
     "version" / ExprValidator(Int32ul, obj_ >= 4),
     "staticObject" / GbxNodeRef,
+    StopIf(this.version < 2),
+    "props"
+    / Struct(
+        "triggerArea" / GbxNodeRef,  # CPlugSurface
+        "u01" / GbxIso4,
+        "emitterModel" / GbxNodeRef,  # CPlugParticleEmitterModel
+        "actionModels"
+        / PrefixedArray(Int32ul, GbxNodeRef),  # CGameCtnPlaygroundActionModel
+        "u03" / GbxNodeRef,  # unused?
+        "u04" / Array(5, GbxString),
+        "u05" / GbxIso4,
+        "u06" / Int32sl,
+    ),
+    StopIf(this.version < 5),
+    "u07" / GbxBoolByte,
 )
 
 # 2F086 VegetTreeModel
