@@ -541,11 +541,11 @@ def update_0900C000(node):
     # remove native materials from surf
     node.body[0].chunk.materials = ListContainer([])
 
-    for materialId in node.body[0].chunk.materialsIds:
-        materialId.gameplayId = "ReactorBoost2_Oriented"
+    # for materialId in node.body[0].chunk.materialsIds:
+    #     materialId.gameplayId = "ReactorBoost2_Oriented"
 
-    for tri in node.body[0].chunk.surf.data.triangles:
-        tri.materialId.gameplayId = "ReactorBoost2_Oriented"
+    # for tri in node.body[0].chunk.surf.data.triangles:
+    #     tri.materialId.gameplayId = "ReactorBoost2_Oriented"
 
 
 def trigger(data, data2):
@@ -634,99 +634,175 @@ def trigger2(data):
     data.nodes[2].body.isMeshCollidable = False
     data.nodes[2].body.collidableShape = -1
 
-    data.body[16].chunk.u02 = 0
+    data.body[16].chunk.u08 = 0
+
+    return generate_node(data)
+
+
+def rotator2(data):
+    for node in data.nodes:
+        if type(node) == Container:
+            if node.header.class_id == 0x090BB000:
+                update_090BB000(node)
+            if node.header.class_id == 0x0900C000:
+                update_0900C000(node)
+
+    # author
+    # data.header.chunks.data[0].meta.id = ""
+    # data.header.chunks.data[0].meta.author = "schadocalex"
+    # data.header.chunks.data[0].catalog_position = 1
+    # data.header.chunks.data[2] = bytes([0, 0, 0, 0, 0, 0, 0, 0])
+
+    # if data.header.class_id == 0x2E002000:
+    #     data.body[1].chunk.meta.id = ""
+    #     data.body[1].chunk.meta.author = "schadocalex"
+    #     data.body[5].chunk.catalogPosition = 1
+
+    data.body[15].chunk.baseItem = -1
+    # data.body[12].chunk.MaterialModifier = -1
+    data.nodes = data.nodes[:54]
+
+    # data.nodes[6].body.rest = data2.body.rest
+
+    return generate_node(data)
+
+
+def rotator3(data):
+    for node in data.nodes:
+        if type(node) == Container:
+            # if node.header.class_id == 0x090BB000:
+            #     update_090BB000(node)
+            if node.header.class_id == 0x0900C000:
+                update_0900C000(node)
+
+    data.nodes[2] = Container(
+        header=Container(class_id=0x09144000),
+        body=Container(
+            version=13,
+            isStatic=False,
+            dynamizeOnSpawn=False,
+            mesh=3,
+            staticShape=data.nodes[1].body[0].chunk.props.triggerArea,
+            dynaShape=data.nodes[1].body[0].chunk.props.triggerArea,
+            breakSpeedKmh=100.0,
+            mass=100.0,
+            lightAliveDurationSc_Min=5.0,
+            lightAliveDurationSc_Max=7.0,
+            rest=b"\x01\x00\x00\x00\x01\x00\x00\x00\x04\x00\x01\x00\x00\x00\x0A\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xFF\xFF\xFF\xFF\x00\x00\x00\x00\x00\x00\x00\x00\xFF\xFF\xFF\xFF",
+        ),
+    )
+
+    kinematic_node_index = len(data.nodes)
+    data.nodes.append(
+        Container(
+            header=Container(class_id=0x2F0CA000),
+            body=Container(
+                version=0,
+                subVersion=3,
+                TransAnimFunc=Container(
+                    TimeIsDuration=True,
+                    SubFuncs=ListContainer(
+                        [
+                            Container(ease="Linear", reverse=False, duration=3000),
+                            Container(ease="Linear", reverse=True, duration=3000),
+                        ]
+                    ),
+                ),
+                RotAnimFunc=Container(
+                    TimeIsDuration=True,
+                    SubFuncs=ListContainer(
+                        [
+                            Container(ease="Linear", reverse=False, duration=3000),
+                            Container(ease="Linear", reverse=True, duration=3000),
+                        ]
+                    ),
+                ),
+                ShaderTcType="No",
+                ShaderTcVersion=0,
+                ShaderTcAnimFunc=ListContainer(
+                    []
+                    # [Container(duration=1000, u01=0), Container(duration=1000, u01=1)]
+                ),
+                ShaderTcData_TransSub=None,
+                # Container(
+                #     NbSubTexture=5,
+                #     NbSubTexturePerLine=1,
+                #     NbSubTexturePerColumn=8,
+                #     TopToBottom=False,
+                # ),
+                transAxis="X",
+                TransMin=-0.0,
+                TransMax=0.0,
+                rotAxis="Y",
+                AngleMinDeg=-180.0,
+                AngleMaxDeg=180.0,
+            ),
+        ),
+    )
+
+    data.nodes[1] = Container(
+        header=Container(class_id=0x09145000),
+        body=Container(
+            version=11,
+            creationTime=datetime.datetime.now(),
+            url="",
+            u01=b"\x00\x00\x00\x00",
+            subEntityModelsCount=2,  # todo auto recompute
+            u02=b"\x00\x00\x00\x00",
+            subEntityModels=ListContainer(
+                [
+                    Container(
+                        model=2,
+                        rot=Container(x=0, y=0, z=0, w=1),
+                        pos=Container(x=0, y=0, z=0),
+                        dynaParams=Container(
+                            chunkId=0x2F0B6000,
+                            textureId=2,
+                            u01=1,
+                            CastStaticShadow=False,
+                            isKinematic=True,
+                            u04=-1,
+                            u05=-1,
+                            u06=-1,
+                        ),
+                        u01=b"\xff\xff\xff\xff\x00\x00\x00\x00",
+                    ),
+                    Container(
+                        model=kinematic_node_index,
+                        rot=Container(x=0, y=0, z=0, w=1),
+                        pos=Container(x=0, y=0, z=0),
+                        constraintParams=Container(
+                            chunkId=0x2F0C8000,
+                            Ent1=0,
+                            Ent2=-1,
+                            Pos1=Container(x=0, y=0, z=0),
+                            Pos2=Container(x=0, y=0, z=0),
+                        ),
+                        u01=b"\x00\x00\x00\x00\x00\x00\x00\x00",
+                    ),
+                ]
+            ),
+        ),
+    )
+
+    data.nodes[2].body.isMeshCollidable = False
+    data.nodes[2].body.collidableShape = -1
+
+    data.body[16].chunk.u08 = 0
 
     return generate_node(data)
 
 
 if __name__ == "__main__":
-    file = "20_RectG_L32W32H05_#3.Item.Gbx"
-
-    file = "Fall.Item.Gbx"
-    file = "GateCheckpointCenter8mv2.Item.Gbx"
-    file = "RampMedv2.Item.Gbx"
-    file = "Z47_LoopStartCakeOut16_#7.Item.Gbx"
-    file = "test_circle.Item.Gbx"
-    file = "TunnelSupportPillarLarge16m.Item.Gbx"
-
-    file = "Cactus.StaticObject.Gbx"
-    file = "CactusMedium.Item.Gbx"
-    file = "CactusB.StaticObject.Gbx"
-    file = "Cactus.Mesh.Gbx"
-
-    file = "C:\\Users\\schad\\Documents\\Trackmania\\Scripts\\test.Item.Gbx"
-    file = "C:\\Users\\schad\\Documents\\Trackmania\\Scripts\\test_boost2.Item.Gbx"
-
-    # file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\RTCP.Item.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\CactusMedium.Item.Gbx"
-    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\test_gbx2.Item.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\PlaceParam\\RoadSign.PlaceParam.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\PlaceParam\\TunnelSupport.PlaceParam.Gbx"
-    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\test_circle.Item.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\CactusVerySmall.Item.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Static\\Vegetation\\CactusE.Mesh.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Dyna\\ObstaclePusher\\ObstaclePusher8mPiston.Mesh.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Dyna\\ObstaclePusher\\ObstaclePusher8mPiston.DynaObject.Gbx"
-
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Dyna\\Flag\\Flag.DynaObject.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Dyna\\Flag\\Flag.Mesh.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\Flag16m.Item.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\Flag\\Flag16m.Prefab.Gbx"
-
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\FallTreeSmall.Item.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\VegetTreeModel\\FallTreeVerySmall.VegetTreeModel.Gbx"
-
-    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\Straight_Air.Prefab.Gbx"
-
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Water\\Base_Air.Prefab.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Water\\WallCross_Air.Prefab.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Water\\WallVFCMiddle_Air.Prefab.Gbx"
-
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\TrackToGrass\\Straight.Prefab.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\GameCtnBlockInfo\\GameCtnBlockInfoClassic\\RoadTechStraight.EDClassic.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\RoadTech\\Straight_Air.Prefab.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\GameCtnBlockInfo\\GameCtnBlockInfoClassic\\StructureSupportCross.EDClassic.Gbx"
-
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Structure\\Pillar_FCBGround.Prefab.Gbx"
-
-    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\Clouds\\Media\\Solid\\Cloudy\\Cloudy01.Solid.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ShowFogger16M.Item.Gbx"
-
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Static\\Vegetation\\CactusB.Mesh.Gbx"
-    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\test_circle.Item.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\Winter.Item.Gbx"
-
     file = "C:\\Users\\schad\\Openplanet4\\Extract\\GameData\\Items\\Valley\\Trains\\Loco.Item.Gbx"
     file = "C:\\Users\\schad\\Openplanet4\\Extract\\GameData\\Valley\\Media\\Mesh\\Loco.Mesh.gbx"
 
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ObstaclePusher4m.Item.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\ObstaclePusher\\ObstaclePusher4m.Prefab.Gbx"
-
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\SupportTubeStraightX1.Item.Gbx"
-    file = "C:\\Users\\schad\\Documents\\Trackmania\\Materials\\test.Mat.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Material\\ItemCactus.Material.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\CactusMedium.Item.Gbx"
-
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ObstacleTube6m.Item.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\ObstacleTube\\ObstacleTube6m.Prefab.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\CustomRotatingTube.Item.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\BigWheel.Item.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\RotatingLight.Item.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\BigCircleRotate.Item.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\CustomTransCube.Item.Gbx"
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ObstacleTube6mRotateLevel1.Item.Gbx"
-
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\InflatableMat4mCurve3.Item.Gbx"
-
-    file = "C:\\Users\\schad\\Documents\\Maniaplanet\\Items\\test.Mesh.Gbx"
-    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\test.Item.Gbx"
-
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\Gate\\Special4m.Prefab.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\InflatableMat\\InflatableMat4mCurve3.Prefab.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\InflatableTube\\InflatableTubeStraight.Prefab.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\InflatableMat\\InflatableMat4mCurve3OutFC.Prefab.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\InflatableMat\\InflatableMat4mCurve3.Prefab.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\InflatableMat\\InflatableMat1mFC.Prefab.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\GateSpecial4mTurbo.Item.Gbx"
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\GateSpecial4mBoost2.Item.Gbx"
-
-    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ShowFogger16M.Item.Gbx"
-    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\CustomTrigger32mBoost2.Item.Gbx"
 
     data, nb_nodes, win = parse_node(file, True, need_ui=True)
     print(f"total nodes: {nb_nodes}")
@@ -738,8 +814,25 @@ if __name__ == "__main__":
     # file2 = (
     #     "C:\\Users\\schad\\Documents\\Trackmania\\Items\\GateSpecial4mTurbo.Item.Gbx"
     # )
-    # file2 = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\GateSpecial4mTurbo.Item.Gbx"
-    # data2, nb_nodes2, win2 = parse_node(file2, True, need_ui=True)
+    file2 = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ObstacleTurnstile4mSimpleOscillateLevel0.Item.Gbx"
+    file2 = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Modifier\\ItemObstacleDiscontinuous\\AnimTurnstileLevel0.KinematicConstraint.Gbx"
+    file2 = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Modifier\\ItemObstacle\\AnimPusher4mLevel2.KinematicConstraint.Gbx"
+    file2 = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ObstaclePusher4mLevel0.Item.Gbx"
+    data2, nb_nodes2, win2 = parse_node(file2, True, need_ui=True)
+
+    # bytes3, win3 = cactus(data)
+    # bytes3, win3 = rotator(data)
+    # bytes3, win3 = trigger(data, data2)
+    # bytes3, win3 = trigger2(data)
+    # bytes3, win3 = rotator2(data)
+    # bytes3, win3 = rotator3(data)
+
+    # with open(
+    #     "C:\\Users\\schad\\Documents\\Trackmania\\Items\\Export\\"
+    #     + os.path.basename(file).replace(".Item", ".Item"),
+    #     "wb",
+    # ) as f:
+    #     f.write(bytes3)
 
     # with open("result2.csv", "w") as f:
     #     import glob
@@ -812,6 +905,7 @@ if __name__ == "__main__":
 
     # Export obj
     # for offset, node in enumerate(data.nodes):
+    #     offset = 0
     #     if type(node) == Container and node.header.class_id == 0x090BB000:
     #         obj_chunk = node.body[0].chunk
     #         for i, geom in enumerate(obj_chunk.shaded_geoms):
@@ -831,7 +925,7 @@ if __name__ == "__main__":
     #                 + f"_lod{geom.lod}_{idx}.obj"
     #             )
     #             mat_idx = obj_chunk.materials[geom.material_index]
-    #             mat = "osef"  # data.nodes[offset + mat_idx].body[0].chunk.materialName
+    #             mat = data.nodes[offset + mat_idx].body[0].chunk.materialName
     #             print(obj_filepath)
     #             export_obj(obj_filepath, vertices, normals, uv0, indices, mat)
 
@@ -907,29 +1001,6 @@ if __name__ == "__main__":
     #         indices,
     #         "ItemFlag",
     #     )
-
-    # MODIFICATIONS
-
-    # data.nodes[3].body[0].chunk.materialFolderName = ""
-
-    # data.nodes[6].body = data2.body
-    # data.nodes[6].body[0].chunk.userTextures[
-    #     0
-    # ].texture = ":user:\\Materials\\RoadTech_D.dds"
-    # # TODO test basetexture without .dds
-    # bytes3, win3 = generate_node(data)
-
-    # bytes3, win3 = cactus(data)
-    # bytes3, win3 = rotator(data)
-    # bytes3, win3 = trigger(data, data2)
-    # bytes3, win3 = trigger2(data)
-
-    # with open(
-    #     "C:\\Users\\schad\\Documents\\Trackmania\\Items\\Export\\"
-    #     + os.path.basename(file).replace(".Item", ".Item"),
-    #     "wb",
-    # ) as f:
-    #     f.write(bytes3)
 
     app = QApplication.instance() or QApplication(sys.argv)
     app.exec()

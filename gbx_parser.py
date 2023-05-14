@@ -61,6 +61,7 @@ from construct import (
 )
 from numpy import byte
 from gbx_enums import (
+    GbxEAnimEase,
     GbxEAutoTerrainPlaceType,
     GbxEDirection,
     GbxEMultiDirByte,
@@ -68,6 +69,7 @@ from gbx_enums import (
     GbxEItemType,
     GbxEDefaultCam,
     GbxELayerType,
+    GbxEShaderTcType,
     GbxEWayPointType,
     GbxETexAddress,
     GbxESurfType,
@@ -78,6 +80,7 @@ from gbx_enums import (
     GbxEMultiDir,
     GbxECardinalDir,
     GbxEVariantBaseType,
+    GbxEAxis,
 )
 
 GbxCompressedBody = Struct(
@@ -1085,19 +1088,40 @@ Chunk_09079007 = Struct(
     "custom_material" / GbxNodeRef,
 )
 
-# 09144 DynaObject
+# 09144 CPlugDynaObjectModel
 Chunk_09144000 = Struct(
     "version" / Int32ul,
-    "isStatic" / GbxBool,
-    "dynamizeOnSpawn" / GbxBool,
-    "mesh" / GbxNodeRef,
-    "staticShape" / GbxNodeRef,
-    "dynaShape" / GbxNodeRef,
-    "breakSpeedKmh" / GbxFloat,
-    "mass" / GbxFloat,
-    "lightAliveDurationSc_Min" / GbxFloat,
-    "lightAliveDurationSc_Max" / GbxFloat,
-    "rest" / Bytes(43),
+    "IsStatic" / GbxBool,  # si c'est un dyna mais qui reste tjs statique
+    "DynamizeOnSpawn" / GbxBool,
+    "Mesh" / GbxNodeRef,
+    "DynaShape"
+    / GbxNodeRef,  # Boite de collision apres destruction, ne supporte pas mesh quelconque
+    "StaticShape" / GbxNodeRef,  # Boite de collision avant destruction
+    "DestructibleModel"
+    / Struct(
+        "BreakSpeedKmh" / If(this._.version > 1, GbxFloat),
+        "Mass" / If(this._.version > 2, GbxFloat),
+        "LightAliveDurationSc.Min" / If(this._.version > 4, GbxFloat),
+        "LightAliveDurationSc.Max" / If(this._.version > 4, GbxFloat),
+    ),
+    # If version > 3
+    "u01" / Int32sl,
+    "u02" / Int32sl,
+    "u03" / Byte,
+    "u04" / Byte,
+    "u05" / Int32sl,
+    "u06" / Int32sl,
+    # If version > 5
+    "u07" / Byte,
+    "u08" / Int32sl,
+    "u09" / Int32sl,
+    "LocAnim" / If(this.version > 6, GbxNodeRef),
+    "u10" / If(this.version > 7, Int32sl),
+    "LocAnimIsPhysical"
+    / If(
+        this.version > 9, GbxBool
+    ),  # LocAnim purement visuel ou pas. evitons les calculs physiques si pas necessaire
+    "WaterModel" / GbxNodeRef,
 )
 
 
@@ -1110,7 +1134,7 @@ def newPropSubEntityModel(obj, ctx):
     return obj
 
 
-# 09145 SPlugPrefab
+# 09145 CPlugPrefab
 Chunk_09145000 = Select(
     Struct(
         "version" / Int32ul,
@@ -1126,8 +1150,30 @@ Chunk_09145000 = Select(
                 "model" / GbxNodeRef,
                 "rot" / GbxQuat,
                 "pos" / GbxVec3,
-                "params"
-                / Pass,  # TODO switch on class: 0x2F0B6000 NPlugDynaObjectModel_SInstanceParams, 0x2F0C8000 NPlugDyna_SPrefabConstraintParams, else Pass
+                "dynaParams"
+                / Optional(  # NPlugDynaObjectModel_SInstanceParams
+                    Struct(
+                        "chunkId" / ExprValidator(Hex(Int32ul), obj_ == 0x2F0B6000),
+                        "TextureId" / Int32sl,
+                        "u01" / GbxFloat,
+                        # "!! Attention reserve a de rares objets dont l\'animation conserve a peu pres la shadow (tube qui tourne sur lui meme /ex), cette shadow (vue au loin) ne sera pas animee !!"
+                        "CastStaticShadow" / GbxBool,
+                        "isKinematic" / GbxBool,
+                        "u04" / GbxFloat,
+                        "u05" / GbxFloat,
+                        "u06" / GbxFloat,
+                    )
+                ),
+                "constraintParams"
+                / Optional(  # NPlugDyna_SPrefabConstraintParams
+                    Struct(
+                        "chunkId" / ExprValidator(Hex(Int32ul), obj_ == 0x2F0C8000),
+                        "Ent1" / Int32sl,
+                        "Ent2" / Int32sl,
+                        "Pos1" / GbxVec3,
+                        "Pos2" / GbxVec3,
+                    )
+                ),
                 "u01" / Bytes(8),  # LodGroupId?
             ),
         ),
@@ -1136,11 +1182,31 @@ Chunk_09145000 = Select(
         "version" / Int32ul,
         "creationTime" / GbxFileTime,
         "url" / GbxString,
-        "u01" / Bytes(4),
+        "u01" / Bytes(4),  # kind of timestamp?
         "subEntityModelsCount" / Int32ul,
         "u02" / Bytes(4),
-        "model1" / GbxNodeRef,
-        "greedyRest" / GreedyBytes * newPropSubEntityModel,
+        "sub1"
+        / Struct(
+            "model" / GbxNodeRef,
+            "rot" / GbxQuat,
+            "pos" / GbxVec3,
+            "dynaParams"
+            / Optional(  # NPlugDynaObjectModel_SInstanceParams
+                Struct(
+                    "chunkId" / ExprValidator(Int32ul, obj_ == 0x2F0B6000),
+                    "todo" / Bytes(28),
+                )
+            ),
+            "constraintParams"
+            / Optional(  # NPlugDyna_SPrefabConstraintParams
+                Struct(
+                    "chunkId" / ExprValidator(Int32ul, obj_ == 0x2F0C8000),
+                    "todo" / Bytes(32),
+                )
+            ),
+            "u01" / Bytes(8),  # LodGroupId?
+        ),
+        "rest" / GreedyBytes,
     ),
 )
 
@@ -1154,7 +1220,32 @@ Chunk_09159000 = Select(
     )
 )
 
-# 0915D
+# 0915C CPlugFxSystem
+Chunk_0915C000 = Struct(
+    "version" / Int32sl,
+    "u01" / Int32sl,  # 8
+    "u02" / Int32sl,  # 0 - 5, type?
+    "u03"
+    / Switch(
+        this.u02,
+        {
+            0: Struct(
+                "name" / GbxLookbackString,
+            ),
+        },
+    ),
+    "u03" / Int32sl,
+    "u04" / Int32sl,
+    "name2" / GbxLookbackString,
+    "u05" / Int32sl,
+    "u06" / Int32sl,
+    "u07" / Array(10, GbxString),
+    "u08" / Int32sl,
+    "u09" / Array(2, GbxString),
+    "u10" / Bytes(16),
+)
+
+# 0915D CPlugGameSkinAndFolder
 Chunk_0915D000 = Struct("Remapping" / GbxNodeRef, "RemapFolder" / GbxString)
 Chunk_0915D001 = Struct("name" / GbxLookbackString)
 
@@ -1621,7 +1712,7 @@ Chunk_2F086000 = Struct(
     "rest" / GbxBytesUntilFacade,
 )
 
-# 2F0BC ???
+# 2F0BC NPlugItem_SVariantList
 Chunk_2F0BC000 = Struct(
     "version" / Int32ul,
     "variants"
@@ -1631,7 +1722,47 @@ Chunk_2F0BC000 = Struct(
 )
 
 # 2F0CA KinematicConstraint
-Chunk_2F0CA000 = Struct("rest" / GreedyBytes)
+GbxSubAnimFunc = Struct(
+    "ease" / GbxEAnimEase,
+    "reverse" / GbxBoolByte,
+    "duration" / Int32ul,
+)
+GbxAnimFunc = Struct(
+    "TimeIsDuration" / GbxBool,
+    "SubFuncs" / PrefixedArray(Int32ul, GbxSubAnimFunc),
+)
+Chunk_2F0CA000 = Struct(
+    "version" / Int32sl,
+    "subVersion" / Int32sl,
+    "TransAnimFunc" / GbxAnimFunc,
+    "RotAnimFunc" / GbxAnimFunc,
+    "ShaderTcType" / GbxEShaderTcType,
+    "ShaderTcVersion" / Int32sl,
+    "ShaderTcAnimFunc"
+    / PrefixedArray(
+        Int32ul,
+        Struct(
+            "Duration" / Int32ul,
+            "TextureId" / Int32sl,
+        ),
+    ),
+    "ShaderTcData_TransSub"
+    / If(
+        this.ShaderTcType == 1,
+        Struct(
+            "NbSubTexture" / Int32ul,
+            "NbSubTexturePerLine" / Int32ul,
+            "NbSubTexturePerColumn" / Int32ul,
+            "TopToBottom" / GbxBool,
+        ),
+    ),
+    "TransAxis" / GbxEAxis,
+    "TransMin" / GbxFloat,
+    "TransMax" / GbxFloat,
+    "RotAxis" / GbxEAxis,
+    "AngleMinDeg" / GbxFloat,
+    "AngleMaxDeg" / GbxFloat,
+)
 
 BodyChunkId_to_struct.update(
     {
@@ -1700,6 +1831,9 @@ BodyChunkId_to_struct.update(
         # 09079
         0x09079001: Chunk_09079001,
         0x09079007: Chunk_09079007,
+        # 090BA
+        # 0x090BA000: Bytes(102),
+        # 0x090F9000: Bytes(56),
         # 090BB
         0x090BB000: Chunk_090BB000,
         # 090F4
@@ -1715,6 +1849,8 @@ BodyChunkId_to_struct.update(
         0x09145000: Chunk_09145000,
         # 09159
         0x09159000: Chunk_09159000,
+        # 0915C
+        0x0915C000: Chunk_0915C000,
         # 0915D
         0x0915D000: Chunk_0915D000,
         0x0915D001: Chunk_0915D001,

@@ -222,3 +222,43 @@ GbxECardinalDir = Enum(Byte, North=0, East=1, South=2, West=3)
 GbxEVariantBaseType = Enum(Byte, Inherit=0, No=1, Conductor=2, Generator=3)
 GbxEAutoTerrainPlaceType = Enum(Int32ul, Auto=0, Force=1, DoNotPlace=2, DoNotDestroy=3)
 GbxEDirection = Enum(Int32ul, North=0, East=1, South=2, West=3)
+GbxEAxis = Enum(Byte, X=0, Y=1, Z=2)
+GbxEAnimEase = Enum(
+    Byte,
+    Constant=0,
+    Linear=1,
+    QuadIn=2,
+    QuadOut=3,
+    QuadInOut=4,
+    CubicIn=5,
+    CubicOut=6,
+    CubicInOut=7,
+    QuartIn=8,
+    QuartOut=9,
+    QuartInOut=10,
+    QuintIn=11,
+    QuintOut=12,
+    QuintInOut=13,
+    SineIn=14,
+    SineOut=15,
+    SineInOut=16,
+    ExpIn=17,
+    ExpOut=18,
+    ExpInOut=19,
+    CircIn=20,
+    CircOut=21,
+    CircInOut=22,
+    BackIn=23,
+    BackOut=24,
+    BackInOut=25,
+    ElasticIn=26,
+    ElasticOut=27,
+    ElasticInOut=28,
+    ElasticIn2=29,
+    ElasticOut2=30,
+    ElasticInOut2=31,
+    BounceIn=32,
+    BounceOut=33,
+    BounceInOut=34,
+)
+GbxEShaderTcType = Enum(Int32ul, No=0, TransSubTexture=1)
