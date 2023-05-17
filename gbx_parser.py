@@ -1356,7 +1356,7 @@ Chunk_090BB000 = (
                 "u06" / Bytes(12),  # 6*4bytes
                 "u12"
                 / If(
-                    this._.version >= 26, Bytes(12)
+                    this._._.version >= 26, Bytes(12)
                 ),  # 3*4bytes, [1] and [2] = 0 if version < 26
                 "u15" / GbxBool,
                 "u16" / If(this.u15, Bytes(12)),  # 3*4bytes
