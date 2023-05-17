@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Slot, Qt
 from PySide6.QtGui import QTextCursor
-
+from runtime_params import hex_window_width_px
 
 class AddrWidget(QTextEdit):
     def __init__(self, *args, **kwargs):
@@ -33,7 +33,7 @@ class HexWidget(QTextEdit):
         self.setLineWrapColumnOrWidth(49)
         self.setFontFamily("Courier New")
         self.setFontPointSize(14)
-        self.setFixedWidth(538)
+        self.setFixedWidth(hex_window_width_px)
 
     def set_bytes(self, raw_bytes):
         text = ""
