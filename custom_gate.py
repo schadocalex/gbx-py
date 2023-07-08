@@ -3,6 +3,7 @@
 import sys
 import os
 import datetime
+from copy import deepcopy
 from headless_parser import parse_node, generate_node
 from utils import update_surf
 
@@ -36,18 +37,21 @@ GATES_TO_GAMEPLAYID = {
     "Boost2": "ReactorBoost2_Oriented",
 }
 TEXTURES_LINK_REMAPPING = {
-    "TriggerFX": lambda gate: "Stadium\\Media\\Modifier\\" + gate + "\\TriggerFX",
-    "SpecialFX": lambda gate: "Stadium\\Media\\Modifier\\" + gate + "\\SpecialFX",
-    "Sign": lambda gate: "Stadium\\Media\\Modifier\\" + gate + "\\Sign",
-    "SignOff": lambda gate: "Stadium\\Media\\Modifier\\" + gate + "\\SignOff",
-    "Decal": lambda gate: "Stadium\\Media\\Modifier\\" + gate + "\\Decal",
+    "TriggerFXTurbo": lambda gate: "Stadium\\Media\\Modifier\\" + gate + "\\TriggerFX",
+    "SpecialFXTurbo": lambda gate: "Stadium\\Media\\Modifier\\" + gate + "\\SpecialFX",
+    "SpecialSignTurbo": lambda gate: "Stadium\\Media\\Modifier\\" + gate + "\\Sign",
+    "SpecialSignOff": lambda gate: "Stadium\\Media\\Modifier\\"
+    + gate
+    + "\\Sign"
+    + ("Off" if gate in ["Turbo", "Turbo2", "Boost", "Boost2"] else ""),
+    "DecalSpecialTurbo": lambda gate: "Stadium\\Media\\Modifier\\" + gate + "\\Decal",
 }
 TEXTURES_NAME_REMAPPING = {
-    "TriggerFX": lambda gate: gate + "_TriggerFX",
-    "SpecialFX": lambda gate: gate + "_SpecialFX",
-    "Sign": lambda gate: gate + "_Sign",
-    "SignOff": lambda gate: gate + "_SignOff",
-    "Decal": lambda gate: gate + "_Decal",
+    "TriggerFXTurbo": lambda gate: gate + "_TriggerFX",
+    "SpecialFXTurbo": lambda gate: gate + "_SpecialFX",
+    "SpecialSignTurbo": lambda gate: gate + "_Sign",
+    "SpecialSignOff": lambda gate: gate + "_SignOff",
+    "DecalSpecialTurbo": lambda gate: gate + "_Decal",
 }
 
 
@@ -98,9 +102,6 @@ def add_gate_from_trigger(data):
         ),
     )
 
-    # data.nodes[2].body.isMeshCollidable = False
-    # data.nodes[2].body.collidableShape = -1
-
     return data
 
 
@@ -137,15 +138,21 @@ if __name__ == "__main__":
     ori_item_name = data.body[2].chunk.string
 
     for gate in GATES:
-        data.header.chunks.data[0].file_name = ori_file_name.replace(BASE_GATE, gate)
-        data.body[2].chunk.string = ori_item_name.replace(BASE_GATE, gate)
+        data_gate = deepcopy(data)
 
-        update_surf(data.nodes[surf_idx], "NotCollidable", GATES_TO_GAMEPLAYID[gate])
+        data_gate.header.chunks.data[0].file_name = ori_file_name.replace(
+            BASE_GATE, gate
+        )
+        data_gate.body[2].chunk.string = ori_item_name.replace(BASE_GATE, gate)
+
+        update_surf(
+            data_gate.nodes[surf_idx], "NotCollidable", GATES_TO_GAMEPLAYID[gate]
+        )
 
         if gate != BASE_GATE:
-            change_textures(data, gate)
+            change_textures(data_gate, gate)
 
-        new_bytes = generate_node(data, True)
+        new_bytes = generate_node(data_gate, True)
 
         export_file_name = export_dir + os.path.basename(file).replace(BASE_GATE, gate)
         with open(export_file_name, "wb") as f:

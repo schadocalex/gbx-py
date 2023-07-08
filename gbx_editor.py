@@ -1329,9 +1329,20 @@ if __name__ == "__main__":
         "GameData/Stadium/Items/ObstacleTube6mRotateLevel1.Item.Gbx"
     )
 
-    file = get_ud_tm2020_path("Items\\CustomBoost32_Turbo.Item.Gbx")
+    file = get_ud_tm2020_path("Items/CustomBoost32_Turbo.Item.Gbx")
+    file = get_ud_tm2020_path("Items/BoostDown_Turbo.Item.Gbx")
+    file = get_ud_tm2020_path("Items/ExportGates/BoostDown_SlowMotion.Item.Gbx")
+    file = get_extract_tm2020_path(
+        "GameData/Stadium/Media/Prefab/Items/Gate/Special8m.Prefab.Gbx"
+    )
+    file = get_extract_tm2020_path(
+        "GameData/Stadium/Items/GateSpecial8mFragile.Item.Gbx"
+    )
+    file = get_extract_tm2020_path(
+        "GameData/Stadium/Media/Modifier/Fragile.TerrainModifier.Gbx"
+    )
 
-    data, nb_nodes, win = parse_node(file, False, need_ui=True)
+    data, nb_nodes, win = parse_node(file, True, need_ui=True)
     print(f"total nodes: {nb_nodes}")
 
     # file2 = get_ud_tm2020_path("Materials/wall2.Mat.Gbx")
@@ -1424,9 +1435,6 @@ if __name__ == "__main__":
     #     if type(node) == Container and node.header.class_id == 0x090BB000:
     #         obj_chunk = node.body[0].chunk
     #         for i, geom in enumerate(obj_chunk.shaded_geoms):
-    #             export_dir = (
-    #                 get_ud_tm2020_path("Items/ExportObj/")
-    #             )
     #             idx = obj_chunk.visuals[geom.visual_index]
 
     #             root_node = data  # node if "nodes" in node else node.root_node
@@ -1437,16 +1445,17 @@ if __name__ == "__main__":
     #             indices = (
     #                 root_node.nodes[idx].body[8].chunk.index_buffer[0].chunk.indices
     #             )
-    #             obj_filepath = (
-    #                 export_dir
-    #                 + os.path.basename(file).split(".")[0]
-    #                 + f"_{node_index}_lod{geom.lod}_{idx}.obj"
-    #             )
     #             # mat_idx = obj_chunk.custom_materials[
     #             #     geom.material_index
     #             # ].material_user_inst
     #             mat_idx = obj_chunk.materials[geom.material_index]
     #             mat = root_node.nodes[mat_idx].body[0].chunk.link
+
+    #             obj_filepath = get_ud_tm2020_path(
+    #                 "Items/ExportObj/"
+    #                 + os.path.basename(file).split(".")[0]
+    #                 + f"_{node_index}_lod{geom.lod}_{idx}.obj"
+    #             )
     #             print(obj_filepath)
     #             export_obj(obj_filepath, vertices, normals, uv0, indices, mat)
 
