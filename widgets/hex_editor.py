@@ -171,9 +171,9 @@ class GbxHexEditor(QWidget):
         self.setFixedWidth(860)
 
     def set_bytes(self, raw_bytes):
-        if len(raw_bytes) >= 10000:
+        if len(raw_bytes) >= 30000:
             print(f"too many bytes {len(raw_bytes)}")
-            raw_bytes = raw_bytes[:10000]
+            raw_bytes = raw_bytes[:30000]
         self.raw_bytes = raw_bytes
 
         self.addr_widget.set_bytes(raw_bytes)

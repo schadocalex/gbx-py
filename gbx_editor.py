@@ -211,6 +211,7 @@ def create_custom_material2(material_name):
                         version=11,
                         isUsingGameMaterial=False,
                         materialName="TM_" + material_name + "_asset",
+                        # materialName=material_name,
                         model="",
                         baseTexture="",
                         surfacePhysicId=6,
@@ -272,6 +273,10 @@ def parse_node(file_path, parse_deps=True, node_offset=0, path=None, need_ui=Tru
         data = GbxStruct.parse(
             raw_bytes, gbx_data=gbx_data, nodes=nodes, filename=file_path2
         )
+        # for i, n in enumerate(nodes):
+        #     if type(n) is Container:
+        #         n.root_node = data
+
         data.nodes = ListContainer(nodes)
         data.node_offset = node_offset
         data.path = path
@@ -306,9 +311,9 @@ def parse_node(file_path, parse_deps=True, node_offset=0, path=None, need_ui=Tru
                 data.nodes[external_node.node_index] = create_custom_material2(
                     material_name
                 )
-            # print(
-            #     "  " * (depth + 1) + f"- {material_name} Material (1 custom node)"
-            # )
+                # print(
+                #     "  " * (depth + 1) + f"- {material_name} Material (1 custom node)"
+                # )
             elif external_node.ref in path:
                 print(
                     "  " * (depth + 1)
@@ -316,17 +321,25 @@ def parse_node(file_path, parse_deps=True, node_offset=0, path=None, need_ui=Tru
                 )
             elif parse_deps:
                 # print(external_node.ref + " " + str(node_offset))
-                ext_node_data, nb_sub_nodes, win = parse_node(
-                    all_folders[external_node.folder_index] + external_node.ref,
-                    parse_deps,
-                    node_offset,
-                    path[:],
-                    False,
+                ext_node_filepath = (
+                    all_folders[external_node.folder_index] + external_node.ref
                 )
-                nb_nodes += nb_sub_nodes
-                node_offset += nb_sub_nodes
-                data.nodes[external_node.node_index] = ext_node_data
-                data.nodes.extend(ext_node_data.nodes[1:])
+                if not os.path.exists(ext_node_filepath):
+                    data.nodes[external_node.node_index] = (
+                        "[NOT FOUND] " + ext_node_filepath
+                    )
+                else:
+                    ext_node_data, nb_sub_nodes, win = parse_node(
+                        all_folders[external_node.folder_index] + external_node.ref,
+                        parse_deps,
+                        node_offset,
+                        path[:],
+                        False,
+                    )
+                    nb_nodes += nb_sub_nodes
+                    node_offset += nb_sub_nodes
+                    data.nodes[external_node.node_index] = ext_node_data
+                    data.nodes.extend(ext_node_data.nodes[1:])
 
         for i, n in enumerate(data.nodes):
             if n is not None and not "path" in n and type(n) is not str:
@@ -345,7 +358,7 @@ def parse_node(file_path, parse_deps=True, node_offset=0, path=None, need_ui=Tru
         )
 
 
-def generate_node(data):
+def generate_node(data, remove_external=True, editor=True):
     gbx_data = {}
     nodes = data.nodes[:]
 
@@ -353,14 +366,18 @@ def generate_node(data):
     data.header.body_compression = "compressed"
 
     # remove external nodes because we merge them
-    data.reference_table.num_external_nodes = 0
-    data.reference_table.external_folders = None
-    data.reference_table.external_nodes = []
+    if remove_external:
+        data.reference_table.num_external_nodes = 0
+        data.reference_table.external_folders = None
+        data.reference_table.external_nodes = []
 
     new_bytes = GbxStruct.build(data, gbx_data=gbx_data, nodes=nodes)
-    for n in nodes:
-        if n is not None and type(n) is not str:
-            print(f"node not referenced {n.path}")
+    if not editor:
+        return new_bytes, None
+
+    # for n in nodes:
+    #     if n is not None and type(n) is not str:
+    #             print(f"node not referenced {n.path}")
 
     # check built node
     gbx_data = {}
@@ -537,18 +554,31 @@ def update_090BB000(node):
     node.body[0].chunk.lights = ListContainer([])
 
 
-def update_0900C000(node):
+def update_0900C000(
+    node, physics=None, gameplay=None, materialIndex=None, gameplayMainDir=None
+):
     # remove native materials from surf
     node.body[0].chunk.materials = ListContainer([])
 
-    # for materialId in node.body[0].chunk.materialsIds:
-    #     materialId.gameplayId = "ReactorBoost2_Oriented"
+    for idx, materialId in enumerate(node.body[0].chunk.materialsIds):
+        if materialIndex is None or materialIndex == idx:
+            if physics is not None:
+                materialId.physicsId = physics
+            if gameplay is not None:
+                materialId.gameplayId = gameplay
 
-    # for tri in node.body[0].chunk.surf.data.triangles:
-    #     tri.materialId.gameplayId = "ReactorBoost2_Oriented"
+        for tri in node.body[0].chunk.surf.data.triangles:
+            if materialIndex is None or materialIndex == tri.materialIndex:
+                if physics is not None:
+                    tri.materialId.physicsId = physics
+                if gameplay is not None:
+                    tri.materialId.gameplayId = gameplay
+
+    if gameplayMainDir is not None:
+        node.body[0].chunk.surf.u01 = gameplayMainDir
 
 
-def trigger(data, data2):
+def trigger(data):
     for node in data.nodes:
         if type(node) == Container:
             if node.header.class_id == 0x090BB000:
@@ -570,13 +600,134 @@ def trigger(data, data2):
     return generate_node(data)
 
 
+def screen(data):
+    for node in data.nodes:
+        if type(node) == Container:
+            if node.header.class_id == 0x090BB000:
+                update_090BB000(node)
+            if node.header.class_id == 0x0900C000:
+                update_0900C000(node)
+
+    # author
+    data.header.chunks.data[0].meta.id = ""
+    data.header.chunks.data[0].meta.author = "schadocalex"
+    data.header.chunks.data[0].catalog_position = 1
+    data.header.chunks.data[3] = bytes([0, 0, 0, 0, 0, 0, 0, 0])
+
+    if data.header.class_id == 0x2E002000:
+        data.body[1].chunk.meta.id = ""
+        data.body[1].chunk.meta.author = "schadocalex"
+        data.body[5].chunk.catalogPosition = 1
+
+    data.body[12].chunk.EntityModel = 2
+    data.body[16].chunk.u08 = 0
+
+    # data.header.chunks.data[2].fids[0].u01 = 0
+
+    data.nodes[25].body[0].chunk.isUsingGameMaterial = True
+    data.nodes[25].body[0].chunk.materialName = "Stadium\\Media\\Material\\Ad1x1Screen"
+    data.nodes[25].body[0].chunk.link = "Stadium\\Media\\Material\\Ad1x1Screen"
+
+    return generate_node(data)
+
+
+def fogger(data):
+    for node in data.nodes:
+        if type(node) == Container:
+            if node.header.class_id == 0x090BB000:
+                update_090BB000(node)
+            if node.header.class_id == 0x0900C000:
+                update_0900C000(node)
+
+    # author
+    data.header.chunks.data[0].meta.id = ""
+    data.header.chunks.data[0].meta.author = "schadocalex"
+    data.header.chunks.data[0].catalog_position = 1
+    data.header.chunks.data[2] = bytes([0, 0, 0, 0, 0, 0, 0, 0])
+
+    if data.header.class_id == 0x2E002000:
+        data.body[1].chunk.meta.id = ""
+        data.body[1].chunk.meta.author = "schadocalex"
+        data.body[5].chunk.catalogPosition = 1
+
+    # bypass variants
+    # data.nodes = data.nodes[1:]
+    # data.nodes[0] = None
+    # data.nodes[2].node_offset -= 1
+    # data.nodes[3].node_offset -= 1
+    data.body[12].chunk.EntityModel = 2
+
+    # data.nodes[1].header.class_id = 0x2E027000
+    # data.nodes[1].body = ListContainer(
+    #     [
+    #         Container(
+    #             chunk_id=0x2E027000,
+    #             chunk=Container(
+    #                 version=4,
+    #                 staticObject=4,
+    #                 props=Container(
+    #                     triggerArea=-1,
+    #                     u01=Container(
+    #                         XX=1,
+    #                         XY=0,
+    #                         XZ=0,
+    #                         YX=0,
+    #                         YY=1,
+    #                         YZ=0,
+    #                         ZX=0,
+    #                         ZY=0,
+    #                         ZZ=1,
+    #                         TX=0,
+    #                         TY=0,
+    #                         TZ=0,
+    #                     ),
+    #                     emitterModel=-1,
+    #                     actionModels=ListContainer([]),
+    #                     u03=-1,
+    #                     u04=ListContainer(["", "", "", "", ""]),
+    #                     u05=Container(
+    #                         XX=1,
+    #                         XY=0,
+    #                         XZ=0,
+    #                         YX=0,
+    #                         YY=1,
+    #                         YZ=0,
+    #                         ZX=0,
+    #                         ZY=0,
+    #                         ZZ=1,
+    #                         TX=0,
+    #                         TY=0,
+    #                         TZ=0,
+    #                     ),
+    #                     u06=0,
+    #                 ),
+    #             ),
+    #         ),
+    #         Container(chunk_id=0xFACADE01),
+    #     ]
+    # )
+
+    data.body[16].chunk.u08 = 0
+
+    # data.nodes[16].body[1].chunk.SplashModel = -1
+    # data.nodes[16].body[13].chunk.u02 = -1
+    # data.nodes[16].body[13].chunk.u03 = -1
+
+    # data.nodes[2].body.EntsCount = 1
+    # data.nodes[2].body.Ents = data.nodes[2].body.Ents[:1]
+
+    return generate_node(data)
+
+
 def trigger2(data):
     for node in data.nodes:
         if type(node) == Container:
             # if node.header.class_id == 0x090BB000:
             #     update_090BB000(node)
             if node.header.class_id == 0x0900C000:
-                update_0900C000(node)
+                update_0900C000(node, "Concrete", "Bouncy")
+
+    data.nodes[7].body[0].chunk.surf.u01 = Container(x=0, y=0, z=10)
 
     # author
     # data.header.chunks.data[0].meta.id = ""
@@ -590,7 +741,6 @@ def trigger2(data):
     #     data.body[5].chunk.catalogPosition = 1
 
     new_node_index = len(data.nodes)
-    # data.nodes.append(data.nodes[7])
     data.nodes.append(
         Container(
             header=Container(class_id=0x09179000),
@@ -605,26 +755,159 @@ def trigger2(data):
         header=Container(class_id=0x09145000),
         body=Container(
             version=11,
-            creationTime=datetime.datetime.now(),
+            updatedTime=datetime.datetime.now(),
             url="",
             u01=b"\x00\x00\x00\x00",
-            subEntityModelsCount=2,
             u02=b"\x00\x00\x00\x00",
-            subEntityModels=ListContainer(
+            Ents=ListContainer(
                 [
                     Container(
                         model=2,
                         rot=Container(x=0, y=0, z=0, w=1),
                         pos=Container(x=0, y=0, z=0),
-                        params=None,
-                        u01=b"\xff\xff\xff\xff\x00\x00\x00\x00",
+                        dynaParams=None,
+                        constraintParams=None,
+                        placementParams=None,
+                        LodGroupId=-1,
+                        name="",
                     ),
                     Container(
                         model=new_node_index,
                         rot=Container(x=0, y=0, z=0, w=1),
                         pos=Container(x=0, y=0, z=0),
-                        params=None,
-                        u01=b"\xff\xff\xff\xff\x00\x00\x00\x00",
+                        dynaParams=None,
+                        constraintParams=None,
+                        placementParams=None,
+                        LodGroupId=-1,
+                        name="",
+                    ),
+                ]
+            ),
+        ),
+    )
+
+    data.nodes[2].body.isMeshCollidable = False
+    data.nodes[2].body.collidableShape = -1
+
+    data.body[16].chunk.u08 = 0
+
+    return generate_node(data)
+
+
+def pivot(data):
+    constraint_model_index = len(data.nodes)
+    data.nodes.append(
+        Container(
+            header=Container(class_id=0x2F074000),
+            body=Container(
+                version=0,
+                Type=0,
+                Spring_Length=32.0,
+                Spring_DampingRatio=1.0,
+                Spring_FreqHz=1.0,
+            ),
+        )
+    )
+
+    dyna_node_index = len(data.nodes)
+    for _ in range(2):
+        data.nodes.append(
+            Container(
+                header=Container(class_id=0x09144000),
+                body=Container(
+                    version=13,
+                    IsStatic=False,
+                    DynamizeOnSpawn=True,
+                    Mesh=3,
+                    DynaShape=data.nodes[1].body[0].chunk.props.triggerArea,
+                    StaticShape=data.nodes[1].body[0].chunk.props.triggerArea,
+                    DestructibleModel=Container(
+                        BreakSpeedKmh=100.0,
+                        Mass=100.0,
+                        LightAliveDurationSc_Min=5.0,
+                        LightAliveDurationSc_Max=7.0,
+                    ),
+                    u01=1,
+                    u02=1,
+                    u03=4,  # probably enum
+                    u04=0,
+                    u05=1,
+                    u06=10,
+                    u07=0,
+                    u08=0,
+                    u09=0,
+                    LocAnim=-1,
+                    u10=0,
+                    LocAnimIsPhysical=False,
+                    WaterModel=-1,
+                ),
+            )
+        )
+
+    data.nodes[1] = Container(
+        header=Container(class_id=0x09145000),
+        body=Container(
+            version=11,
+            updatedTime=datetime.datetime.now(),
+            url="",
+            u01=b"\x00\x00\x00\x00",
+            u02=b"\x00\x00\x00\x00",
+            Ents=ListContainer(
+                [
+                    Container(
+                        model=dyna_node_index,
+                        rot=Container(x=0, y=0, z=0, w=1),
+                        pos=Container(x=16, y=0, z=0),
+                        dynaParams=Container(
+                            chunkId=0x2F0B6000,
+                            TextureId=2,
+                            u01=1,
+                            CastStaticShadow=False,
+                            IsKinematic=False,
+                            u04=-1,
+                            u05=-1,
+                            u06=-1,
+                        ),
+                        constraintParams=None,
+                        placementParams=None,
+                        LodGroupId=-1,
+                        name="",
+                    ),
+                    Container(
+                        model=dyna_node_index + 1,
+                        rot=Container(x=0, y=0, z=0, w=1),
+                        pos=Container(x=-16, y=0, z=0),
+                        dynaParams=Container(
+                            chunkId=0x2F0B6000,
+                            TextureId=2,
+                            u01=1,
+                            CastStaticShadow=False,
+                            IsKinematic=False,
+                            u04=-1,
+                            u05=-1,
+                            u06=-1,
+                        ),
+                        constraintParams=None,
+                        placementParams=None,
+                        LodGroupId=-1,
+                        name="",
+                    ),
+                    Container(
+                        model=constraint_model_index,
+                        rot=Container(x=0, y=0, z=0, w=1),
+                        pos=Container(x=0, y=0, z=0),
+                        constraintParams=Container(
+                            chunkId=0x2F0C8000,
+                            Ent1=0,
+                            Ent2=1,
+                            Pos1=Container(x=0, y=0, z=0),
+                            Pos2=Container(x=0, y=0, z=0),
+                        ),
+                        dynaParams=None,
+                        # constraintParams=None,
+                        placementParams=None,
+                        LodGroupId=-1,
+                        name="",
                     ),
                 ]
             ),
@@ -793,6 +1076,242 @@ def rotator3(data):
     return generate_node(data)
 
 
+def exp_move(data):
+    for node in data.nodes:
+        if type(node) == Container:
+            # if node.header.class_id == 0x090BB000:
+            #     update_090BB000(node)
+            if node.header.class_id == 0x0900C000:
+                update_0900C000(node)
+
+    data.nodes[2] = Container(
+        header=Container(class_id=0x09144000),
+        body=Container(
+            version=13,
+            IsStatic=False,
+            DynamizeOnSpawn=False,
+            Mesh=3,
+            DynaShape=data.nodes[1].body[0].chunk.props.triggerArea,
+            StaticShape=data.nodes[1].body[0].chunk.props.triggerArea,
+            DestructibleModel=Container(
+                BreakSpeedKmh=100.0,
+                Mass=100.0,
+                LightAliveDurationSc_Min=5.0,
+                LightAliveDurationSc_Max=7.0,
+            ),
+            u01=1,
+            u02=1,
+            u03=4,  # probably enum
+            u04=0,
+            u05=1,
+            u06=10,
+            u07=0,
+            u08=0,
+            u09=0,
+            LocAnim=-1,
+            u10=0,
+            LocAnimIsPhysical=False,
+            WaterModel=-1,
+        ),
+    )
+
+    kinematic_node_index = len(data.nodes)
+    data.nodes.append(
+        Container(
+            header=Container(class_id=0x2F0CA000),
+            body=Container(
+                version=0,
+                subVersion=3,
+                TransAnimFunc=Container(
+                    TimeIsDuration=True,
+                    SubFuncs=ListContainer(
+                        [
+                            Container(ease="Linear", reverse=False, duration=3000),
+                            Container(ease="Linear", reverse=True, duration=3000),
+                        ]
+                    ),
+                ),
+                RotAnimFunc=Container(
+                    TimeIsDuration=True,
+                    SubFuncs=ListContainer(
+                        [
+                            Container(ease="Linear", reverse=False, duration=3000),
+                            Container(ease="Linear", reverse=True, duration=3000),
+                        ]
+                    ),
+                ),
+                ShaderTcType="No",
+                ShaderTcVersion=0,
+                ShaderTcAnimFunc=ListContainer(
+                    []
+                    # [Container(duration=1000, u01=0), Container(duration=1000, u01=1)]
+                ),
+                ShaderTcData_TransSub=None,
+                # Container(
+                #     NbSubTexture=5,
+                #     NbSubTexturePerLine=1,
+                #     NbSubTexturePerColumn=8,
+                #     TopToBottom=False,
+                # ),
+                TransAxis="X",
+                TransMin=-0.0,
+                TransMax=0.0,
+                RotAxis="Y",
+                AngleMinDeg=-180.0,
+                AngleMaxDeg=180.0,
+            ),
+        ),
+    )
+
+    data.nodes[1] = Container(
+        header=Container(class_id=0x09145000),
+        body=Container(
+            version=11,
+            updatedTime=datetime.datetime.now(),
+            url="",
+            u01=b"\x00\x00\x00\x00",
+            EntsCount=2,  # todo auto recompute
+            u02=b"\x00\x00\x00\x00",
+            Ents=ListContainer(
+                [
+                    Container(
+                        model=2,
+                        rot=Container(x=0, y=0, z=0, w=1),
+                        pos=Container(x=0, y=0, z=0),
+                        dynaParams=Container(
+                            chunkId=0x2F0B6000,
+                            TextureId=2,
+                            u01=1,
+                            CastStaticShadow=False,
+                            IsKinematic=True,
+                            u04=-1,
+                            u05=-1,
+                            u06=-1,
+                        ),
+                        u01=b"\xff\xff\xff\xff\x00\x00\x00\x00",
+                    ),
+                    Container(
+                        model=kinematic_node_index,
+                        rot=Container(x=0, y=0, z=0, w=1),
+                        pos=Container(x=0, y=0, z=0),
+                        constraintParams=Container(
+                            chunkId=0x2F0C8000,
+                            Ent1=1,
+                            Ent2=-1,
+                            Pos1=Container(x=0, y=32, z=0),
+                            Pos2=Container(x=0, y=32, z=0),
+                        ),
+                        u01=b"\x00\x00\x00\x00\x00\x00\x00\x00",
+                    ),
+                ]
+            ),
+        ),
+    )
+
+    data.body[16].chunk.u08 = 0
+
+    return generate_node(data)
+
+
+def jump(data):
+    for node in data.nodes:
+        if type(node) == Container:
+            if node.header.class_id == 0x0900C000:
+                update_0900C000(node, "NotCollidable", "ReactorBoost_Oriented")
+
+    data.nodes[7].body[0].chunk.surf.u01 = Container(x=0, y=1, z=0)
+    data.nodes[2].body.isMeshCollidable = False
+    data.nodes[2].body.collidableShape = -1
+
+    return generate_node(data)
+
+
+def mesh_anim(data):
+    data.nodes[4].body[1].chunk.sub_visuals = ListContainer(
+        [Container(x=x * 54, y=0, z=144) for x in range(9)]
+    )
+    data.nodes[4].body[8].chunk.index_buffer[0].chunk.indices = ListContainer(
+        data.nodes[4].body[8].chunk.index_buffer[0].chunk.indices[:144]
+    )
+
+    dyna_node_index = len(data.nodes)
+    data.nodes.append(
+        Container(
+            header=Container(class_id=0x09144000),
+            body=Container(
+                version=13,
+                IsStatic=False,
+                DynamizeOnSpawn=False,
+                Mesh=3,
+                DynaShape=-1,
+                StaticShape=-1,
+                DestructibleModel=Container(
+                    BreakSpeedKmh=100.0,
+                    Mass=100.0,
+                    LightAliveDurationSc_Min=5.0,
+                    LightAliveDurationSc_Max=7.0,
+                ),
+                u01=1,
+                u02=1,
+                u03=4,  # probably enum
+                u04=0,
+                u05=1,
+                u06=10,
+                u07=0,
+                u08=0,
+                u09=0,
+                LocAnim=-1,
+                u10=0,
+                LocAnimIsPhysical=False,
+                WaterModel=-1,
+            ),
+        )
+    )
+
+    data.nodes[1] = Container(
+        header=Container(class_id=0x09145000),
+        body=Container(
+            version=11,
+            updatedTime=datetime.datetime.now(),
+            url="",
+            u01=b"\x00\x00\x00\x00",
+            u02=b"\x00\x00\x00\x00",
+            Ents=ListContainer(
+                [
+                    Container(
+                        model=2,
+                        rot=Container(x=0, y=0, z=0, w=1),
+                        pos=Container(x=0, y=0, z=0),
+                        dynaParams=None,
+                        LodGroupId=-1,
+                        name="",
+                    ),
+                    Container(
+                        model=dyna_node_index,
+                        rot=Container(x=0, y=0, z=0, w=1),
+                        pos=Container(x=0, y=0, z=0),
+                        dynaParams=Container(
+                            chunkId=0x2F0B6000,
+                            TextureId=2,
+                            u01=8.0,
+                            CastStaticShadow=False,
+                            IsKinematic=False,
+                            u04=16.0,
+                            u05=0.0,
+                            u06=1.0,
+                        ),
+                        LodGroupId=-1,
+                        name="",
+                    ),
+                ]
+            ),
+        ),
+    )
+
+    data.body[16].chunk.u08 = 0
+    return data
+
+
 if __name__ == "__main__":
     file = "C:\\Users\\schad\\Openplanet4\\Extract\\GameData\\Items\\Valley\\Trains\\Loco.Item.Gbx"
     file = "C:\\Users\\schad\\Openplanet4\\Extract\\GameData\\Valley\\Media\\Mesh\\Loco.Mesh.gbx"
@@ -801,10 +1320,75 @@ if __name__ == "__main__":
     file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\BigWheel.Item.Gbx"
     file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\RotatingLight.Item.Gbx"
     file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\BigCircleRotate.Item.Gbx"
-    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\CustomTransCube.Item.Gbx"
     file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ObstacleTube6mRotateLevel1.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\SupportConnectorX6.Item.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\CustomTransCube.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ObstaclePusher4mLevel0.Item.Gbx"
 
-    data, nb_nodes, win = parse_node(file, True, need_ui=True)
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\Show\\Fogger16M.Prefab.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\Show\\Sparkler16m.FxSys.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\Show\\Fogger16M.FxSys.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\CustomWater.Item.Gbx"
+
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Maps\\My Maps\\sound.Map.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\Collection.Item.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\cubeSmooth.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ObstaclePusher4mLevel0.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\Screen1x1.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Techno3\\Media\\Material\\Tech3_Block_TDSN_CubeOut_DispIn.Material.gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Material\\ItemCactus.Material.Gbx"
+
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ShowFogger16M.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\Turbo\\GameData\\StadiumCE\\Media\\Solid\\DecoBird\\BirdA.Mesh.Gbx"
+
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Water\\Base_Air.Prefab.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\GameCtnBlockInfo\\GameCtnBlockInfoClassic\\PlatformWaterRampBase.EDClassic.Gbx"
+
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\CactusVerySmall.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\Flag16m.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Dyna\\Flag\\Flag.DynaObject.Gbx"
+
+    file = (
+        "C:\\Users\\schad\\Documents\\Trackmania\\Items\\Decal_Bumper_01_8_TM2.Item.Gbx"
+    )
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\NoForceBumper.Item.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\RoyalPark\\Inflatable\\BumpyBalloon.Item.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\test.Item.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Blocks\\stand.Block.Gbx"
+
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ObstaclePusher4mLevel0.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ObstacleRotor16mWing90Level0.Item.Gbx"
+    file = (
+        "C:\\Users\\schad\\Documents\\Trackmania\\Items\\PortalGLaDOSFinishRig.Item.Gbx"
+    )
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\CustomBoost32.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Dyna\\Flag\\Flag.DynaObject.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\Flag8m.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\Flag16m.Item.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\Anim.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Material\\Ad2x3Screen.Material.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\Export\\Screen2x3Small.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\Screen2x3Small.Item.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\InflatableMat0To4mSlopeBase1x1.Item.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\Cube.Item.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\0080_CustomPlasticTest3.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\GameCtnBlockInfo\\GameCtnBlockInfoClassic\\StandStraight.EDClassic.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Stand\\Straight.Prefab.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Blocks\\Plat.Block.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\GameCtnBlockInfo\\GameCtnBlockInfoClassic\\StructureSupportCross.EDClassic.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\TreeGen\\GateArchCheckpoint8m.Prefab.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\Gate\\CheckpointLeft8m_Trigger.Shape.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\Gate\\CheckpointLeft8m.Prefab.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\TreeGen\\GateHoloCheckpoint8m.Prefab.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\checkpoint_long.Item.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Prefab\\Items\\Vegetation\\Fall.Prefab.Gbx"
+    file = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\VegetTreeModel\\SpringTreeSmall.VegetTreeModel.Gbx"
+    file = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\checkpoint_long.Item.Gbx"
+    file = (
+        "C:\\Users\\schad\\Documents\\Trackmania\\Items\\CustomBoost32_Turbo.Item.Gbx"
+    )
+
+    data, nb_nodes, win = parse_node(file, False, need_ui=True)
     print(f"total nodes: {nb_nodes}")
 
     # file2 = "C:\\Users\\schad\\Documents\\Trackmania\\Materials\\wall2.Mat.Gbx"
@@ -817,15 +1401,47 @@ if __name__ == "__main__":
     file2 = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ObstacleTurnstile4mSimpleOscillateLevel0.Item.Gbx"
     file2 = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Modifier\\ItemObstacleDiscontinuous\\AnimTurnstileLevel0.KinematicConstraint.Gbx"
     file2 = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Media\\Modifier\\ItemObstacle\\AnimPusher4mLevel2.KinematicConstraint.Gbx"
-    file2 = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\ObstaclePusher4mLevel0.Item.Gbx"
-    data2, nb_nodes2, win2 = parse_node(file2, True, need_ui=True)
+    file2 = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\cubeFlat.Item.Gbx"
+    file2 = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\SupportConnectorX6.Item.Gbx"
+    file2 = "C:\\Users\\schad\\Documents\\Trackmania\\Items\\Glad.Item.Gbx"
+    file2 = "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\Items\\Flag16m.Item.Gbx"
+    # data2, nb_nodes2, win2 = parse_node(file2, True, need_ui=True)
+
+    # <header type="map" exever="3.3.0" exebuild="2023-05-05_21_05" title="TMStadium" lightmap="0">
+    # <ident uid="J6GuTrCGDIWj6w64bU6uOBV07N6" name="sound" author="G2Qodcn-RCyCOaJ24gfflg" authorzone="World|Europe|France|Auvergne-Rhône-Alpes|Savoie"/>
+    # <desc envir="Stadium" mood="Day" type="Race" maptype="TrackMania\TM_Race" mapstyle="" validated="0" nblaps="0" displaycost="203" mod="" hasghostblocks="0" />
+    # <playermodel id=""/>
+    # <times bronze="-1" silver="-1" gold="-1" authortime="-1" authorscore="0"/>
+    # <deps>
+    #     <dep file="Media\Sounds\Water_loop.ogg"
+    #          url="https://cdn.discordapp.com/attachments/1077226157281394788/1108101718438334494/Water_loop.ogg"/>
+    # </deps>
+    # </header>
 
     # bytes3, win3 = cactus(data)
     # bytes3, win3 = rotator(data)
-    # bytes3, win3 = trigger(data, data2)
+    # bytes3, win3 = trigger(data)
     # bytes3, win3 = trigger2(data)
     # bytes3, win3 = rotator2(data)
     # bytes3, win3 = rotator3(data)
+    # bytes3, win3 = exp_move(data)
+    # bytes3, win3 = fogger(data)
+    # bytes3, win3 = screen(data)
+    # bytes3, win3 = pivot(data)
+    # data = mesh_anim(data)
+
+    # data.nodes[4] = data2.nodes[24]
+
+    # data.body[12].chunk.EntityModel = 2
+    # data.body[16].chunk.u08 = 0
+    # for node in data.nodes:
+    #     if type(node) == Container:
+    #         if node.header.class_id == 0x090BB000:
+    #             update_090BB000(node)
+    #         if node.header.class_id == 0x0900C000:
+    #             update_0900C000(node)
+
+    # bytes3, win3 = generate_node(data, True)
 
     # with open(
     #     "C:\\Users\\schad\\Documents\\Trackmania\\Items\\Export\\"
@@ -852,47 +1468,6 @@ if __name__ == "__main__":
     #         # f.write(f"{data.body[16].chunk.u02}\n")
     #         # f.flush()
 
-    #         #         # for ext in data.reference_table.external_nodes:
-    #         #         #     f.write(f"\t{ext.node_index}\t{ext.ref}")
-    #         for node in data.nodes:
-    #             if type(node) == Container and node.header.class_id == 0x090BB000:
-    #                 # if node.path[-1] in already_written:
-    #                 #     continue
-    #                 # already_written.add(node.path[-1])
-
-    #                 if "chunk_parse_failed" not in node.body[0].chunk:
-    #                     f.write(
-    #                         f"{os.path.basename(filename)}\t{node.body[0].chunk.u14}\n"
-    #                     )
-    #                     f.flush()
-
-    #                 text = ""
-    #                 for b in node.body.u01[::-1]:
-    #                     text += format(b, "02X")
-    #                 x = Int32ul.parse(node.body.u01)
-
-    #                 # text2 = ""
-    #                 # for model in node.body.subEntityModels:
-    #                 #     if 0 < model.model < len(node.nodes):
-    #                 #         mesh = node.nodes[model.model]
-    #                 #         if (
-    #                 #             type(mesh) == Container
-    #                 #             and mesh.header.class_id == 0x09159000
-    #                 #         ):
-    #                 #             mesh = node.nodes[mesh.body.mesh]
-    #                 #             if (
-    #                 #                 type(mesh) == Container
-    #                 #                 and mesh.header.class_id == 0x090BB000
-    #                 #             ):
-    #                 #                 for lod in mesh.body[0].chunk.lodDistances:
-    #                 #                     text2 += str(lod) + "\t"
-    #                 #     text2 += str(model.LodGroupId) + "\t"
-
-    #                 f.write(
-    #                     f"{node.path[-1]}\t{text}\t{x}\t{node.body.subEntityModelsCount}\t{node.body.creationTime}\n"
-    #                 )
-    #                 f.flush()
-
     # for chunk in data.body:
     #     if chunk is not None and chunk.chunk_id == 0x2E00201E:
     #         f.write(
@@ -903,9 +1478,9 @@ if __name__ == "__main__":
     #             f"\t {chunk.chunk.u01} \t {chunk.chunk.u02} \t {chunk.chunk.u03} \t {chunk.chunk.u04}\n"
     #         )
 
-    # Export obj
-    # for offset, node in enumerate(data.nodes):
-    #     offset = 0
+    # export obj
+    # for node_index, node in enumerate(data.nodes):
+    #     # offset = 0
     #     if type(node) == Container and node.header.class_id == 0x090BB000:
     #         obj_chunk = node.body[0].chunk
     #         for i, geom in enumerate(obj_chunk.shaded_geoms):
@@ -913,19 +1488,25 @@ if __name__ == "__main__":
     #                 "C:\\Users\\schad\\Documents\\Trackmania\\Items\\ExportObj\\"
     #             )
     #             idx = obj_chunk.visuals[geom.visual_index]
-    #             vertices = data.nodes[offset + idx + 1].body[0].chunk.vertices_coords
-    #             normals = data.nodes[offset + idx + 1].body[0].chunk.normals
-    #             uv0 = data.nodes[offset + idx + 1].body[0].chunk.others.uv0
+
+    #             root_node = data  # node if "nodes" in node else node.root_node
+
+    #             vertices = root_node.nodes[idx + 1].body[0].chunk.vertices_coords
+    #             normals = root_node.nodes[idx + 1].body[0].chunk.normals
+    #             uv0 = root_node.nodes[idx + 1].body[0].chunk.others.uv0
     #             indices = (
-    #                 data.nodes[offset + idx].body[8].chunk.index_buffer[0].chunk.indices
+    #                 root_node.nodes[idx].body[8].chunk.index_buffer[0].chunk.indices
     #             )
     #             obj_filepath = (
     #                 export_dir
     #                 + os.path.basename(file).split(".")[0]
-    #                 + f"_lod{geom.lod}_{idx}.obj"
+    #                 + f"_{node_index}_lod{geom.lod}_{idx}.obj"
     #             )
+    #             # mat_idx = obj_chunk.custom_materials[
+    #             #     geom.material_index
+    #             # ].material_user_inst
     #             mat_idx = obj_chunk.materials[geom.material_index]
-    #             mat = data.nodes[offset + mat_idx].body[0].chunk.materialName
+    #             mat = root_node.nodes[mat_idx].body[0].chunk.link
     #             print(obj_filepath)
     #             export_obj(obj_filepath, vertices, normals, uv0, indices, mat)
 
