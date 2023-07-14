@@ -47,6 +47,7 @@ from construct import (
     PascalString,
     LazyBound,
     BitStruct,
+    ByteSwapped,
     BytesInteger,
     CompressedLZ4,
     GreedyRange,
@@ -122,7 +123,7 @@ def check_bool(obj, ctx):
         return True
     if obj == 0x00:
         return False
-    print("Not a bool!")
+    print("Not a bool!" + str(hex(obj)))
     return False
 
 
@@ -511,7 +512,53 @@ GbxMaterial = Struct(
 # Body Chunks
 
 # 03036 CGameCtnBlockUnitInfo
-Chunk_03036000 = GbxBytesUntilFacade
+Chunk_03036000 = Struct(
+    "placePylons" / Int32sl,
+    "u01" / GbxBool,  # AcceptPylons?
+    "u02" / GbxBool,
+    "relativeOffset" / GbxInt3,
+    "clips" / PrefixedArray(Int32ul, GbxNodeRef),  # pylons clips?
+)
+Chunk_03036001 = Struct(
+    "u01" / GbxNodeRef,  # Desert, Grass
+    "u02" / Int32sl,
+    "u03" / Int32sl,
+)
+Chunk_03036002 = Struct(
+    "u01" / Bytes(12),  # undergound?
+)
+Chunk_03036004 = Struct(
+    "u01" / Int32sl,
+)
+Chunk_03036005 = Struct(
+    "terrainModifierId" / GbxNodeRef,
+)
+Chunk_03036007 = Struct(
+    "u01" / GbxNodeRef[4],
+)
+Chunk_0303600C = Struct(
+    "version" / Int32ul,
+    "countClips"
+    / ByteSwapped(  # little endian 32 bit
+        BitStruct(
+            Padding(14),
+            "Bottom" / BitsInteger(3),
+            "Top" / BitsInteger(3),
+            "West" / BitsInteger(3),
+            "South" / BitsInteger(3),
+            "East" / BitsInteger(3),
+            "North" / BitsInteger(3),
+        )
+    ),
+    "clipsNorth" / Array(this.countClips.North, GbxNodeRef),  # CGameCtnBlockInfoClip
+    "clipsEast" / Array(this.countClips.East, GbxNodeRef),  # CGameCtnBlockInfoClip
+    "clipsSouth" / Array(this.countClips.South, GbxNodeRef),  # CGameCtnBlockInfoClip
+    "clipsWest" / Array(this.countClips.West, GbxNodeRef),  # CGameCtnBlockInfoClip
+    "clipsTop" / Array(this.countClips.Top, GbxNodeRef),  # CGameCtnBlockInfoClip
+    "clipsBottom" / Array(this.countClips.Bottom, GbxNodeRef),  # CGameCtnBlockInfoClip
+    "u01" / Int16sl,
+    "u02" / Int16sl,
+)
 
 # 0304E CGameCtnBlockInfo
 Chunk_0304E00F = Struct(
@@ -617,7 +664,7 @@ Chunk_03122003 = Struct(
     StopIf(this.version < 3),
     "prefab_fid" / GbxNodeRef,  # CPlugPrefab
     StopIf(this.version < 4),
-    "u12" / GbxBool,
+    "u12" / GbxNodeRef,
     StopIf(this.version < 6),
     "u13" / GbxNodeRef,
     StopIf(this.version < 7),
