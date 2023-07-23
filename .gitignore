@@ -3,3 +3,5 @@ dist/
 __pycache__
 result.csv
 *.spec
+ExportObj
+lm_samples

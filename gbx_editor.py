@@ -302,8 +302,8 @@ def parse_node(
                 ".gbx"
             ) and not external_node.ref.endswith(".Gbx"):
                 continue
-            elif external_node.ref.endswith(".Texture.gbx"):
-                continue
+            # elif external_node.ref.endswith(".Texture.gbx"):
+            #     continue
             elif external_node.ref.endswith(".Light.gbx"):
                 continue
             elif external_node.ref.endswith("VegetTreeModel.Gbx"):
@@ -318,11 +318,11 @@ def parse_node(
                 # print(
                 #     "  " * (depth + 1) + f"- {material_name} Material (1 custom node)"
                 # )
-            elif external_node.ref in path:
-                print(
-                    "  " * (depth + 1)
-                    + f"- {external_node.ref} (Cyclic dependency detected?)"
-                )
+            # elif external_node.ref in path:
+            #     print(
+            #         "  " * (depth + 1)
+            #         + f"- {external_node.ref} (Cyclic dependency detected?)"
+            #     )
             elif parse_deps:
                 # print(external_node.ref + " " + str(node_offset))
                 ext_node_filepath = (
@@ -332,6 +332,7 @@ def parse_node(
                     data.nodes[external_node.node_index] = (
                         "[NOT FOUND] " + ext_node_filepath
                     )
+                    print("[NOT FOUND] " + ext_node_filepath)
                 else:
                     ext_node_data, nb_sub_nodes, win = parse_node(
                         all_folders[external_node.folder_index] + external_node.ref,
@@ -355,11 +356,7 @@ def parse_node(
         #     data2, gbx_data={}, nodes=[]
         # )
 
-        return (
-            data,
-            nb_nodes,
-            GbxEditorUi(raw_bytes, data) if need_ui else None,
-        )
+        return (data, nb_nodes, raw_bytes)
 
 
 def generate_node(data, remove_external=True, editor=True):
@@ -470,71 +467,6 @@ def cactus(data):
     return generate_node(data)
 
 
-def rotator(data):
-    for node in data.nodes:
-        if node and node.header.class_id == 0x090BB000:
-            update_090BB000(node)
-
-    # author
-    # data.header.chunks.data[0].meta.id = ""
-    # data.header.chunks.data[0].meta.author = get_author_name()
-    # data.header.chunks.data[0].catalog_position = 1
-    # data.header.chunks.data[2] = bytes([0, 0, 0, 0, 0, 0, 0, 0])
-
-    if data.header.class_id == 0x2E002000:
-        data.body[1].chunk.meta.id = ""
-        data.body[1].chunk.meta.author = get_author_name()
-        data.body[5].chunk.catalogPosition = 1
-
-    # remove modifier?
-    data.body[12].chunk.modifier = -1
-
-    # # dont use hit shape, else won't load (maybe due to materials, todo explore)
-    # # data.nodes[2] = data2.nodes[2]
-    # # data.nodes[2].body.mesh = 5
-    # # data.nodes[2].body.collidable = True
-    # # data.nodes[2].body.collidableRef = None
-
-    # # change material to custom materials (for now)
-
-    # # change surf mats
-    # # data.nodes[6].body[0].chunk.materials[0].hasMaterial = True
-    # # data.nodes[6].body[0].chunk.materials[0].materialsId = (
-    # #     data.nodes[6].body[0].chunk.materialsIds[0]
-    # # )
-    # # data.nodes[6].body[0].chunk.materials[1].hasMaterial = True
-    # # data.nodes[6].body[0].chunk.materials[1].materialsId = (
-    # #     data.nodes[6].body[0].chunk.materialsIds[1]
-    # # )
-    # data.nodes[6].body[0].chunk.materials = ListContainer([])
-
-    # # bypass variants
-    # data.nodes[1].header.class_id = 0x2E027000
-    # data.nodes[1].body = ListContainer(
-    #     [
-    #         Container(
-    #             chunk_id=0x2E027000,
-    #             chunk=Container(
-    #                 version=4,
-    #                 static_object=2,
-    #             ),
-    #         ),
-    #         Container(chunk_id=0xFACADE01),
-    #     ]
-    # )
-
-    # # snap positions
-    # # data.nodes[4].body[1].chunk.content.flags = 32 + 1
-    # data.nodes[4].body[1].chunk.content.pivotPositions = ListContainer(
-    #     [Container(x=0, y=0, z=0), Container(x=0, y=7, z=0)]
-    # )
-    # data.nodes[4].body[2].chunk.content.magnetLocs = ListContainer(
-    #     [Container(x=0, y=7, z=0, yaw=0, pitch=-90, roll=0)]
-    # )
-
-    return generate_node(data)
-
-
 def update_090BB000(node):
     # change material to custom materials
 
@@ -580,28 +512,6 @@ def update_0900C000(
 
     if gameplayMainDir is not None:
         node.body[0].chunk.surf.u01 = gameplayMainDir
-
-
-def trigger(data):
-    for node in data.nodes:
-        if type(node) == Container:
-            if node.header.class_id == 0x090BB000:
-                update_090BB000(node)
-            if node.header.class_id == 0x0900C000:
-                update_0900C000(node)
-
-    # author
-    data.header.chunks.data[0].meta.id = ""
-    data.header.chunks.data[0].meta.author = get_author_name()
-    data.header.chunks.data[0].catalog_position = 1
-    data.header.chunks.data[2] = bytes([0, 0, 0, 0, 0, 0, 0, 0])
-
-    if data.header.class_id == 0x2E002000:
-        data.body[1].chunk.meta.id = ""
-        data.body[1].chunk.meta.author = get_author_name()
-        data.body[5].chunk.catalogPosition = 1
-
-    return generate_node(data)
 
 
 def screen(data):
@@ -954,269 +864,6 @@ def rotator2(data):
     return generate_node(data)
 
 
-def rotator3(data):
-    for node in data.nodes:
-        if type(node) == Container:
-            # if node.header.class_id == 0x090BB000:
-            #     update_090BB000(node)
-            if node.header.class_id == 0x0900C000:
-                update_0900C000(node)
-
-    data.nodes[2] = Container(
-        header=Container(class_id=0x09144000),
-        body=Container(
-            version=13,
-            isStatic=False,
-            dynamizeOnSpawn=False,
-            mesh=3,
-            staticShape=data.nodes[1].body[0].chunk.props.triggerArea,
-            dynaShape=data.nodes[1].body[0].chunk.props.triggerArea,
-            breakSpeedKmh=100.0,
-            mass=100.0,
-            lightAliveDurationSc_Min=5.0,
-            lightAliveDurationSc_Max=7.0,
-            rest=b"\x01\x00\x00\x00\x01\x00\x00\x00\x04\x00\x01\x00\x00\x00\x0A\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xFF\xFF\xFF\xFF\x00\x00\x00\x00\x00\x00\x00\x00\xFF\xFF\xFF\xFF",
-        ),
-    )
-
-    kinematic_node_index = len(data.nodes)
-    data.nodes.append(
-        Container(
-            header=Container(class_id=0x2F0CA000),
-            body=Container(
-                version=0,
-                subVersion=3,
-                TransAnimFunc=Container(
-                    TimeIsDuration=True,
-                    SubFuncs=ListContainer(
-                        [
-                            Container(ease="Linear", reverse=False, duration=3000),
-                            Container(ease="Linear", reverse=True, duration=3000),
-                        ]
-                    ),
-                ),
-                RotAnimFunc=Container(
-                    TimeIsDuration=True,
-                    SubFuncs=ListContainer(
-                        [
-                            Container(ease="Linear", reverse=False, duration=3000),
-                            Container(ease="Linear", reverse=True, duration=3000),
-                        ]
-                    ),
-                ),
-                ShaderTcType="No",
-                ShaderTcVersion=0,
-                ShaderTcAnimFunc=ListContainer(
-                    []
-                    # [Container(duration=1000, u01=0), Container(duration=1000, u01=1)]
-                ),
-                ShaderTcData_TransSub=None,
-                # Container(
-                #     NbSubTexture=5,
-                #     NbSubTexturePerLine=1,
-                #     NbSubTexturePerColumn=8,
-                #     TopToBottom=False,
-                # ),
-                transAxis="X",
-                TransMin=-0.0,
-                TransMax=0.0,
-                rotAxis="Y",
-                AngleMinDeg=-180.0,
-                AngleMaxDeg=180.0,
-            ),
-        ),
-    )
-
-    data.nodes[1] = Container(
-        header=Container(class_id=0x09145000),
-        body=Container(
-            version=11,
-            creationTime=datetime.datetime.now(),
-            url="",
-            u01=b"\x00\x00\x00\x00",
-            subEntityModelsCount=2,  # todo auto recompute
-            u02=b"\x00\x00\x00\x00",
-            subEntityModels=ListContainer(
-                [
-                    Container(
-                        model=2,
-                        rot=Container(x=0, y=0, z=0, w=1),
-                        pos=Container(x=0, y=0, z=0),
-                        dynaParams=Container(
-                            chunkId=0x2F0B6000,
-                            textureId=2,
-                            u01=1,
-                            CastStaticShadow=False,
-                            isKinematic=True,
-                            u04=-1,
-                            u05=-1,
-                            u06=-1,
-                        ),
-                        u01=b"\xff\xff\xff\xff\x00\x00\x00\x00",
-                    ),
-                    Container(
-                        model=kinematic_node_index,
-                        rot=Container(x=0, y=0, z=0, w=1),
-                        pos=Container(x=0, y=0, z=0),
-                        constraintParams=Container(
-                            chunkId=0x2F0C8000,
-                            Ent1=0,
-                            Ent2=-1,
-                            Pos1=Container(x=0, y=0, z=0),
-                            Pos2=Container(x=0, y=0, z=0),
-                        ),
-                        u01=b"\x00\x00\x00\x00\x00\x00\x00\x00",
-                    ),
-                ]
-            ),
-        ),
-    )
-
-    data.nodes[2].body.isMeshCollidable = False
-    data.nodes[2].body.collidableShape = -1
-
-    data.body[16].chunk.u08 = 0
-
-    return generate_node(data)
-
-
-def exp_move(data):
-    for node in data.nodes:
-        if type(node) == Container:
-            # if node.header.class_id == 0x090BB000:
-            #     update_090BB000(node)
-            if node.header.class_id == 0x0900C000:
-                update_0900C000(node)
-
-    data.nodes[2] = Container(
-        header=Container(class_id=0x09144000),
-        body=Container(
-            version=13,
-            IsStatic=False,
-            DynamizeOnSpawn=False,
-            Mesh=3,
-            DynaShape=data.nodes[1].body[0].chunk.props.triggerArea,
-            StaticShape=data.nodes[1].body[0].chunk.props.triggerArea,
-            DestructibleModel=Container(
-                BreakSpeedKmh=100.0,
-                Mass=100.0,
-                LightAliveDurationSc_Min=5.0,
-                LightAliveDurationSc_Max=7.0,
-            ),
-            u01=1,
-            u02=1,
-            u03=4,  # probably enum
-            u04=0,
-            u05=1,
-            u06=10,
-            u07=0,
-            u08=0,
-            u09=0,
-            LocAnim=-1,
-            u10=0,
-            LocAnimIsPhysical=False,
-            WaterModel=-1,
-        ),
-    )
-
-    kinematic_node_index = len(data.nodes)
-    data.nodes.append(
-        Container(
-            header=Container(class_id=0x2F0CA000),
-            body=Container(
-                version=0,
-                subVersion=3,
-                TransAnimFunc=Container(
-                    TimeIsDuration=True,
-                    SubFuncs=ListContainer(
-                        [
-                            Container(ease="Linear", reverse=False, duration=3000),
-                            Container(ease="Linear", reverse=True, duration=3000),
-                        ]
-                    ),
-                ),
-                RotAnimFunc=Container(
-                    TimeIsDuration=True,
-                    SubFuncs=ListContainer(
-                        [
-                            Container(ease="Linear", reverse=False, duration=3000),
-                            Container(ease="Linear", reverse=True, duration=3000),
-                        ]
-                    ),
-                ),
-                ShaderTcType="No",
-                ShaderTcVersion=0,
-                ShaderTcAnimFunc=ListContainer(
-                    []
-                    # [Container(duration=1000, u01=0), Container(duration=1000, u01=1)]
-                ),
-                ShaderTcData_TransSub=None,
-                # Container(
-                #     NbSubTexture=5,
-                #     NbSubTexturePerLine=1,
-                #     NbSubTexturePerColumn=8,
-                #     TopToBottom=False,
-                # ),
-                TransAxis="X",
-                TransMin=-0.0,
-                TransMax=0.0,
-                RotAxis="Y",
-                AngleMinDeg=-180.0,
-                AngleMaxDeg=180.0,
-            ),
-        ),
-    )
-
-    data.nodes[1] = Container(
-        header=Container(class_id=0x09145000),
-        body=Container(
-            version=11,
-            updatedTime=datetime.datetime.now(),
-            url="",
-            u01=b"\x00\x00\x00\x00",
-            EntsCount=2,  # todo auto recompute
-            u02=b"\x00\x00\x00\x00",
-            Ents=ListContainer(
-                [
-                    Container(
-                        model=2,
-                        rot=Container(x=0, y=0, z=0, w=1),
-                        pos=Container(x=0, y=0, z=0),
-                        dynaParams=Container(
-                            chunkId=0x2F0B6000,
-                            TextureId=2,
-                            u01=1,
-                            CastStaticShadow=False,
-                            IsKinematic=True,
-                            u04=-1,
-                            u05=-1,
-                            u06=-1,
-                        ),
-                        u01=b"\xff\xff\xff\xff\x00\x00\x00\x00",
-                    ),
-                    Container(
-                        model=kinematic_node_index,
-                        rot=Container(x=0, y=0, z=0, w=1),
-                        pos=Container(x=0, y=0, z=0),
-                        constraintParams=Container(
-                            chunkId=0x2F0C8000,
-                            Ent1=1,
-                            Ent2=-1,
-                            Pos1=Container(x=0, y=32, z=0),
-                            Pos2=Container(x=0, y=32, z=0),
-                        ),
-                        u01=b"\x00\x00\x00\x00\x00\x00\x00\x00",
-                    ),
-                ]
-            ),
-        ),
-    )
-
-    data.body[16].chunk.u08 = 0
-
-    return generate_node(data)
-
-
 def jump(data):
     for node in data.nodes:
         if type(node) == Container:
@@ -1341,17 +988,51 @@ if __name__ == "__main__":
     file = get_extract_tm2020_path(
         "GameData/Stadium/Media/Modifier/Fragile.TerrainModifier.Gbx"
     )
+    file = get_extract_tm2020_path(
+        "GameData/Stadium/Media/Prefab/RoadWater/StraightV2_Air.Prefab.Gbx"
+    )
+    file = get_extract_tm2020_path(
+        "GameData/Stadium/Media/Prefab/RoadWater/Straight_Air.Prefab.Gbx"
+    )
+    file = get_extract_tm2020_path(
+        "GameData/Stadium/GameCtnBlockInfo/GameCtnBlockInfoClassic/DecoHillSlope2Curve1Out.EDClassic.Gbx"
+    )
+    file = get_extract_tm2020_path(
+        "GameData/Stadium/GameCtnBlockInfo/GameCtnBlockInfoClassic/RoadWaterStraight.EDClassic.Gbx"
+    )
+    file = get_extract_tm2020_path(
+        "GameData/Stadium/GameCtnBlockInfo/GameCtnBlockInfoClassic/WaterWallStraight.EDClassic.Gbx"
+    )
+    file = get_extract_tm2020_path(
+        "GameData/Stadium/GameCtnBlockInfo/GameCtnBlockInfoClassic/RoadTechStraight.EDClassic.Gbx"
+    )
+    file = get_extract_tm2020_path(
+        "GameData/Stadium/Media/PlaceParam/Veget12m6m.PlaceParam.Gbx"
+    )
+    file = get_ud_tm2020_path("Items/Cube.Item.Gbx")
+    file = get_ud_tm2020_path("Blocks/Support.Block.Gbx")
+    file = get_extract_tm2020_path(
+        "GameData/Stadium/Media/VegetTreeModel/FallTreeTall.VegetTreeModel.Gbx"
+    )
 
-    data, nb_nodes, win = parse_node(file, True, need_ui=True)
-    print(f"total nodes: {nb_nodes}")
+    file = get_extract_tm2020_path("GameData/Stadium/Items/FallTreeTall.Item.Gbx")
+    file = get_extract_tm2020_path(
+        "GameData/Stadium/GameCtnBlockInfo/GameCtnBlockInfoClassic/TrackWallWaterStraight.EDClassic.Gbx"
+    )
+    file = get_extract_tm2020_path(
+        "GameData/Stadium/Media/Material/Ad1x1Screen.Material.Gbx"
+    )
+    file = get_ud_tm2020_path("Items/test_mat.Item.Gbx")
 
-    # file2 = get_ud_tm2020_path("Materials/wall2.Mat.Gbx")
-    # # file2 = get_extract_tm2020_path("GameData/Stadium/Media/Material_BlockCustom/CustomBricks.Material.Gbx")
-    # # file2 = get_ud_mp4_path("Materials/wall.Mat.Gbx")
-    # file2 = get_ud_tm2020_path("Items/test_circle.Item.Gbx")
-    # file2 = (
-    #     get_ud_tm2020_path("Items/GateSpecial4mTurbo.Item.Gbx")
-    # )
+    # from export_obj import export_ents
+
+    # export_ents("./ExportObj/", file, data)
+
+    # from utils_bloc import extract_block_meshes
+
+    # extract_block_meshes(os.path.basename(file), data)
+
+    win = GbxEditorUi(raw_bytes, data)
 
     if False:
         file2 = get_extract_tm2020_path(
@@ -1366,8 +1047,16 @@ if __name__ == "__main__":
         file2 = get_extract_tm2020_path(
             "GameData/Stadium/Items/ObstaclePusher4mLevel0.Item.Gbx"
         )
+        file2 = get_extract_tm2020_path(
+            "GameData/Stadium256/Media/Material/WarpCeiling.Material.Gbx"
+        )
+        file2 = get_extract_tm2020_path(
+            "GameData/Stadium/Media/Material/RoadDirt.Material.Gbx"
+        )
+        file2 = get_ud_tm2020_path("Materials/test_mat.Mat.Gbx")
 
-        data2, nb_nodes2, win2 = parse_node(file2, True, need_ui=True)
+        data2, nb_nodes2, raw_bytes2 = parse_node(file2, True, need_ui=True)
+        win2 = GbxEditorUi(raw_bytes2, data2)
 
     # bytes3, win3 = cactus(data)
     # bytes3, win3 = rotator(data)
@@ -1381,22 +1070,12 @@ if __name__ == "__main__":
     # bytes3, win3 = pivot(data)
     # data = mesh_anim(data)
 
-    # data.nodes[4] = data2.nodes[24]
-
-    # data.body[12].chunk.EntityModel = 2
-    # data.body[16].chunk.u08 = 0
-    # for node in data.nodes:
-    #     if type(node) == Container:
-    #         if node.header.class_id == 0x090BB000:
-    #             update_090BB000(node)
-    #         if node.header.class_id == 0x0900C000:
-    #             update_0900C000(node)
-
     # bytes3, win3 = generate_node(data, True)
 
     # with open(
-    #     get_ud_tm2020_path("Items/Export/")
-    #     + os.path.basename(file).replace(".Item", ".Item"),
+    #     get_ud_tm2020_path(
+    #         "Items/Export/" + os.path.basename(file).replace(".Item", ".Item")
+    #     ),
     #     "wb",
     # ) as f:
     #     f.write(bytes3)
@@ -1418,46 +1097,6 @@ if __name__ == "__main__":
 
     #         # f.write(f"{data.body[16].chunk.u02}\n")
     #         # f.flush()
-
-    # for chunk in data.body:
-    #     if chunk is not None and chunk.chunk_id == 0x2E00201E:
-    #         f.write(
-    #             f"{chunk.chunk.u01} \t {chunk.chunk.u02} \t {chunk.chunk.u03} "
-    #         )
-    #     if chunk is not None and chunk.chunk_id == 0x2E00201F:
-    #         f.write(
-    #             f"\t {chunk.chunk.u01} \t {chunk.chunk.u02} \t {chunk.chunk.u03} \t {chunk.chunk.u04}\n"
-    #         )
-
-    # export obj
-    # for node_index, node in enumerate(data.nodes):
-    #     # offset = 0
-    #     if type(node) == Container and node.header.class_id == 0x090BB000:
-    #         obj_chunk = node.body[0].chunk
-    #         for i, geom in enumerate(obj_chunk.shaded_geoms):
-    #             idx = obj_chunk.visuals[geom.visual_index]
-
-    #             root_node = data  # node if "nodes" in node else node.root_node
-
-    #             vertices = root_node.nodes[idx + 1].body[0].chunk.vertices_coords
-    #             normals = root_node.nodes[idx + 1].body[0].chunk.normals
-    #             uv0 = root_node.nodes[idx + 1].body[0].chunk.others.uv0
-    #             indices = (
-    #                 root_node.nodes[idx].body[8].chunk.index_buffer[0].chunk.indices
-    #             )
-    #             # mat_idx = obj_chunk.custom_materials[
-    #             #     geom.material_index
-    #             # ].material_user_inst
-    #             mat_idx = obj_chunk.materials[geom.material_index]
-    #             mat = root_node.nodes[mat_idx].body[0].chunk.link
-
-    #             obj_filepath = get_ud_tm2020_path(
-    #                 "Items/ExportObj/"
-    #                 + os.path.basename(file).split(".")[0]
-    #                 + f"_{node_index}_lod{geom.lod}_{idx}.obj"
-    #             )
-    #             print(obj_filepath)
-    #             export_obj(obj_filepath, vertices, normals, uv0, indices, mat)
 
     # for node in data.nodes:
     #     if node and node.header.class_id == 0x09145000:
