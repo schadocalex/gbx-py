@@ -262,3 +262,62 @@ GbxEAnimEase = Enum(
     BounceInOut=34,
 )
 GbxEShaderTcType = Enum(Int32ul, No=0, TransSubTexture=1)
+GbxEMapKind = Enum(
+    Int32ul,
+    EndMarker=0,
+    Campaign=1,
+    Puzzle=2,
+    Retro=3,
+    TimeAttack=4,
+    Rounds=5,
+    InProgress=6,
+    Campaign_7=7,
+    Multi=8,
+    Solo=9,
+    Site=10,
+    SoloNadeo=11,
+    MultiNadeo=12,
+)
+GbxELightMapCacheEQuality = Enum(Int32ul, VFast=0, Fast=1, Default=2, High=3, Ultra=4)
+GbxELightMapCacheEVersion = Enum(
+    Int32ul,
+    Invalid=0,
+    _2011_07_19_Beta1=1,
+    _2011_07_21_Beta1=2,
+    _2011_07_26_Beta1d=3,
+    _2011_08_04_Beta2a=4,
+    _2011_08_08_Beta3a=5,
+    _2014_03_14_Update3_Storm=6,
+    _2017_03_07_ManiaPlanet4=7,
+    _2020_03_25_Beta1=8,
+)
+GbxELightMapCacheEQualityVer = Enum(
+    Int32ul,
+    UltraMapperUnalignWith1k=0,
+    BounceShadowFiltered=1,
+    TinyAlloc_16b=2,
+    ShadowCube_GeomToEyeLengthBias=3,
+    BlockLight_WrongRotations=4,
+    R11G11B10F_No_BounceFactor=5,
+    HBasis_LQ_SignSqrt_BIntensScales=6,
+    ProbeGrid_HdrScaleAmbient=7,
+    ModelSplit2_GmPackReal2_V0=8,
+    ShadowLQ=9,
+    UnmappedBlock_FullCovering=10,
+    StadiumColorisableBounces=11,
+    Item_Prefab_MultiMesh=12,
+    Current=13,
+)
+GbxELightMapCacheESortMode = Enum(Int32ul, No=0, HDiagCenter=1)
+GbxELightMapCacheEAllocMode = Enum(
+    Int32ul, _64_2=0, _64_2PUseFree=1, BestSizePUseFree=2
+)
+GbxELightMapCacheECompressMode = Enum(
+    Int32ul, Ldr_DXT1=0, sRGB_Hyper_DXT1=1, Hyper_sRGB_DXT1=2, Scale_sRGB_DXT1=3
+)
+GbxELightMapCacheEBump = Enum(
+    Int32ul, TxTyTz=0, TxTyTz_Intens=1, No=2, HBasis_Color=3, HBasis_Intens=4
+)
+GbxELightMapCacheEPlugGpuPlatform = Enum(
+    Int32ul, _00=0, D3D11=1, pf3=2, pf4=3, pf5=4, pf6=5
+)
