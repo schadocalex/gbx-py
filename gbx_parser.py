@@ -1182,18 +1182,18 @@ GbxLightMapCacheMapping = Struct(
     "u02_lower_bounds" / GbxVec3,
     "u03_upper_bounds" / GbxVec3,
     "u04" / Int32sl,
-    "count" / Int32ul,  # islands
+    "count" / Int32ul,  # meshes
     "data1" / CompressedZLib(GbxFloat[this._.count]),
     "objBindings"
     / CompressedZLib(
         Struct(
-            "islandIdx" / Int32ul,
+            "meshIdx" / Int32ul,
             "objIdx_x4" / Int16ul,
             "objGroupIdx" / Int16ul,
         )[this._.count]
     ),
     "positions"
-    / CompressedZLib(GbxTexPos[this._.count]),  # position of the island in lightmap
+    / CompressedZLib(GbxTexPos[this._.count]),  # position of the mesh uv in lightmap
     "sizes" / CompressedZLib(GbxTexPos[this._.count]),
     "u09" / Int32sl,
     "colorData"
