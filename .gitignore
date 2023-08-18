@@ -5,3 +5,4 @@ result.csv
 *.spec
 ExportObj
 lm_samples
+missing_files*

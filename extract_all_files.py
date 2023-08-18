@@ -25,8 +25,13 @@ def get_external_folders(data, filepath):
     return all_folders
 
 
-def get_missing_files(filepath):
-    if not os.path.exists(filepath):
+def get_missing_files(filepath, all_reached_files):
+    if filepath in all_reached_files:
+        return []
+    else:
+        all_reached_files.add(filepath)
+
+    if not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
         return [filepath]
 
     with open(filepath, "rb") as f:
@@ -53,22 +58,44 @@ def get_missing_files(filepath):
                 ext_node_filepath = os.path.normpath(
                     external_folders[external_node.folder_index] + external_node.ref
                 )
-                all_sub_missing_files += get_missing_files(ext_node_filepath)
+                all_sub_missing_files += get_missing_files(
+                    ext_node_filepath, all_reached_files
+                )
 
         return all_sub_missing_files
 
 
 if __name__ == "__main__":
-    all_missing_files = []
-
     all_filepaths = (
         glob.glob(
             "C:\\Users\\schad\\OpenplanetNext\\Extract\\GameData\\Stadium\\GameCtnBlockInfo\\GameCtnBlockInfoClassic\\*.EDClassic.Gbx",
         )
         + items_filepaths
     )
-    all_filepaths = items_filepaths
+    # all_filepaths = items_filepaths
 
+    all_missing_files = set()
+    all_reached_files = set()
+
+    for idx, filepath in enumerate(all_filepaths):
+        res = get_missing_files(filepath, all_reached_files)
+        for file in res:
+            all_missing_files.add(file)
+        print(f"{idx+1}/{len(all_filepaths)} {len(all_reached_files)}")
+
+    with open("missing_files_0b.txt", "w") as f:
+        for missing_file in all_missing_files:
+            f.write(missing_file + "\n")
+
+if __name__ == "__main__2":
+    with open("missing_files_1.txt", "r") as f:
+        missing_files = f.read().splitlines()
+        all_filepaths = []
+        for mf in missing_files:
+            if os.path.exists(mf):
+                all_filepaths.append(mf)
+
+    all_missing_files = []
     with Pool(20) as p:
         res = p.map(get_missing_files, all_filepaths)
         all_missing_files = set()
@@ -76,6 +103,6 @@ if __name__ == "__main__":
             for file in root_files:
                 all_missing_files.add(file)
 
-    with open("missing_files.txt", "w") as f:
+    with open("missing_files_1b.txt", "w") as f:
         for missing_file in all_missing_files:
             f.write(missing_file + "\n")
