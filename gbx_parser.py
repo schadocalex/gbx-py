@@ -116,11 +116,53 @@ class CompressedLZ0(Tunnel):
         )
 
 
+import zlib
+
+ini_data = None
+
+
+class CompressedZlib2(Tunnel):
+    def __init__(self, subcon):
+        super().__init__(subcon)
+
+    def _decode(self, data, context, path):
+        global ini_data
+        un = zlib.decompress(data)
+        ini_data = un
+        return un
+
+    def _encode(self, data, context, path):
+        from deep_compare import CompareVariables
+
+        print(len(ini_data))
+        print(len(data))
+
+        with open("bytes1.txt", "wb") as f:
+            f.write(ini_data)
+        with open("bytes2.txt", "wb") as f:
+            f.write(data)
+
+        # for i in range(len(ini_data)):
+        #     print(CompareVariables.compare(ini_data[i], data[i]))
+
+        return zlib.compress(data, 9)
+
+
 # TODO Adapter
+# TODO manage rest
 def CompressedZLib(subcon):
     return Struct(
         "uncompressedSize" / Int32ul,
-        "content" / Prefixed(Int32ul, Compressed(subcon, "zlib")),
+        "content" / Prefixed(Int32ul, Compressed(subcon, "zlib", level=9)),
+        # "content" / Prefixed(Int32ul, CompressedZlib2(subcon)),
+        # "content" / Prefixed(Int32ul, GreedyBytes),
+    )
+
+
+def CompressedZLibBytes(subcon):
+    return Struct(
+        "uncompressedSize" / Int32ul,
+        "content" / Prefixed(Int32ul, GreedyBytes),
     )
 
 
@@ -828,7 +870,12 @@ SHmsLightMapCacheSmall = Struct(
     "data"
     / If(
         lambda this: len(this.lightmapFrames) > 0,
-        CompressedZLib(GbxLookbackStringContext(GbxBodyChunks)),
+        CompressedZLib(
+            Struct(
+                "body" / GbxLookbackStringContext(GbxBodyChunks),
+                "rest" / GreedyBytes,
+            )
+        ),
     ),
 )
 Chunk_0304305B = Struct(
@@ -1149,15 +1196,17 @@ GbxLightMapCacheMapping = Struct(
     / CompressedZLib(GbxTexPos[this._.count]),  # position of the island in lightmap
     "sizes" / CompressedZLib(GbxTexPos[this._.count]),
     "u09" / Int32sl,
-    "colorData" / CompressedZLib(GreedyBytes),
+    "colorData"
+    / CompressedZLib(PrefixedArray(Int32ul, PrefixedArray(Int32ul, Int8ul))),
+    # first one: shadow brightness
 )
 Chunk_0602201A = Struct(
     "version" / Int32ul,  # 13
     "countSMap" / Int32ul,
     "u01" / Bytes(this.countSMap * 5 * 4),
-    "ambSamples" / Int32sl,
-    "dirSamples" / Int32sl,
-    "pntSamples" / Int32sl,
+    "ambSamples" / Int32sl,  # ambiant light
+    "dirSamples" / Int32sl,  # direct light
+    "pntSamples" / Int32sl,  # point light / lumière ponctuelle
     "sortMode" / GbxELightMapCacheESortMode,
     "allocMode" / GbxELightMapCacheEAllocMode,
     "u02" / Int32sl,
@@ -1991,32 +2040,31 @@ Chunk_09179000 = Struct(
 )
 
 # 09187 NPlugItemPlacement_SClass
-Chunk_09187000 = GbxBytesUntilFacade
-# Struct(
-#     "version" / Int32ul,
-#     "size_group" / GbxLookbackString,
-#     "compatible_groups_ids" / PrefixedArray(Int32ul, GbxLookbackString),
-#     "always_up" / GbxBool,
-#     "align_to_interior" / GbxBool,
-#     "align_to_world_dir" / GbxBool,
-#     "world_dir" / GbxVec3,
-#     "patch_layouts"
-#     / PrefixedArray(
-#         Int32ul,
-#         Struct(
-#             "item_count" / Int32ul,
-#             "item_spacing" / GbxFloat,
-#             "fill_align" / GbxEFillAlign,
-#             "fill_dir" / GbxEFillDir,
-#             "normed_pos" / GbxFloat,
-#             "u04" / GbxFloat,  # DistFromNormedPos?
-#             "only_on_groups" / PrefixedArray(Int32ul, GbxLookbackString),
-#             "altitude" / GbxFloat,
-#             "u06" / GbxFloat,  # FillBorderOffset?
-#         ),
-#     ),
-#     "group_cur_patch_layouts" / PrefixedArray(Int32ul, Int32sl),
-# )
+Chunk_09187000 = Struct(
+    "version" / Int32ul,
+    "size_group" / GbxLookbackString,
+    "compatible_groups_ids" / PrefixedArray(Int32ul, GbxLookbackString),
+    "always_up" / GbxBool,
+    "align_to_interior" / GbxBool,
+    "align_to_world_dir" / GbxBool,
+    "world_dir" / GbxVec3,
+    "patch_layouts"
+    / PrefixedArray(
+        Int32ul,
+        Struct(
+            "item_count" / Int32ul,
+            "item_spacing" / GbxFloat,
+            "fill_align" / GbxEFillAlign,
+            "fill_dir" / GbxEFillDir,
+            "normed_pos" / GbxFloat,
+            "u04" / GbxFloat,  # DistFromNormedPos?
+            "only_on_groups" / PrefixedArray(Int32ul, GbxLookbackString),
+            "altitude" / GbxFloat,
+            "u06" / GbxFloat,  # FillBorderOffset?
+        ),
+    ),
+    "group_cur_patch_layouts" / PrefixedArray(Int32ul, Int32sl),
+)
 
 # 09189 CPlugMediaClipList
 Chunk_09189000 = Struct(
