@@ -88,13 +88,29 @@ multiply_de_bruijn_bit_position = [
 
 def lzo_bitops_ctz32(v):
     return multiply_de_bruijn_bit_position[
-        ((v & -v) * 0x077CB531) >> 27
+        (((v & -v) * 0x077CB531) & 0xFFFFFFFF) >> 27
     ]  # TODO force unsigned?
 
 
-def lzo1x_1_compress_core(bytes_in, ip, in_len, bytes_out, op, ti, wrkmem):
-    in_end = in_len
-    ip_end = in_len - 20
+def copy_nbytes(bytes_out, bytes_in, op, ip, n, step):
+    assert n > 0
+    while True:
+        bytes_out[op : op + step] = bytes_in[ip : ip + step]
+        op += step
+        ip += step
+        n -= step
+        if n >= step:
+            continue
+        break
+
+    return op, ip, n
+
+
+def lzo1x_1_compress_core(bytes_in, ini_ip, in_len, bytes_out, ini_op, ti, wrkmem):
+    ip = ini_ip
+    op = ini_op
+    in_end = ini_ip + in_len
+    ip_end = ini_ip + in_len - 20
     ii = ip
     dict_ = wrkmem
     if ti < 4:
@@ -120,29 +136,31 @@ def lzo1x_1_compress_core(bytes_in, ip, in_len, bytes_out, op, ti, wrkmem):
             break
 
         dv = struct.unpack_from("<I", bytes_in, ip)[0]
-        dindex = (0x1824429D * dv) >> (32 - 14)
-        m_pos = dict_[dindex]  # bytes_in
-        dict_[dindex] = ip
+        dindex = (
+            (((0x1824429D * dv) & 0xFFFFFFFF) >> (32 - 14)) & ((1 << 14) - 1)
+        ) & 0xFFFFFFFF
+        m_pos = ini_ip + dict_[dindex]  # bytes_in
+        dict_[dindex] = (ip - ini_ip) & 0xFFFF
         if dv != struct.unpack_from("<I", bytes_in, m_pos)[0]:
             continue  # goto literal
 
         ii -= ti
         ti = 0
 
-        tmp = ip - ii
+        tmp = (ip - ii) & 0xFFFFFFFF
         if tmp != 0:
             if tmp <= 3:
-                bytes_out[op - 2] |= tmp
+                bytes_out[op - 2] |= tmp & 0xFF
                 bytes_out[op : op + 4] = bytes_in[ii : ii + 4]
                 op += tmp
             elif tmp <= 16:
-                bytes_out[op] = tmp - 3
+                bytes_out[op] = (tmp - 3) & 0xFF
                 op += 1
                 bytes_out[op : op + 16] = bytes_in[ii : ii + 16]
                 op += tmp
             else:
                 if tmp <= 18:
-                    bytes_out[op] = tmp - 3
+                    bytes_out[op] = (tmp - 3) & 0xFF
                     op += 1
                 else:
                     tt = tmp - 18
@@ -153,8 +171,8 @@ def lzo1x_1_compress_core(bytes_in, ip, in_len, bytes_out, op, ti, wrkmem):
                         bytes_out[op] = 0
                         op += 1
 
-                        bytes_out[op] = tt
-                        op += 1
+                    bytes_out[op] = tt & 0xFF
+                    op += 1
 
                 op, ii, tmp = copy_nbytes(bytes_out, bytes_in, op, ii, tmp, 16)
                 if tmp > 0:
@@ -180,23 +198,23 @@ def lzo1x_1_compress_core(bytes_in, ip, in_len, bytes_out, op, ti, wrkmem):
         if gt_m_len_done:
             pass
         else:
-            m_len += lzo_bitops_ctz32(v) / 8
+            m_len += lzo_bitops_ctz32(v) // 8
 
         # m_len_done:
         gt_m_len_done = False
-        m_off = ip - m_pos
+        m_off = (ip - m_pos) & 0xFFFFFFFF
         ip += m_len
         ii = ip
         if m_len <= 8 and m_off <= 0x0800:
             m_off -= 1
-            bytes_out[op] = ((m_len - 1) << 5) | ((m_off & 7) << 2)
+            bytes_out[op] = (((m_len - 1) << 5) | ((m_off & 7) << 2)) & 0xFF
             op += 1
-            bytes_out[op] = m_off >> 3
+            bytes_out[op] = (m_off >> 3) & 0xFF
             op += 1
         elif m_off <= 0x4000:
             m_off -= 1
             if m_len <= 33:
-                bytes_out[op] = 32 | (m_len - 2)
+                bytes_out[op] = (32 | (m_len - 2)) & 0xFF
                 op += 1
             else:
                 m_len -= 33
@@ -206,50 +224,36 @@ def lzo1x_1_compress_core(bytes_in, ip, in_len, bytes_out, op, ti, wrkmem):
                     m_len -= 255
                     bytes_out[op] = 0
                     op += 1
-                bytes_out[op] = m_len
+                bytes_out[op] = m_len & 0xFF
                 op += 1
-            bytes_out[op] = m_off << 2
+            bytes_out[op] = (m_off << 2) & 0xFF
             op += 1
-            bytes_out[op] = m_off >> 6
+            bytes_out[op] = (m_off >> 6) & 0xFF
             op += 1
         else:
             m_off -= 0x4000
             if m_len <= 9:
-                bytes_out[op] = 16 | ((m_off >> 11) & 8) | (m_len - 2)
+                bytes_out[op] = (16 | ((m_off >> 11) & 8) | (m_len - 2)) & 0xFF
                 op += 1
             else:
                 m_len -= 9
-                bytes_out[op] = 16 | ((m_off >> 11) & 8)
+                bytes_out[op] = (16 | ((m_off >> 11) & 8)) & 0xFF
                 op += 1
                 while m_len > 255:
                     m_len -= 255
                     bytes_out[op] = 0
                     op += 1
-                bytes_out[op] = m_len
+                bytes_out[op] = m_len & 0xFF
                 op += 1
-            bytes_out[op] = m_off << 2
+            bytes_out[op] = (m_off << 2) & 0xFF
             op += 1
-            bytes_out[op] = m_off >> 6
+            bytes_out[op] = (m_off >> 6) & 0xFF
             op += 1
 
         gt_next = True
         continue
 
-    return in_end - (ii - ti), op
-
-
-def copy_nbytes(bytes_out, bytes_in, op, ip, n, step):
-    assert n > 0
-    while True:
-        bytes_out[op : op + step] = bytes_in[ip : ip + step]
-        op += step
-        ip += step
-        n -= step
-        if n >= step:
-            continue
-        break
-
-    return op, ip, n
+    return (in_end - (ii - ti)) & 0xFFFFFFFF, (op - ini_op) & 0xFFFFFFFF
 
 
 def lzo1x_1_compress(bytes_in, bytes_out, wrkmem):
@@ -259,9 +263,7 @@ def lzo1x_1_compress(bytes_in, bytes_out, wrkmem):
     tmp = 0
 
     while l > 20:
-        ll = l
-        ll_end = 0
-        ll = min(ll, 49152)
+        ll = min(l, 49152)
         ll_end = ip + ll
         if (ll_end + ((tmp + ll) >> 5)) <= ll_end:
             break
@@ -280,12 +282,12 @@ def lzo1x_1_compress(bytes_in, bytes_out, wrkmem):
     if tmp > 0:
         ii = len(bytes_in) - tmp
         if op == 0 and tmp <= 238:
-            bytes_out[op] = 17 + tmp
+            bytes_out[op] = (17 + tmp) & 0xFF
             op += 1
         elif tmp <= 3:
-            bytes_out[op - 2] |= tmp
+            bytes_out[op - 2] |= tmp & 0xFF
         elif tmp <= 18:
-            bytes_out[op] = tmp - 3
+            bytes_out[op] = (tmp - 3) & 0xFF
             op += 1
         else:
             tt = tmp - 18
@@ -296,14 +298,17 @@ def lzo1x_1_compress(bytes_in, bytes_out, wrkmem):
                 bytes_out[op] = 0
                 op += 1
 
-            bytes_out[op] = tt
+            bytes_out[op] = tt & 0xFF
+            op += 1
 
-        op, ip, tmp = copy_nbytes(bytes_out, bytes_in, op, ip, tmp, 1)
+        op, ii, tmp = copy_nbytes(bytes_out, bytes_in, op, ii, tmp, 1)
 
     bytes_out[op] = 16 | 1
     op += 1
-    bytes_out[op : op + 2] = 0
-    op += 2
+    bytes_out[op] = 0
+    op += 1
+    bytes_out[op] = 0
+    op += 1
 
     # out_len = op
     return bytes(bytes_out[:op])
@@ -319,9 +324,12 @@ def match_next(bytes_out, bytes_in, op, ip, tmp):
 
 
 def copy_match(bytes_out, op, m_pos, tmp):
-    bytes_out[op : op + 2] = bytes_out[m_pos : m_pos + 2]
-    op += 2
-    m_pos += 2
+    bytes_out[op] = bytes_out[m_pos]
+    op += 1
+    m_pos += 1
+    bytes_out[op] = bytes_out[m_pos]
+    op += 1
+    m_pos += 1
 
     return copy_nbytes(bytes_out, bytes_out, op, m_pos, tmp, 1)
 
@@ -392,9 +400,14 @@ def lzo1x_decompress(bytes_in, bytes_out):
                 m_pos -= bytes_in[ip] << 2
                 ip += 1
 
-                bytes_out[op : op + 3] = bytes_out[m_pos : m_pos + 3]
-                op += 3
-                m_pos += 2
+                bytes_out[op] = bytes_out[m_pos]
+                op += 1
+                m_pos += 1
+                bytes_out[op] = bytes_out[m_pos]
+                op += 1
+                m_pos += 1
+                bytes_out[op] = bytes_out[m_pos]
+                op += 1
                 gt_match_done = True
 
         # match:
@@ -453,9 +466,11 @@ def lzo1x_decompress(bytes_in, bytes_out):
                 m_pos -= tmp >> 2
                 m_pos -= bytes_in[ip] << 2
                 ip += 1
-                bytes_out[op : op + 2] = bytes_out[m_pos : m_pos + 2]
-                op += 2
+                bytes_out[op] = bytes_out[m_pos]
+                op += 1
                 m_pos += 1
+                bytes_out[op] = bytes_out[m_pos]
+                op += 1
                 gt_match_done = True
 
             if gt_match_done or gt_match_next:
@@ -516,16 +531,16 @@ def lzo1x_decompress(bytes_in, bytes_out):
         return -4
 
 
-def decompress_without_header(bytes_in, out_len):
+def decompress(bytes_in, out_len):
     assert isinstance(out_len, int)
     bytes_out = bytearray(out_len)
     lzo1x_decompress(bytes_in, bytes_out)
     return bytes(bytes_out)
 
 
-def compress_without_header(bytes_in):
+def compress(bytes_in):
     bytes_out = bytearray(len(bytes_in) + (len(bytes_in) // 16) + 64 + 3)
-    wrkmem = bytearray((1 << 14) * 2)
+    wrkmem = [0] * ((1 << 14) * 2)
     return lzo1x_1_compress(bytes_in, bytes_out, wrkmem)
 
 
