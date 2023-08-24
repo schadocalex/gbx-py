@@ -3,7 +3,7 @@ import datetime
 import string
 
 import lzo
-import mini_lzo
+import src.mini_lzo
 import zlib
 
 from construct import (
@@ -65,9 +65,9 @@ from construct import (
     RepeatUntil,
     Construct,
 )
-from my_construct import MyRepeatUntil
+from src.my_construct import MyRepeatUntil
 
-from gbx_enums import (
+from src.gbx_enums import (
     GbxEAnimEase,
     GbxEAutoTerrainPlaceType,
     GbxEDirection,
@@ -107,34 +107,17 @@ GbxCompressedBody = Struct(
 class CompressedLZ0(Tunnel):
     def _decode(self, raw_bytes, context, path):
         data = GbxCompressedBody.parse(raw_bytes)
-        my_decompress = mini_lzo.decompress_without_header(
-            data.compressed_body, data.uncompressed_size
-        )
-        native_decompress = lzo.decompress(
-            data.compressed_body, False, data.uncompressed_size
-        )
 
-        for i in range(data.uncompressed_size):
-            if my_decompress[i] != native_decompress[i]:
-                print(i)
-                break
+        return lzo.decompress(data.compressed_body, False, data.uncompressed_size)
 
-        # assert my_decompress == native_decompress
-
-        # recompressed = mini_lzo.compress_without_header(my_decompress)
-        # redecompressed = mini_lzo.decompress_without_header(
-        #     recompressed, len(my_decompress)
-        # )
-
-        # assert my_decompress == redecompressed
-
-        return native_decompress
+        # return mini_lzo.decompress(data.compressed_body, data.uncompressed_size)
 
     def _encode(self, raw_bytes, context, path):
         return GbxCompressedBody.build(
             Container(
                 uncompressed_size=len(raw_bytes),
-                compressed_body=lzo.compress(raw_bytes, 1, False),
+                # compressed_body=mini_lzo.compress(raw_bytes),
+                compressed_body=lzo.compress(raw_bytes, 9, False),
             )
         )
 
@@ -250,7 +233,7 @@ GbxBox = Struct(
     "y2" / GbxFloat,
     "z2" / GbxFloat,
 )
-GbxColor = Struct("r" / Byte, "g" / Byte, "b" / Byte, "a" / Byte)
+GbxColor = Struct("b" / Byte, "g" / Byte, "r" / Byte, "a" / Byte)
 GbxPlugSurfaceMaterialId = Struct(
     "physicsId" / GbxEPlugSurfacePhysicsId, "gameplayId" / GbxEPlugSurfaceGameplayId
 )
@@ -587,6 +570,16 @@ def print_next_chunk_id(obj, ctx):
     return obj
 
 
+def print_chunk_unknown(obj, ctx):
+    print(f" -- Unknown chunk id: {hex(ctx._.chunk_id)}")
+    return obj
+
+
+def print_chunk_fail(obj, ctx):
+    print(f" -- Parse chunk failed: {hex(ctx._.chunk_id)}")
+    return obj
+
+
 GbxBodyChunks = MyRepeatUntil(
     lambda obj, lst, ctx: obj is None or obj.chunk_id == 0xFACADE01,
     Select(
@@ -610,21 +603,31 @@ GbxBodyChunks = MyRepeatUntil(
                 Switch(
                     this.chunk_id,
                     body_chunks,
-                    default=Struct("unknown_chunk" / GbxBytesUntilFacade),
+                    default=Struct(
+                        "unknown_chunk" / GbxBytesUntilFacade * print_chunk_unknown
+                    ),
                 ),
-                Struct("chunk_parse_failed" / GreedyBytes),
+                Struct("chunk_parse_failed" / GreedyBytes * print_chunk_fail),
             ),
         ),
         Pass,
     ),
 )
 
+
+def print_chunk_unknown_noderef(obj, ctx):
+    print(f" -- Unknown chunk in node ref, id: {hex(ctx._.header.class_id)}")
+    return obj
+
+
 GbxBody = IfThenElse(
     lambda this: this.header.class_id in GbxNodesWithoutBody,
     Switch(
         lambda this: this.header.class_id,
         body_chunks,
-        default=Struct("unknown_chunk_in_node_ref" / GreedyBytes),
+        default=Struct(
+            "unknown_chunk_in_node_ref" / GreedyBytes * print_chunk_unknown_noderef
+        ),
     ),
     GbxBodyChunks
     # EndWithFACADE01(GbxBodyChunks),
@@ -1390,9 +1393,12 @@ body_chunks[0x09003005] = Struct(
 )
 body_chunks[0x09003006] = Struct(
     "version" / Int32ul,
+    "u01" / If(this.version == 0, PrefixedArray(Int32ul, GbxVec2)),
+    StopIf(this.version < 1),
     "u02" / PrefixedArray(Int32ul, Int16sl[2]),
+    StopIf(this.version < 2),
     "u03Count" / Int32ul,
-    "u03" / Bytes(this.u03Count),
+    "u03" / GbxOptimizedIntArray(this.u03Count),
 )
 body_chunks[0x09003007] = Struct(
     "version" / Int32ul,
@@ -1639,6 +1645,11 @@ body_chunks[0x0903A013] = Struct(
             "u02" / Bytes(8),
         ),
     ),
+)
+
+# 09051 CPlugTreeGenerator
+body_chunks[0x09051000] = Struct(
+    "version" / Int32ul,
 )
 
 # 09056 CPlugVertexStream
@@ -2396,12 +2407,12 @@ body_chunks[0x2E001009] = (
     )
     * "Icon"
 )
-body_chunks[0x2E00100B] = Struct("meta" / GbxMeta) * "Author"
-body_chunks[0x2E00100C] = Struct("string" / GbxString) * "Collector name"
-body_chunks[0x2E00100D] = Struct("description" / GbxString) * "Description"
-body_chunks[0x2E00100E] = (
-    Struct("icon_use_auto_render" / GbxBool, "icon_quarter_rotation_y" / Int32sl)
-    * "Icon render"
+body_chunks[0x2E00100B] = Struct("author" / GbxMeta)
+body_chunks[0x2E00100C] = Struct("name" / GbxString)
+body_chunks[0x2E00100D] = Struct("description" / GbxString)
+body_chunks[0x2E00100E] = Struct(
+    "icon_use_auto_render" / GbxBool,
+    "icon_quarter_rotation_y" / Int32sl,
 )
 body_chunks[0x2E001010] = Struct(
     "version" / Int32ul,
@@ -2436,31 +2447,28 @@ body_chunks[0x2E002012] = Struct(
     "orbitalRadiusBase" / GbxFloat,
     "orbitalPreviewAngle" / GbxFloat,
 )
-body_chunks[0x2E002015] = Struct("itemType" / GbxEItemType) * "Item type"
-body_chunks[0x2E002019] = (
-    Struct(
-        "version" / Int32ul,
-        # "phy_model_custom" # TODO
-        # "vis_model_custom" # TODO
-        StopIf(this.version < 3),
-        "default_weapon_name" / GbxLookbackString,
-        StopIf(this.version < 4),
-        "PhyModelCustom" / GbxNodeRef,
-        StopIf(this.version < 5),
-        "VisModelCustom" / GbxNodeRef,
-        StopIf(this.version < 6),
-        "u01" / Int32ul,  # actions?
-        StopIf(this.version < 7),
-        "default_cam" / GbxEDefaultCam,
-        StopIf(this.version < 8),
-        "EntityModelEdition" / GbxNodeRef,
-        "EntityModel" / GbxNodeRef,
-        StopIf(this.version < 13),
-        "vfxFile" / GbxNodeRef,
-        StopIf(this.version < 15),
-        "MaterialModifier" / GbxNodeRef,
-    )
-    * "Model"
+body_chunks[0x2E002015] = Struct("itemType" / GbxEItemType)
+body_chunks[0x2E002019] = Struct(
+    "version" / Int32ul,
+    # "phy_model_custom" # TODO
+    # "vis_model_custom" # TODO
+    StopIf(this.version < 3),
+    "default_weapon_name" / GbxLookbackString,
+    StopIf(this.version < 4),
+    "PhyModelCustom" / GbxNodeRef,
+    StopIf(this.version < 5),
+    "VisModelCustom" / GbxNodeRef,
+    StopIf(this.version < 6),
+    "u01" / Int32ul,  # actions?
+    StopIf(this.version < 7),
+    "default_cam" / GbxEDefaultCam,
+    StopIf(this.version < 8),
+    "EntityModelEdition" / GbxNodeRef,
+    "EntityModel" / GbxNodeRef,
+    StopIf(this.version < 13),
+    "vfxFile" / GbxNodeRef,
+    StopIf(this.version < 15),
+    "MaterialModifier" / If(this.EntityModel >= 0, GbxNodeRef),
 )
 body_chunks[0x2E00201A] = Struct("u01" / GbxNodeRef)
 body_chunks[0x2E00201C] = Struct(
@@ -2536,9 +2544,30 @@ body_chunks[0x2E020005] = Struct("item_placement" / GbxNodeRef)
 # 2E026 CGameCommonItemEntityModelEdition
 body_chunks[0x2E026000] = Struct(
     "version" / Int32ul,
-    "itemType" / GbxEItemType,
+    "itemType" / ExprValidator(GbxEItemType, obj_ == "Ornament"),
     "meshCrystal" / GbxNodeRef,
-    "rest" / GbxBytesUntilFacade,
+    "u01" / GbxString,
+    "u02" / GbxNodeRef,  # if U01 is empty probably
+    "u03" / ExprValidator(Int32ul, obj_ == 0),  # CPlugFileImg array
+    "u04" / ExprValidator(Int32ul, obj_ == 0),  # SSpriteParam array
+    "u05" / GbxNodeRef,
+    "u06" / GbxNodeRef,
+    "u07" / ExprValidator(Int32ul, obj_ == 0),  # SPlugLightBallStateSimple array
+    "u08_u14" / GbxString[7],
+    "u15" / GbxIso4,
+    "u16" / GbxBool,
+    "u21" / If(lambda this: not this.u16, GbxNodeRef),
+    "u17" / GbxBool,
+    "u18" / If(lambda this: this.u17, Int32sl),
+    "u19" / If(lambda this: this.u17, GbxIso4),
+    "u20" / Int32sl,
+    StopIf(this.version < 1),
+    "inventoryName" / GbxString,
+    "inventoryDescription" / GbxString,
+    "inventoryItemClass" / Int32sl,
+    "inventoryOccupation" / Int32sl,
+    StopIf(this.version < 6),
+    "u22" / GbxNodeRef,
 )
 
 # 2E027 CGameCommonItemEntityModel
@@ -2766,21 +2795,23 @@ def create_gbx_struct(gbx_body):
                             Int32ul,
                             Struct(
                                 "id" / GbxChunkId,
-                                "_size_and_heavy"
-                                / Rebuild(
-                                    Int32ul,
-                                    lambda this: len(
-                                        header_chunks.get(this.id, GreedyBytes).build(
-                                            this._._.data[this._index],
-                                            gbx_data={},
-                                        )
+                                "meta"
+                                / ByteSwapped(
+                                    BitStruct(
+                                        "heavy" / Flag,
+                                        "size"
+                                        / Rebuild(
+                                            BitsInteger(31),
+                                            lambda this: len(
+                                                header_chunks[this._.id].build(
+                                                    this._._._.data[this._index],
+                                                    gbx_data={},
+                                                )
+                                            )
+                                            if this._.id in header_chunks
+                                            else this.size,
+                                        ),
                                     )
-                                    + (0x80000000 if this.heavy else 0x00),
-                                ),
-                                "size" / Computed(this._size_and_heavy & 0x7FFFFFFF),
-                                "heavy"
-                                / Computed(
-                                    (this._size_and_heavy & 0x80000000) == 0x80000000
                                 ),
                             ),
                         ),
@@ -2793,7 +2824,9 @@ def create_gbx_struct(gbx_body):
                                         lambda this: this.entries[this._index].id,
                                         header_chunks,
                                         default=Bytes(
-                                            lambda this: this.entries[this._index].size
+                                            lambda this: this.entries[
+                                                this._index
+                                            ].meta.size
                                         ),
                                     ),
                                     Struct(
@@ -2801,7 +2834,7 @@ def create_gbx_struct(gbx_body):
                                         / Bytes(
                                             lambda this: this._.entries[
                                                 this._index
-                                            ].size
+                                            ].meta.size
                                         )
                                     ),
                                 ),
