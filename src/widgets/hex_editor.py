@@ -7,6 +7,7 @@ from PySide6.QtCore import Slot, Qt
 from PySide6.QtGui import QTextCursor
 from runtime_params import hex_window_width_px
 
+
 class AddrWidget(QTextEdit):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -171,9 +172,9 @@ class GbxHexEditor(QWidget):
         self.setFixedWidth(860)
 
     def set_bytes(self, raw_bytes):
-        if len(raw_bytes) >= 30000:
+        if len(raw_bytes) >= 90000:
             print(f"too many bytes {len(raw_bytes)}")
-            raw_bytes = raw_bytes[:30000]
+            raw_bytes = raw_bytes[:90000]
         self.raw_bytes = raw_bytes
 
         self.addr_widget.set_bytes(raw_bytes)

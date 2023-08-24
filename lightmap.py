@@ -4,6 +4,8 @@ from PySide6.QtWidgets import QApplication
 from runtime_params import *
 from gbx_editor import parse_node, generate_node, GbxEditorUi
 
+from PIL import Image, ImageDraw
+
 if __name__ == "__main__3":
     import zlib
 

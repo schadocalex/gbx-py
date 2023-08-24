@@ -3,6 +3,7 @@ import datetime
 import string
 
 import lzo
+import src.mini_lzo
 import zlib
 
 from construct import (
@@ -64,8 +65,9 @@ from construct import (
     RepeatUntil,
     Construct,
 )
+from src.my_construct import MyRepeatUntil
 
-from gbx_enums import (
+from src.gbx_enums import (
     GbxEAnimEase,
     GbxEAutoTerrainPlaceType,
     GbxEDirection,
@@ -105,13 +107,17 @@ GbxCompressedBody = Struct(
 class CompressedLZ0(Tunnel):
     def _decode(self, raw_bytes, context, path):
         data = GbxCompressedBody.parse(raw_bytes)
+
         return lzo.decompress(data.compressed_body, False, data.uncompressed_size)
+
+        # return mini_lzo.decompress(data.compressed_body, data.uncompressed_size)
 
     def _encode(self, raw_bytes, context, path):
         return GbxCompressedBody.build(
             Container(
                 uncompressed_size=len(raw_bytes),
-                compressed_body=lzo.compress(raw_bytes, 1, False),
+                # compressed_body=mini_lzo.compress(raw_bytes),
+                compressed_body=lzo.compress(raw_bytes, 9, False),
             )
         )
 
@@ -227,7 +233,7 @@ GbxBox = Struct(
     "y2" / GbxFloat,
     "z2" / GbxFloat,
 )
-GbxColor = Struct("r" / Byte, "g" / Byte, "b" / Byte, "a" / Byte)
+GbxColor = Struct("b" / Byte, "g" / Byte, "r" / Byte, "a" / Byte)
 GbxPlugSurfaceMaterialId = Struct(
     "physicsId" / GbxEPlugSurfacePhysicsId, "gameplayId" / GbxEPlugSurfaceGameplayId
 )
@@ -542,7 +548,7 @@ class GbxOptimizedIntArray(Construct):
         return struct._sizeof(context, path) * length
 
 
-BodyChunkId_to_struct = {}
+body_chunks = {}
 
 GbxNodesWithoutBody = set(
     [
@@ -559,17 +565,22 @@ GbxNodesWithoutBody = set(
 )
 
 
-def print_chunk_id(obj, ctx):
-    # print(f"Parsed {obj.chunk_id}")
-    return obj
-
-
 def print_next_chunk_id(obj, ctx):
     # print(f"Parsing... {obj}")
     return obj
 
 
-GbxBodyChunks = RepeatUntil(
+def print_chunk_unknown(obj, ctx):
+    print(f" -- Unknown chunk id: {hex(ctx._.chunk_id)}")
+    return obj
+
+
+def print_chunk_fail(obj, ctx):
+    print(f" -- Parse chunk failed: {hex(ctx._.chunk_id)}")
+    return obj
+
+
+GbxBodyChunks = MyRepeatUntil(
     lambda obj, lst, ctx: obj is None or obj.chunk_id == 0xFACADE01,
     Select(
         Struct(
@@ -584,30 +595,39 @@ GbxBodyChunks = RepeatUntil(
                         Int32ul,
                         Switch(
                             this._.chunk_id,
-                            BodyChunkId_to_struct,
+                            body_chunks,
                             default=GreedyBytes,
                         ),
                     ),
                 ),
                 Switch(
                     this.chunk_id,
-                    BodyChunkId_to_struct,
-                    default=Struct("unknown_chunk" / GbxBytesUntilFacade),
+                    body_chunks,
+                    default=Struct(
+                        "unknown_chunk" / GbxBytesUntilFacade * print_chunk_unknown
+                    ),
                 ),
-                Struct("chunk_parse_failed" / GreedyBytes),
+                Struct("chunk_parse_failed" / GreedyBytes * print_chunk_fail),
             ),
-        )
-        * print_chunk_id,
+        ),
         Pass,
     ),
 )
+
+
+def print_chunk_unknown_noderef(obj, ctx):
+    print(f" -- Unknown chunk in node ref, id: {hex(ctx._.header.class_id)}")
+    return obj
+
 
 GbxBody = IfThenElse(
     lambda this: this.header.class_id in GbxNodesWithoutBody,
     Switch(
         lambda this: this.header.class_id,
-        BodyChunkId_to_struct,
-        default=Struct("unknown_chunk_in_node_ref" / GreedyBytes),
+        body_chunks,
+        default=Struct(
+            "unknown_chunk_in_node_ref" / GreedyBytes * print_chunk_unknown_noderef
+        ),
     ),
     GbxBodyChunks
     # EndWithFACADE01(GbxBodyChunks),
@@ -684,7 +704,7 @@ GbxNodeRef = GbxNodeRefAdapter(
                 #     lambda this: this.class_id in GbxNodesWithoutBody,
                 #     Switch(
                 #         this.class_id,
-                #         BodyChunkId_to_struct,
+                #         body_chunks,
                 #         default=Struct("unknown_chunk_in_node_ref" / GreedyBytes),
                 #     ),
                 #     GbxBody,  # TODO create new context for GbxBody? I think no
@@ -703,31 +723,31 @@ GbxMaterial = Struct(
 # Body Chunks
 
 # 03036 CGameCtnBlockUnitInfo
-Chunk_03036000 = Struct(
+body_chunks[0x03036000] = Struct(
     "placePylons" / Int32sl,
     "u01" / GbxBool,  # AcceptPylons?
     "u02" / GbxBool,
     "relativeOffset" / GbxInt3,
     "clips" / PrefixedArray(Int32ul, GbxNodeRef),  # pylons clips?
 )
-Chunk_03036001 = Struct(
+body_chunks[0x03036001] = Struct(
     "u01" / GbxNodeRef,  # Desert, Grass
     "u02" / Int32sl,
     "u03" / Int32sl,
 )
-Chunk_03036002 = Struct(
+body_chunks[0x03036002] = Struct(
     "u01" / Bytes(12),  # undergound?
 )
-Chunk_03036004 = Struct(
+body_chunks[0x03036004] = Struct(
     "u01" / Int32sl,
 )
-Chunk_03036005 = Struct(
+body_chunks[0x03036005] = Struct(
     "terrainModifierId" / GbxNodeRef,
 )
-Chunk_03036007 = Struct(
+body_chunks[0x03036007] = Struct(
     "u01" / GbxNodeRef[4],
 )
-Chunk_0303600C = Struct(
+body_chunks[0x0303600C] = Struct(
     "version" / Int32ul,
     "countClips"
     / ByteSwapped(  # little endian 32 bit
@@ -752,15 +772,15 @@ Chunk_0303600C = Struct(
 )
 
 # 03043 CGameCtnChallenge
-Chunk_0304300D = Struct(
+body_chunks[0x0304300D] = Struct(
     "playerModel" / GbxMeta,
 )
-Chunk_03043011 = Struct(
+body_chunks[0x03043011] = Struct(
     "blockStock" / GbxNodeRef,  # CGameCtnCollectorList
     "challengeParameters" / GbxNodeRef,  # CGameCtnChallengeParameters
     "kind" / GbxEMapKind,
 )
-Chunk_0304301F = Struct(
+body_chunks[0x0304301F] = Struct(
     "mapInfo" / GbxMeta,
     "mapName" / GbxString,
     "decoration" / GbxMeta,
@@ -809,20 +829,20 @@ Chunk_0304301F = Struct(
         ),
     ),
 )
-Chunk_03043022 = Struct(
+body_chunks[0x03043022] = Struct(
     "u01" / Int32sl,
 )
-Chunk_03043024 = Struct(
+body_chunks[0x03043024] = Struct(
     "customMusicPackDesc" / GbxFileRef,
 )
-Chunk_03043025 = Struct(
+body_chunks[0x03043025] = Struct(
     "mapCoordOrigin" / GbxVec2,
     "mapCoordTarget" / GbxVec2,
 )
-Chunk_03043026 = Struct(
+body_chunks[0x03043026] = Struct(
     "clipGlobal" / GbxNodeRef,
 )
-Chunk_03043027 = Struct(
+body_chunks[0x03043027] = Struct(
     "hasCustomCamThumbnail" / GbxBool,
     "customCamThumbnail"
     / If(
@@ -839,21 +859,21 @@ Chunk_03043027 = Struct(
         ),
     ),
 )
-Chunk_03043028 = Struct(
-    *Chunk_03043027.subcons,
+body_chunks[0x03043028] = Struct(
+    *body_chunks[0x03043027].subcons,
     "comments" / GbxString,
 )
-Chunk_0304302A = Struct(
+body_chunks[0x0304302A] = Struct(
     "u01" / GbxBool,
 )
-Chunk_03043049 = Struct(
+body_chunks[0x03043049] = Struct(
     "version" / Int32ul,
     "clipIntro" / GbxNodeRef,  # CGameCtnMediaClip
     "clipPodium" / GbxNodeRef,  # CGameCtnMediaClip
     "clipGroupInGame" / GbxNodeRef,  # CGameCtnMediaClipGroup
     "clipGroupEndRace" / GbxNodeRef,  # CGameCtnMediaClipGroup
     "clipAmbiance" / GbxNodeRef,  # CGameCtnMediaClip
-    "triggerSize" / GbxInt3,
+    "triggerSize" / GbxInt3,  # dividor
 )
 SHmsLightMapCacheSmall = Struct(
     "version" / Int32ul,  # 8
@@ -878,7 +898,7 @@ SHmsLightMapCacheSmall = Struct(
         ),
     ),
 )
-Chunk_0304305B = Struct(
+body_chunks[0x0304305B] = Struct(
     "version" / Int32ul,
     "u01" / GbxBool,
     "u02" / GbxBool,
@@ -888,16 +908,16 @@ Chunk_0304305B = Struct(
 )
 
 # 0304E CGameCtnBlockInfo
-Chunk_0304E00F = Struct(
+body_chunks[0x0304E00F] = Struct(
     "no_respawn" / GbxBool,
 )
-Chunk_0304E013 = Struct(
+body_chunks[0x0304E013] = Struct(
     "icon_auto_use_ground" / GbxBool,
 )
-Chunk_0304E017 = Struct(
+body_chunks[0x0304E017] = Struct(
     "u01" / GbxBool,
 )
-Chunk_0304E020 = Struct(
+body_chunks[0x0304E020] = Struct(
     "version" / Int32ul,
     "char_phy_special_property" / GbxNodeRef,
     "u01" / If(this.version < 7, GbxNodeRef),
@@ -912,58 +932,76 @@ Chunk_0304E020 = Struct(
     "u03" / GbxBool,
     "u04" / If(this.u03, Struct("u01" / GbxString, "u02" / GbxString)),
 )
-Chunk_0304E023 = Struct(
+body_chunks[0x0304E023] = Struct(
     "variant_base_ground" / GbxBodyChunks,
     "variant_base_air" / GbxBodyChunks,
 )
-Chunk_0304E026 = Struct("wayPointType" / GbxEWayPointType)
-Chunk_0304E027 = Struct(
+body_chunks[0x0304E026] = Struct("wayPointType" / GbxEWayPointType)
+body_chunks[0x0304E027] = Struct(
     "listVersion" / ExprValidator(Int32ul, obj_ == 10),
     "additionalVariantsGround"
     / PrefixedArray(Int32ul, GbxNodeRef),  # CGameCtnBlockInfoVariantGround
 )
-Chunk_0304E028 = Struct(
+body_chunks[0x0304E028] = Struct(
     "symmetricalBlockInfoId" / GbxLookbackString,
     "dir" / GbxEDirection,
 )
-Chunk_0304E029 = Struct(
+body_chunks[0x0304E029] = Struct(
     "fogVolumeBox" / GbxNodeRef,  # CPlugFogVolumeBox
 )
-Chunk_0304E02A = Struct(
+body_chunks[0x0304E02A] = Struct(
     "version" / Int32ul,
     "sound1" / GbxNodeRef,
     "sound2" / GbxNodeRef,
     "sound1Loc" / If(lambda this: this.version < 3 or this.sound1 > 0, GbxIso4),
     "sound2Loc" / If(lambda this: this.version < 3 or this.sound1 > 0, GbxIso4),
 )
-Chunk_0304E02B = Struct(
+body_chunks[0x0304E02B] = Struct(
     "version" / Int32ul,
     "u01" / Int32sl,
 )
-Chunk_0304E02C = Struct(
+body_chunks[0x0304E02C] = Struct(
     "version" / Int32ul,
     "additionalVariantsAir"
     / PrefixedArray(Int32ul, GbxNodeRef),  # CGameCtnBlockInfoVariantAir
 )
-Chunk_0304E02F = Struct(
+body_chunks[0x0304E02F] = Struct(
     "version" / Int32ul,
     "isPillar" / GbxBoolByte,
     "pillarShapeMultiDir" / GbxEMultiDirByte,
     StopIf(this.version < 1),
     "u01" / Byte,
 )
-Chunk_0304E031 = Struct(
+body_chunks[0x0304E031] = Struct(
     "rest" / GbxBytesUntilFacade,
+)
+# 0305B CGameCtnChallengeParameters
+body_chunks[0x0305B001] = Struct(
+    "tip" / GbxString[4],
+)
+body_chunks[0x0305B004] = Struct(
+    "bronzeTime" / Int32sl,  # TODO GbxTimeNullable
+    "silverTime" / Int32sl,  # TODO GbxTimeNullable
+    "goldTime" / Int32sl,  # TODO GbxTimeNullable
+    "authorTime" / Int32sl,  # TODO GbxTimeNullable
+    "u01" / Int32sl,
+)
+body_chunks[0x0305B008] = Struct(
+    "timeLimit" / Int32sl,  # TODO GbxTimeNullable
+    "authorScore" / Int32sl,
+)
+body_chunks[0x0305B00D] = Struct(
+    "raceValidateGhost" / GbxNodeRef,  # CGameCtnGhost
 )
 
 # 03120 CGameCtnAutoTerrain
-Chunk_03120001 = Struct(
+body_chunks[0x03120001] = Struct(
     "offset" / GbxInt3,
     "genealogy" / GbxNodeRef,  # CGameCtnZoneGenealogy
 )
 
 # 03122 CGameCtnBlockInfoMobil
-Chunk_03122002 = Struct(
+body_chunks[0x03122002] = Struct(
     "version" / Int32ul,
     "solid_decals"
     / PrefixedArray(
@@ -975,7 +1013,7 @@ Chunk_03122002 = Struct(
     ),
     "u01" / Int32ul,
 )
-Chunk_03122003 = Struct(
+body_chunks[0x03122003] = Struct(
     "version" / ExprValidator(Int32ul, obj_ >= 2),
     "u01" / Int32sl,
     StopIf(this.version < 1),
@@ -1007,15 +1045,15 @@ Chunk_03122003 = Struct(
     "u27" / PrefixedArray(Int32ul, GbxNodeRef),
     "u28" / Int32sl,
 )
-Chunk_03122004 = Struct(
+body_chunks[0x03122004] = Struct(
     "version" / Int32ul,
     "list_version" / ExprValidator(Int32sl, obj_ == 10),
     "dyna_links" / PrefixedArray(Int32ul, GbxNodeRef),  # CGameCtnBlockInfoMobilLink
 )
 
 # 0315B CGameCtnBlockInfoVariant
-Chunk_0315B002 = Struct("multi_dir" / GbxEMultiDir)
-Chunk_0315B003 = Struct(
+body_chunks[0x0315B002] = Struct("multi_dir" / GbxEMultiDir)
+body_chunks[0x0315B003] = Struct(
     "version" / Int32ul,
     "symmetrical_variant_index" / Int32sl,
     "cardinal_dir" / If(this.version == 0, Int32ul),
@@ -1025,8 +1063,8 @@ Chunk_0315B003 = Struct(
     StopIf(this.version < 2),
     "no_pillar_below_index" / Int8sl,
 )
-Chunk_0315B004 = Struct("u01" / Int16sl)
-Chunk_0315B005 = Struct(
+body_chunks[0x0315B004] = Struct("u01" / Int16sl)
+body_chunks[0x0315B005] = Struct(
     "version" / Int32ul,
     "mobils"
     / PrefixedArray(
@@ -1038,7 +1076,7 @@ Chunk_0315B005 = Struct(
     StopIf(this.version < 3),
     "u04" / Int32sl,
 )
-Chunk_0315B006 = Struct(
+body_chunks[0x0315B006] = Struct(
     "version" / Int32ul,
     "u01" / If(this.version < 9, GbxNodeRef),
     "screenInteractionTriggerSolid" / GbxNodeRef,
@@ -1063,11 +1101,11 @@ Chunk_0315B006 = Struct(
     StopIf(this.version < 10),
     "entitySpawners" / PrefixedArray(Int32ul, GbxNodeRef),  # CPlugEntitySpawner
 )
-Chunk_0315B007 = Struct(
+body_chunks[0x0315B007] = Struct(
     "version" / Int32ul,
     "probe" / GbxNodeRef,  # CPlugProbe
 )
-Chunk_0315B008 = Struct(
+body_chunks[0x0315B008] = Struct(
     "version" / Int32ul,
     "blockUnitModels" / PrefixedArray(Int32ul, GbxNodeRef),  # CGameCtnBlockUnitInfo
     "u01" / Int32sl,
@@ -1086,7 +1124,7 @@ Chunk_0315B008 = Struct(
     ),
     "name" / GbxString,
 )
-Chunk_0315B009 = Struct(
+body_chunks[0x0315B009] = Struct(
     "version" / Int32ul,
     "u01"
     / PrefixedArray(
@@ -1107,11 +1145,11 @@ Chunk_0315B009 = Struct(
         ),
     ),  # ReplacedPillarParam
 )
-Chunk_0315B00A = Struct(
+body_chunks[0x0315B00A] = Struct(
     "version" / ExprValidator(Int32ul, obj_ >= 3),
     "compoundModel" / GbxNodeRef,  # CGameObjectPhyCompoundModel
 )
-Chunk_0315B00B = Struct(
+body_chunks[0x0315B00B] = Struct(
     "version" / Int32ul,
     "waterVolumes"
     / PrefixedArray(
@@ -1124,13 +1162,13 @@ Chunk_0315B00B = Struct(
         ),
     ),  # WaterArchive
 )
-Chunk_0315B00D = Struct(
+body_chunks[0x0315B00D] = Struct(
     "version" / Int32sl,
     "u01" / Int32sl,
 )
 
 # 0315C CGameCtnBlockInfoVariantGround
-Chunk_0315C001 = Struct(
+body_chunks[0x0315C001] = Struct(
     "version" / Int32ul,
     "listVersion" / ExprValidator(Int32ul, obj_ == 10),
     "autoTerrains" / PrefixedArray(Int32ul, GbxNodeRef),  # CGameCtnAutoTerrain
@@ -1139,19 +1177,19 @@ Chunk_0315C001 = Struct(
 )
 
 # 06022 LightMapCache
-Chunk_0602200B = Struct(
+body_chunks[0x0602200B] = Struct(
     "mapT3s" / PrefixedArray(Int32ul, Int32sl),
 )
-Chunk_0602200F = Struct(
+body_chunks[0x0602200F] = Struct(
     "quality" / GbxELightMapCacheEQuality,
     "u01" / Int32sl,
 )
-Chunk_06022013 = Struct(
+body_chunks[0x06022013] = Struct(
     "u01" / GbxBool,
     "u02" / GbxBool,
     "u03" / GbxFileTime,
 )
-Chunk_06022015 = Struct(
+body_chunks[0x06022015] = Struct(
     "version" / Int32ul,  # 5
     "u01" / Bytes(8),
     "collection" / GbxLookbackString,
@@ -1163,44 +1201,56 @@ Chunk_06022015 = Struct(
     "u05" / Int32sl,
     "u06" / GbxString,
 )
-Chunk_06022016 = Struct(
+body_chunks[0x06022016] = Struct(
     "version" / GbxELightMapCacheEVersion,
 )
-Chunk_06022017 = Struct(
+body_chunks[0x06022017] = Struct(
     "decal2d" / Int32sl,
     "decal3d" / Int32sl,
 )
-Chunk_06022018 = Struct(
+body_chunks[0x06022018] = Struct(
     "u01" / GbxFileTime,
 )
-Chunk_06022019 = Struct(
+body_chunks[0x06022019] = Struct(
     "qualityVer" / GbxELightMapCacheEQualityVer,
 )
+
+
+def divide_by_four(data, ctx):
+    if (data % 4) != 0:
+        print("Found a non-multiple of 4")
+    return int(data / 4)
+
+
+def mult_by_four(data, ctx):
+    return int(data * 4)
+
+
 GbxLightMapCacheMapping = Struct(
     "version" / Int32sl,  # 9
     "u01_size" / GbxInt3,
     "u02_lower_bounds" / GbxVec3,
     "u03_upper_bounds" / GbxVec3,
     "u04" / Int32sl,
-    "count" / Int32ul,  # islands
+    "count" / Int32ul,  # meshes
     "data1" / CompressedZLib(GbxFloat[this._.count]),
     "objBindings"
     / CompressedZLib(
         Struct(
-            "islandIdx" / Int32ul,
-            "objIdx_x4" / Int16ul,
+            "meshIdx" / Int32ul,
+            "objIdx" / ExprAdapter(Int16ul, divide_by_four, mult_by_four),
             "objGroupIdx" / Int16ul,
         )[this._.count]
     ),
     "positions"
-    / CompressedZLib(GbxTexPos[this._.count]),  # position of the island in lightmap
+    / CompressedZLib(GbxTexPos[this._.count]),  # position of the mesh uv in lightmap
     "sizes" / CompressedZLib(GbxTexPos[this._.count]),
     "u09" / Int32sl,
     "colorData"
     / CompressedZLib(PrefixedArray(Int32ul, PrefixedArray(Int32ul, Int8ul))),
     # first one: shadow brightness
 )
-Chunk_0602201A = Struct(
+body_chunks[0x0602201A] = Struct(
     "version" / Int32ul,  # 13
     "countSMap" / Int32ul,
     "u01" / Bytes(this.countSMap * 5 * 4),
@@ -1304,17 +1354,17 @@ GbxCrystal_Trigger = Struct(
     "crystal" / GbxCrystal, "u01" / PrefixedArray(Int32ul, Int32sl)
 )
 
-Chunk_09003003 = Struct(
+body_chunks[0x09003003] = Struct(
     "version" / Int32ul,
     "materials" / PrefixedArray(Int32ul, GbxMaterial),
 )
-Chunk_09003004 = Struct(
+body_chunks[0x09003004] = Struct(
     "version" / Int32ul,
     "u01_size" / Int32ul,
     "u01" / Bytes(this.u01_size),
     "u02" / Bytes(4),
 )
-Chunk_09003005 = Struct(
+body_chunks[0x09003005] = Struct(
     "version" / Int32ul,
     "layer_count" / Rebuild(Int32ul, lambda this: len(this.layers)),
     "layers"
@@ -1341,45 +1391,32 @@ Chunk_09003005 = Struct(
         ),
     ),
 )
-Chunk_09003006 = Struct(
+body_chunks[0x09003006] = Struct(
     "version" / Int32ul,
+    "u01" / If(this.version == 0, PrefixedArray(Int32ul, GbxVec2)),
+    StopIf(this.version < 1),
     "u02" / PrefixedArray(Int32ul, Int16sl[2]),
+    StopIf(this.version < 2),
     "u03Count" / Int32ul,
-    "u03" / Bytes(this.u03Count),
+    "u03" / GbxOptimizedIntArray(this.u03Count),
 )
-Chunk_09003007 = Struct(
+body_chunks[0x09003007] = Struct(
     "version" / Int32ul,
     "u01" / PrefixedArray(Int32ul, GbxFloat),
     "u02" / PrefixedArray(Int32ul, Int32sl),
 )
 
 # 09006 CPlugVisual
-Chunk_09006001 = Struct("u01" / GbxNodeRef)
-Chunk_09006004 = Struct("u01" / GbxNodeRef)
-Chunk_09006005 = Struct("sub_visuals" / PrefixedArray(Int32ul, GbxInt3))
-Chunk_09006009 = Struct("has_vertex_normals " / GbxBool)
-Chunk_0900600B = Struct(
+body_chunks[0x09006001] = Struct("u01" / GbxNodeRef)
+body_chunks[0x09006004] = Struct("u01" / GbxNodeRef)
+body_chunks[0x09006005] = Struct("sub_visuals" / PrefixedArray(Int32ul, GbxInt3))
+body_chunks[0x09006009] = Struct("has_vertex_normals " / GbxBool)
+body_chunks[0x0900600B] = Struct(
     "splits "
     / PrefixedArray(Int32ul, Struct("u01" / Int32sl, "u02" / Int32sl, "u03" / GbxBox))
 )
 
-flags_09006 = 0
-count_09006 = 0
 has_vertices = False
-
-
-def read_count(obj, ctx):
-    global count_09006
-    count_09006 = obj
-    # print("read_count:" + str(obj))
-    return obj
-
-
-def write_count(obj, ctx):
-    global count_09006
-    count_09006 = obj
-    # print("write_count:" + str(obj))
-    return obj
 
 
 def read_has_vertices(obj, ctx):
@@ -1406,9 +1443,6 @@ def convert_chunk_flags_to_flags(chunk_flags, ctx):
     flags |= (chunk_flags << 13) & 0x200000
     flags |= (chunk_flags << 13) & 0x400000
 
-    global flags_09006
-    flags_09006 = flags
-
     return flags
 
 
@@ -1424,11 +1458,11 @@ def convert_flags_to_chunk_flags(flags, ctx):
     return chunk_flags
 
 
-Chunk_0900600D = Struct(
+body_chunks[0x0900600D] = Struct(
     "flags"
     / ExprAdapter(Int32ul, convert_chunk_flags_to_flags, convert_flags_to_chunk_flags),
     "num_tex_coord_sets" / Int32ul,
-    "count" / ExprAdapter(Int32ul, read_count, write_count),
+    "count" / Int32ul,
     "vertex_streams"
     / ExprAdapter(
         PrefixedArray(Int32ul, GbxNodeRef), read_has_vertices, write_has_vertices
@@ -1458,20 +1492,20 @@ Chunk_0900600D = Struct(
     ),
     "u01" / GbxBox,
 )
-Chunk_0900600E = Struct(
-    *Chunk_0900600D.subcons,
+body_chunks[0x0900600E] = Struct(
+    *body_chunks[0x0900600D].subcons,
     "bitmapElemToPacks" / PrefixedArray(Int32ul, Struct("u01" / Bytes(20))),
 )
-Chunk_0900600F = Struct(
+body_chunks[0x0900600F] = Struct(
     "version" / Int32ul,
-    *Chunk_0900600E.subcons,
+    *body_chunks[0x0900600E].subcons,
     StopIf(this.version < 5),
     "u02" / PrefixedArray(Int32ul, Int16sl),
     StopIf(this.version < 6),
     "u03" / Int32ul,
     "u04" / ExprValidator(Int32ul, obj_ == 0),
 )
-Chunk_09006010 = Struct(
+body_chunks[0x09006010] = Struct(
     "version" / Int32ul, "morph_count" / ExprValidator(Int32ul, obj_ == 0)
 )
 
@@ -1499,7 +1533,7 @@ GbxSurfConvexPolyhedron = Struct(
     # "u02" / PrefixedArray(Int32ul, Int32sl[2]),
     "u05" / Int16sl,
 )
-Chunk_0900C003 = Struct(
+body_chunks[0x0900C003] = Struct(
     "version" / Int32ul,
     "surf_version" / If(this.version >= 2, Int32ul),
     "surf"
@@ -1536,31 +1570,24 @@ Chunk_0900C003 = Struct(
 # 0902C CPlugVisual3D
 
 
-def get_flags(this):
-    global flags_09006
-    return flags_09006
+def is_flag_bit_set(ctx, bit):
+    flags = ctx._._._array[4].chunk.flags
+    return (flags & (1 << bit)) != 0
 
 
-def is_flag_bit_set(bit):
-    return (flags_09006 & (1 << bit)) != 0
-
-
-def check_arr(arr, ctx):
-    return arr
-
-
-Chunk_0902C002 = Struct("u01" / GbxNodeRef)
-Chunk_0902C004 = Struct(
-    "flags" / Computed(get_flags),
-    "u01" / Computed(lambda this: not is_flag_bit_set(22) or False),
-    "u02" / Computed(lambda this: not is_flag_bit_set(22) or is_flag_bit_set(8)),
-    "u03" / Computed(lambda this: is_flag_bit_set(20)),
-    "u04" / Computed(lambda this: is_flag_bit_set(21)),
+body_chunks[0x0902C002] = Struct("u01" / GbxNodeRef)
+body_chunks[0x0902C004] = Struct(
+    # "flags" / Computed(get_flags),
+    "u01" / Computed(lambda ctx: not is_flag_bit_set(ctx, 22) or False),
+    "u02"
+    / Computed(lambda ctx: not is_flag_bit_set(ctx, 22) or is_flag_bit_set(ctx, 8)),
+    "u03" / Computed(lambda ctx: is_flag_bit_set(ctx, 20)),
+    "u04" / Computed(lambda ctx: is_flag_bit_set(ctx, 21)),
     "vertices"
     / If(
         lambda this: not has_vertices,  # TODO check?
         Array(
-            lambda this: count_09006,
+            lambda ctx: ctx._._._array[4].chunk.count,
             Struct(
                 "pos" / GbxVec3,
                 "vert_u01" / If(lambda this: this._.u01 and this._.u03, Int32sl),
@@ -1568,8 +1595,7 @@ Chunk_0902C004 = Struct(
                 "vert_u03" / If(lambda this: this._.u02 and this._.u04, Int32sl),
                 "vert_u04" / If(lambda this: this._.u02 and not this._.u04, GbxVec4),
             ),
-        )
-        * check_arr,
+        ),
     ),
     "nb_tangents1" / Int32ul,
     "nb_tangents2" / Int32ul,
@@ -1577,10 +1603,10 @@ Chunk_0902C004 = Struct(
 
 # 0903A CPlugMaterialCustom
 
-Chunk_0903A004 = Struct(
+body_chunks[0x0903A004] = Struct(
     "u01" / PrefixedArray(Int32ul, Int32sl),
 )
-Chunk_0903A00A = Struct(
+body_chunks[0x0903A00A] = Struct(
     "gpu_fxs"
     / PrefixedArray(
         Int32ul,
@@ -1594,7 +1620,7 @@ Chunk_0903A00A = Struct(
     ),
     "u01" / Bytes(4),
 )
-Chunk_0903A00C = Struct(
+body_chunks[0x0903A00C] = Struct(
     "u01"
     / PrefixedArray(
         Int32ul,
@@ -1604,10 +1630,10 @@ Chunk_0903A00C = Struct(
         ),
     ),
 )
-Chunk_0903A012 = Struct(
+body_chunks[0x0903A012] = Struct(
     "u01" / Int32sl,
 )
-Chunk_0903A013 = Struct(
+body_chunks[0x0903A013] = Struct(
     "version" / Int32ul,  # 0
     "textures"
     / PrefixedArray(
@@ -1621,10 +1647,15 @@ Chunk_0903A013 = Struct(
     ),
 )
 
+# 09051 CPlugTreeGenerator
+body_chunks[0x09051000] = Struct(
+    "version" / Int32ul,
+)
+
 # 09056 CPlugVertexStream
 
 GbxEVertexStreamType = Enum(Byte, Vec3B=0x1C, Vec2=0x02, Color=0x08)
-Chunk_09056000 = Struct(
+body_chunks[0x09056000] = Struct(
     "version" / Int32ul,
     "num_vertices" / Int32sl,
     "u01" / Int32sl,
@@ -1708,32 +1739,32 @@ Chunk_09056000 = Struct(
 
 # 09057 CPlugIndexBuffer
 
-Chunk_09057001 = Struct(
+body_chunks[0x09057001] = Struct(
     "flags" / Int32ul,  # TODO check if not 2 what that means
     "indices" / PrefixedArray(Int32ul, Int16sl),
 )
 
 # 0906A CPlugVisualIndexed
 
-Chunk_0906A001 = Struct(
+body_chunks[0x0906A001] = Struct(
     "has_index_buffer" / GbxBool,  # or array length ? or version ?
     "index_buffer" / If(this.has_index_buffer, GbxBodyChunks),
 )
 
 # 09079 CPlugMaterial
-Chunk_09079001 = Struct(
+body_chunks[0x09079001] = Struct(
     "u01" / GbxNodeRef,  # CPlugMaterialFx
 )
-Chunk_09079007 = Struct(
+body_chunks[0x09079007] = Struct(
     "custom_material" / GbxNodeRef,  # CPlugMaterialCustom
 )
-Chunk_09079010 = Struct(
+body_chunks[0x09079010] = Struct(
     "u01" / GbxFloat,
 )
-Chunk_09079011 = Struct(
+body_chunks[0x09079011] = Struct(
     "u01" / PrefixedArray(Int32ul, GbxLookbackString),
 )
-Chunk_09079012 = Struct(
+body_chunks[0x09079012] = Struct(
     "version" / Int32sl,  # 2
     StopIf(this.version < 1),
     "u01" / GbxString,
@@ -1741,10 +1772,10 @@ Chunk_09079012 = Struct(
     "u03" / Bytes(4 * 8),
     "u04" / If(this.version >= 2, Bytes(4)),
 )
-Chunk_09079013 = Struct(
+body_chunks[0x09079013] = Struct(
     "u01" / PrefixedArray(Int32ul, GbxString),
 )
-Chunk_09079015 = Struct(
+body_chunks[0x09079015] = Struct(
     "version" / Int32ul,  # 7
     "baseMaterial" / GbxNodeRef,  # CPlugMaterial
     "u01"
@@ -1762,18 +1793,18 @@ Chunk_09079015 = Struct(
         ),
     ),
 )
-Chunk_09079016 = Struct(
+body_chunks[0x09079016] = Struct(
     "version" / Int32ul,
     "flags" / Bytes(4),
 )  # 0
-Chunk_09079017 = Struct(
+body_chunks[0x09079017] = Struct(
     "version" / Int32ul,  # 1
     StopIf(this.version < 1),
     "flags" / Bytes(4),
     "u01" / GbxVec2,
     "u02" / GbxString,
 )
-Chunk_09079019 = Struct(
+body_chunks[0x09079019] = Struct(
     "version" / Int32ul,  # 0
     StopIf(this.version < 1),
     "u01" / Int32sl,
@@ -1781,7 +1812,7 @@ Chunk_09079019 = Struct(
 )
 
 # 09144 CPlugDynaObjectModel
-Chunk_09144000 = Struct(
+body_chunks[0x09144000] = Struct(
     "version" / Int32ul,
     "IsStatic" / GbxBool,  # si c'est un dyna mais qui reste tjs statique
     "DynamizeOnSpawn" / GbxBool,
@@ -1827,7 +1858,7 @@ def newPropSubEntityModel(obj, ctx):
 
 
 # 09145 CPlugPrefab
-Chunk_09145000 = Struct(
+body_chunks[0x09145000] = Struct(
     "version" / Int32ul,
     "updatedTime" / GbxFileTime,
     "url" / GbxString,
@@ -1914,7 +1945,7 @@ Chunk_09145000 = Struct(
 )
 
 # 09159 CPlugStaticObjectModel
-Chunk_09159000 = Select(
+body_chunks[0x09159000] = Select(
     Struct(
         "version" / Int32sl,
         "mesh" / GbxNodeRef,
@@ -1938,35 +1969,35 @@ GbxEFxSystemNodeType = Enum(
 PlugFxSystemNodes = {}
 
 #  Meta::CPlugFxSystemNode 0x2F0C1000
-Chunk_2F0C1000 = Struct(
+body_chunks[0x2F0C1000] = Struct(
     "type" / GbxEFxSystemNodeType,
     "node" / Switch(this.type, PlugFxSystemNodes),
 )
 #  Meta::CPlugFxSystemNode_Parallel 0x2F0C2000
-PlugFxSystemNodes["Parallel"] = Chunk_2F0C2000 = Struct(
+PlugFxSystemNodes["Parallel"] = body_chunks[0x2F0C2000] = Struct(
     "name" / GbxLookbackString,
-    "Children" / PrefixedArray(Int32ul, Chunk_2F0C1000),
+    "Children" / PrefixedArray(Int32ul, body_chunks[0x2F0C1000]),
 )
 #  Meta::CPlugFxSystemNode_Condition 0x2F0C3000
-PlugFxSystemNodes["Condition"] = Chunk_2F0C3000 = Struct(
+PlugFxSystemNodes["Condition"] = body_chunks[0x2F0C3000] = Struct(
     "name" / GbxLookbackString,
     "ConditionExpr" / GbxString,
-    "Child" / Chunk_2F0C1000,
+    "Child" / body_chunks[0x2F0C1000],
 )
 #  Meta::CPlugFxSystemNode_SubFxSystem 0x2F0C5000
-PlugFxSystemNodes["SubFxSystem"] = Chunk_2F0C5000 = Struct(
+PlugFxSystemNodes["SubFxSystem"] = body_chunks[0x2F0C5000] = Struct(
     "name" / GbxLookbackString,
-    "FxSystem" / Chunk_2F0C1000,
+    "FxSystem" / body_chunks[0x2F0C1000],
 )
 #  Meta::CPlugFxSystemNode_UpdateVar 0x2F0C6000
-PlugFxSystemNodes["UpdateVar"] = Chunk_2F0C6000 = Struct(
+PlugFxSystemNodes["UpdateVar"] = body_chunks[0x2F0C6000] = Struct(
     "name" / GbxLookbackString,
     "VarName" / GbxLookbackString,
     "ResetToDefaultIfInactive" / GbxBool,
     "UpdateVarExpr" / GbxString,
 )
 #  Meta::CPlugFxSystemNode_ParticleEmitter 0x2F0C4000
-PlugFxSystemNodes["ParticleEmitter"] = Chunk_2F0C4000 = Struct(
+PlugFxSystemNodes["ParticleEmitter"] = body_chunks[0x2F0C4000] = Struct(
     # if version < 5 osef
     "name" / GbxLookbackString,
     "Model" / GbxNodeRef,  # CPlugParticleEmitterModel
@@ -1986,7 +2017,7 @@ PlugFxSystemNodes["ParticleEmitter"] = Chunk_2F0C4000 = Struct(
     "HueLightness" / GbxString,
 )
 #  Meta::CPlugFxSystemNode_SoundEmitter 0x2F0C7000
-PlugFxSystemNodes["SoundEmitter"] = Chunk_2F0C7000 = Struct(
+PlugFxSystemNodes["SoundEmitter"] = body_chunks[0x2F0C7000] = Struct(
     "name" / GbxLookbackString,
     "Model" / GbxNodeRef,  # CPlugSoundSurface
     "JointName" / GbxString,
@@ -2009,10 +2040,10 @@ PlugFxSystemNodes["SoundEmitter"] = Chunk_2F0C7000 = Struct(
     ),
 )
 
-Chunk_0915C000 = Struct(
+body_chunks[0x0915C000] = Struct(
     "version" / Int32sl,
     "SystemNodesVersion" / Int32sl,  # 8
-    "rootNode" / Chunk_2F0C1000,
+    "rootNode" / body_chunks[0x2F0C1000],
     "ContextClassId" / Int32sl,  # GbxLookbackString?
     "ExtraContextClassId" / Int32sl,  # GbxLookbackString?
     "VarsCount" / Int32ul,
@@ -2030,17 +2061,17 @@ Chunk_0915C000 = Struct(
 )
 
 # 0915D CPlugGameSkinAndFolder
-Chunk_0915D000 = Struct("Remapping" / GbxNodeRef, "RemapFolder" / GbxString)
-Chunk_0915D001 = Struct("name" / GbxLookbackString)
+body_chunks[0x0915D000] = Struct("Remapping" / GbxNodeRef, "RemapFolder" / GbxString)
+body_chunks[0x0915D001] = Struct("name" / GbxLookbackString)
 
 # 09179
-Chunk_09179000 = Struct(
+body_chunks[0x09179000] = Struct(
     "version" / Int32ul,
     "surf" / GbxNodeRef,
 )
 
 # 09187 NPlugItemPlacement_SClass
-Chunk_09187000 = Struct(
+body_chunks[0x09187000] = Struct(
     "version" / Int32ul,
     "size_group" / GbxLookbackString,
     "compatible_groups_ids" / PrefixedArray(Int32ul, GbxLookbackString),
@@ -2067,70 +2098,70 @@ Chunk_09187000 = Struct(
 )
 
 # 09189 CPlugMediaClipList
-Chunk_09189000 = Struct(
+body_chunks[0x09189000] = Struct(
     "u01" / Int32ul,
     "MediaClipFids" / PrefixedArray(Int32ul, GbxNodeRef),
 )
 
 # 090B2 CPlugParticleEmitterSubModel
-Chunk_090B202D = Struct(
+body_chunks[0x090B202D] = Struct(
     "u01" / Bytes(61),
 )
-Chunk_090B202E = Struct(
+body_chunks[0x090B202E] = Struct(
     "u01" / Int32sl,
     "SplashModel" / GbxNodeRef,  # CPlugParticleSplashModel
 )
-Chunk_090B202F = Struct(
+body_chunks[0x090B202F] = Struct(
     "u01" / Bytes(76),
 )
-Chunk_090B2030 = Struct(
+body_chunks[0x090B2030] = Struct(
     "u01" / Bytes(16),
 )
-Chunk_090B2031 = Struct(
+body_chunks[0x090B2031] = Struct(
     "u01" / Bytes(164),
 )
-Chunk_090B2032 = Struct(
+body_chunks[0x090B2032] = Struct(
     "u01" / Bytes(36),
 )
-Chunk_090B2033 = Struct(
+body_chunks[0x090B2033] = Struct(
     "u01" / Bytes(293),
 )
-Chunk_090B2034 = Struct(
+body_chunks[0x090B2034] = Struct(
     "u01" / Bytes(97),
 )
-Chunk_090B2035 = Struct(
+body_chunks[0x090B2035] = Struct(
     "u01" / Bytes(4),
 )
-Chunk_090B2036 = Struct(
+body_chunks[0x090B2036] = Struct(
     "u01" / Bytes(16),
 )
-Chunk_090B2037 = Struct(
+body_chunks[0x090B2037] = Struct(
     "u01" / Bytes(100),
 )
-Chunk_090B2038 = Struct(
+body_chunks[0x090B2038] = Struct(
     "u01" / Bytes(12),
 )
-Chunk_090B2039 = Struct(
+body_chunks[0x090B2039] = Struct(
     "u01" / Bytes(48),
 )
-Chunk_090B203A = Struct(
+body_chunks[0x090B203A] = Struct(
     "u01" / Int32sl,
     "u02" / GbxNodeRef,  # CPlugParticleGpuSpawn
     "u03" / GbxNodeRef,  # CPlugParticleGpuModel
 )
-Chunk_090B203B = Struct(
+body_chunks[0x090B203B] = Struct(
     "u01" / Bytes(48),
 )
 
 # 090B3 CPlugParticleEmitterModel
-Chunk_090B3000 = Struct(
+body_chunks[0x090B3000] = Struct(
     "listVersion" / Int32ul,
     "ParticleEmitterSubModels" / PrefixedArray(Int32ul, GbxNodeRef),
     # "rest" / GreedyBytes,
 )
 
 # 090BB CPlugSolid2Model
-Chunk_090BB000 = (
+body_chunks[0x090BB000] = (
     Struct(
         "version" / Int32ul,
         "u01" / GbxLookbackString,
@@ -2167,14 +2198,14 @@ Chunk_090BB000 = (
             Struct(
                 "version" / Int32ul,
                 "u01" / Int32sl,
-                "u02" / Float32l,
-                "u03" / Int32sl,
+                "lightmapSize" / Float32l,  # lightmap size in meters
+                "u03" / GbxBool,
                 "u04" / Float32l[4],
                 "u05" / Int16sl[8],
-                "u06" / Int32sl,
-                "u07" / Int32sl,
-                "u08" / PrefixedArray(Int32ul, GbxBox),
-                "uv_groups" / PrefixedArray(Int32ul, Pass),  # TODO
+                "u12" / Int32sl,
+                "u13" / Int32sl,
+                "u14" / PrefixedArray(Int32ul, GbxBox),
+                "uv_groups" / PrefixedArray(Int32ul, Float32l[5]),  # TODO
             ),
         ),
         StopIf(this.version < 4),
@@ -2260,8 +2291,8 @@ Chunk_090BB000 = (
 )
 
 # 090F4 CPlugGameSkin
-Chunk_090F4003 = Struct("u01" / GbxString, "u02" / GbxString)
-Chunk_090F4005 = Struct(
+body_chunks[0x090F4003] = Struct("u01" / GbxString, "u02" / GbxString)
+body_chunks[0x090F4005] = Struct(
     "version" / Int8ul,
     "relativeSkinDirectory" / GbxString,
     "u02" / GbxString,
@@ -2286,7 +2317,7 @@ Chunk_090F4005 = Struct(
 )
 
 # 090FD CPlugMaterialUserInst
-Chunk_090FD000 = Struct(
+body_chunks[0x090FD000] = Struct(
     "version" / Int32ul,  # 11
     "isUsingGameMaterial" / If(this.version >= 11, GbxBoolByte),
     "materialName" / GbxLookbackString,
@@ -2338,7 +2369,7 @@ Chunk_090FD000 = Struct(
     StopIf(this.version < 7),
     "hidingGroup" / GbxLookbackString,
 )
-Chunk_090FD001 = Struct(
+body_chunks[0x090FD001] = Struct(
     "version" / ExprValidator(Int32ul, obj_ >= 3),
     "u01" / GbxNodeRef,
     "tiling_u" / GbxETexAddress,
@@ -2349,13 +2380,13 @@ Chunk_090FD001 = Struct(
     StopIf(this.version < 5),
     "is_natural" / GbxBool,
 )
-Chunk_090FD002 = Struct(
+body_chunks[0x090FD002] = Struct(
     "version" / Int32ul,
     "u01" / Int32sl,
 )
 
 # 09128 CPlugRoadChunk
-Chunk_09128000 = Struct(
+body_chunks[0x09128000] = Struct(
     "version" / Int32ul,
     "u01" / Bytes(12),
     "u02" / PrefixedArray(Int32ul, GbxBox),
@@ -2367,7 +2398,7 @@ Chunk_09128000 = Struct(
 )
 
 # 2E001 CGameCtnCollector
-Chunk_2E001009 = (
+body_chunks[0x2E001009] = (
     Struct(
         "page_path" / GbxString,
         "has_icon_fed" / GbxBool,
@@ -2376,77 +2407,76 @@ Chunk_2E001009 = (
     )
     * "Icon"
 )
-Chunk_2E00100B = Struct("meta" / GbxMeta) * "Author"
-Chunk_2E00100C = Struct("string" / GbxString) * "Collector name"
-Chunk_2E00100D = Struct("description" / GbxString) * "Description"
-Chunk_2E00100E = (
-    Struct("icon_use_auto_render" / GbxBool, "icon_quarter_rotation_y" / Int32sl)
-    * "Icon render"
+body_chunks[0x2E00100B] = Struct("author" / GbxMeta)
+body_chunks[0x2E00100C] = Struct("name" / GbxString)
+body_chunks[0x2E00100D] = Struct("description" / GbxString)
+body_chunks[0x2E00100E] = Struct(
+    "icon_use_auto_render" / GbxBool,
+    "icon_quarter_rotation_y" / Int32sl,
 )
-Chunk_2E001010 = Struct(
+body_chunks[0x2E001010] = Struct(
     "version" / Int32ul,
     "u01" / GbxNodeRef,
     "skin_directory" / GbxString,
     "u02"
     / If(lambda this: this.version >= 2 and len(this.skin_directory) == 0, GbxNodeRef),
 )
-Chunk_2E001011 = Struct(
+body_chunks[0x2E001011] = Struct(
     "version" / Int32ul,
     "is_internal" / GbxBool,
     "is_advanced" / GbxBool,
     "catalogPosition" / Int32sl,
     "prod_state" / If(this.version >= 1, GbxEProdState),
 )
-Chunk_2E001012 = Struct("u01" / Bytes(16))
+body_chunks[0x2E001012] = Struct("u01" / Bytes(16))
 
 # 2E002 CGameItemModel
-Chunk_2E002008 = (
+body_chunks[0x2E002008] = (
     Struct("nadeo_skin_fids" / PrefixedArray(Int32ul, GbxNodeRef)) * "Nadeo skin fids"
 )
-Chunk_2E002009 = Struct(
+body_chunks[0x2E002009] = Struct(
     "version" / Int32ul, "cameras" / PrefixedArray(Int32ul, GbxNodeRef) * "Cameras"
 )
-Chunk_2E00200C = Struct("race_interface_fid" / GbxNodeRef) * "Race Interface Id"
-Chunk_2E002012 = Struct(
+body_chunks[0x2E00200C] = (
+    Struct("race_interface_fid" / GbxNodeRef) * "Race Interface Id"
+)
+body_chunks[0x2E002012] = Struct(
     "ground_point" / GbxVec3,
     "painter_ground_margin" / GbxFloat,
     "orbitalCenterHeightFromGround" / GbxFloat,
     "orbitalRadiusBase" / GbxFloat,
     "orbitalPreviewAngle" / GbxFloat,
 )
-Chunk_2E002015 = Struct("itemType" / GbxEItemType) * "Item type"
-Chunk_2E002019 = (
-    Struct(
-        "version" / Int32ul,
-        # "phy_model_custom" # TODO
-        # "vis_model_custom" # TODO
-        StopIf(this.version < 3),
-        "default_weapon_name" / GbxLookbackString,
-        StopIf(this.version < 4),
-        "PhyModelCustom" / GbxNodeRef,
-        StopIf(this.version < 5),
-        "VisModelCustom" / GbxNodeRef,
-        StopIf(this.version < 6),
-        "u01" / Int32ul,  # actions?
-        StopIf(this.version < 7),
-        "default_cam" / GbxEDefaultCam,
-        StopIf(this.version < 8),
-        "EntityModelEdition" / GbxNodeRef,
-        "EntityModel" / GbxNodeRef,
-        StopIf(this.version < 13),
-        "vfxFile" / GbxNodeRef,
-        StopIf(this.version < 15),
-        "MaterialModifier" / GbxNodeRef,
-    )
-    * "Model"
+body_chunks[0x2E002015] = Struct("itemType" / GbxEItemType)
+body_chunks[0x2E002019] = Struct(
+    "version" / Int32ul,
+    # "phy_model_custom" # TODO
+    # "vis_model_custom" # TODO
+    StopIf(this.version < 3),
+    "default_weapon_name" / GbxLookbackString,
+    StopIf(this.version < 4),
+    "PhyModelCustom" / GbxNodeRef,
+    StopIf(this.version < 5),
+    "VisModelCustom" / GbxNodeRef,
+    StopIf(this.version < 6),
+    "u01" / Int32ul,  # actions?
+    StopIf(this.version < 7),
+    "default_cam" / GbxEDefaultCam,
+    StopIf(this.version < 8),
+    "EntityModelEdition" / GbxNodeRef,
+    "EntityModel" / GbxNodeRef,
+    StopIf(this.version < 13),
+    "vfxFile" / GbxNodeRef,
+    StopIf(this.version < 15),
+    "MaterialModifier" / If(this.EntityModel >= 0, GbxNodeRef),
 )
-Chunk_2E00201A = Struct("u01" / GbxNodeRef)
-Chunk_2E00201C = Struct(
+body_chunks[0x2E00201A] = Struct("u01" / GbxNodeRef)
+body_chunks[0x2E00201C] = Struct(
     "version" / ExprValidator(Int32ul, obj_ == 5),
     "default_placement" / GbxNodeRef,
     # "u01" / Int32sl[5], ???
 )
-Chunk_2E00201E = Struct(
+body_chunks[0x2E00201E] = Struct(
     "version" / ExprValidator(Int32ul, obj_ >= 3),
     "archetype_ref" / GbxString,
     "u01" / If(lambda this: len(this.archetype_ref) == 0, Int32sl),
@@ -2455,7 +2485,7 @@ Chunk_2E00201E = Struct(
     StopIf(this.version < 6),
     "baseItem" / GbxNodeRef,
 )
-Chunk_2E00201F = Struct(
+body_chunks[0x2E00201F] = Struct(
     "version" / ExprValidator(Int32ul, obj_ >= 10),
     "waypointType" / GbxEWayPointType,
     "disableLightmap" / GbxBool,
@@ -2466,21 +2496,21 @@ Chunk_2E00201F = Struct(
     "PodiumClipList" / GbxNodeRef,  # Podium only?
     "IntroClipList" / GbxNodeRef,
 )
-Chunk_2E002020 = Struct(
+body_chunks[0x2E002020] = Struct(
     "version" / ExprValidator(Int32ul, obj_ >= 3),
     "iconFid" / GbxString,
     "u01" / Byte,
 )
 
 # 2E009 CGameWaypointSpecialProperty
-Chunk_2E009000 = Struct(
+body_chunks[0x2E009000] = Struct(
     "version" / Int32ul,  # 2
     "tag" / GbxString,
     "order" / Int32sl,
 )
 
 # 2E020 CGameItemPlacementParam
-Chunk_2E020000 = Struct(
+body_chunks[0x2E020000] = Struct(
     "version" / Int32ul,
     "flags" / Int16ul,
     "cubeCenter" / GbxVec3,
@@ -2493,7 +2523,7 @@ Chunk_2E020000 = Struct(
     "flyOffset" / Float32l,
     "pivotSnapDistance" / Float32l,
 )
-Chunk_2E020001 = Struct(
+body_chunks[0x2E020001] = Struct(
     "pivotPositions" / PrefixedArray(Int32ul, GbxVec3),
     "pivotRotations" / PrefixedArray(Int32ul, GbxQuat),
 )
@@ -2501,26 +2531,47 @@ Chunk_2E020001 = Struct(
 
 def check_0(obj, ctx):
     if obj != b"\x00\x00\x00\x00":
-        print(f"Chunk_2E020004 first array not empty {obj}")
+        print(f"body_chunks[0x2E020004] first array not empty {obj}")
     return obj
 
 
-Chunk_2E020004 = Struct(
+body_chunks[0x2E020004] = Struct(
     "u01" / Bytes(4) * check_0,  # 0
     "magnetLocs" / PrefixedArray(Int32ul, GbxPose3D),
 )
-Chunk_2E020005 = Struct("item_placement" / GbxNodeRef)
+body_chunks[0x2E020005] = Struct("item_placement" / GbxNodeRef)
 
 # 2E026 CGameCommonItemEntityModelEdition
-Chunk_2E026000 = Struct(
+body_chunks[0x2E026000] = Struct(
     "version" / Int32ul,
-    "itemType" / GbxEItemType,
+    "itemType" / ExprValidator(GbxEItemType, obj_ == "Ornament"),
     "meshCrystal" / GbxNodeRef,
-    "rest" / GbxBytesUntilFacade,
+    "u01" / GbxString,
+    "u02" / GbxNodeRef,  # if U01 is empty probably
+    "u03" / ExprValidator(Int32ul, obj_ == 0),  # CPlugFileImg array
+    "u04" / ExprValidator(Int32ul, obj_ == 0),  # SSpriteParam array
+    "u05" / GbxNodeRef,
+    "u06" / GbxNodeRef,
+    "u07" / ExprValidator(Int32ul, obj_ == 0),  # SPlugLightBallStateSimple array
+    "u08_u14" / GbxString[7],
+    "u15" / GbxIso4,
+    "u16" / GbxBool,
+    "u21" / If(lambda this: not this.u16, GbxNodeRef),
+    "u17" / GbxBool,
+    "u18" / If(lambda this: this.u17, Int32sl),
+    "u19" / If(lambda this: this.u17, GbxIso4),
+    "u20" / Int32sl,
+    StopIf(this.version < 1),
+    "inventoryName" / GbxString,
+    "inventoryDescription" / GbxString,
+    "inventoryItemClass" / Int32sl,
+    "inventoryOccupation" / Int32sl,
+    StopIf(this.version < 6),
+    "u22" / GbxNodeRef,
 )
 
 # 2E027 CGameCommonItemEntityModel
-Chunk_2E027000 = Struct(
+body_chunks[0x2E027000] = Struct(
     "version" / ExprValidator(Int32ul, obj_ >= 4),
     "staticObject" / GbxNodeRef,
     StopIf(this.version < 2),
@@ -2541,7 +2592,7 @@ Chunk_2E027000 = Struct(
 )
 
 # NPlugDyna_SConstraintModel 2F074000
-Chunk_2F074000 = Struct(
+body_chunks[0x2F074000] = Struct(
     "version" / Int32sl,
     "Type" / Int32sl,
     "Spring_Length" / GbxFloat,
@@ -2550,7 +2601,7 @@ Chunk_2F074000 = Struct(
 )
 
 # 2F086 VegetTreeModel
-Chunk_2F086000 = Struct(
+body_chunks[0x2F086000] = Struct(
     "u01" / Bytes(4 * 4),  # version + lod 4 2 1?, number of things?
     "u02"  # parts?
     / PrefixedArray(
@@ -2583,7 +2634,7 @@ Chunk_2F086000 = Struct(
 )
 
 # 2F0BC NPlugItem_SVariantList
-Chunk_2F0BC000 = Struct(
+body_chunks[0x2F0BC000] = Struct(
     "version" / Int32ul,
     "variants"
     / PrefixedArray(
@@ -2606,7 +2657,7 @@ GbxAnimFunc = Struct(
     "TimeIsDuration" / GbxBool,
     "SubFuncs" / PrefixedArray(Int32ul, GbxSubAnimFunc),
 )
-Chunk_2F0CA000 = Struct(
+body_chunks[0x2F0CA000] = Struct(
     "version" / Int32sl,
     "subVersion" / Int32sl,
     "TransAnimFunc" / GbxAnimFunc,
@@ -2639,223 +2690,22 @@ Chunk_2F0CA000 = Struct(
     "AngleMaxDeg" / GbxFloat,
 )
 
-BodyChunkId_to_struct.update(
+body_chunks.update(
     {
-        # 03036
-        0x03036000: Chunk_03036000,
-        0x03036001: Chunk_03036001,
-        0x03036002: Chunk_03036002,
-        0x03036004: Chunk_03036004,
-        0x03036005: Chunk_03036005,
-        0x03036007: Chunk_03036007,
-        0x0303600C: Chunk_0303600C,
-        # 03043
-        0x0304300D: Chunk_0304300D,
-        0x03043011: Chunk_03043011,
-        0x0304301F: Chunk_0304301F,
-        0x03043022: Chunk_03043022,
-        0x03043024: Chunk_03043024,
-        0x03043025: Chunk_03043025,
-        0x03043026: Chunk_03043026,
-        0x03043027: Chunk_03043027,
-        0x03043028: Chunk_03043028,
-        0x0304302A: Chunk_0304302A,
-        0x03043049: Chunk_03043049,
-        0x0304305B: Chunk_0304305B,
-        # 0304E
-        0x0304E00F: Chunk_0304E00F,
-        0x0304E013: Chunk_0304E013,
-        0x0304E017: Chunk_0304E017,
-        0x0304E020: Chunk_0304E020,
-        0x0304E023: Chunk_0304E023,
-        0x0304E026: Chunk_0304E026,
-        0x0304E027: Chunk_0304E027,
-        0x0304E028: Chunk_0304E028,
-        0x0304E029: Chunk_0304E029,
-        0x0304E02A: Chunk_0304E02A,
-        0x0304E02B: Chunk_0304E02B,
-        0x0304E02C: Chunk_0304E02C,
-        0x0304E02F: Chunk_0304E02F,
-        0x0304E031: Chunk_0304E031,
-        # 03120
-        0x03120001: Chunk_03120001,
-        # 03122
-        0x03122002: Chunk_03122002,
-        0x03122003: Chunk_03122003,
-        0x03122004: Chunk_03122004,
-        # 0315B
-        0x0315B002: Chunk_0315B002,
-        0x0315B003: Chunk_0315B003,
-        0x0315B004: Chunk_0315B004,
-        0x0315B005: Chunk_0315B005,
-        0x0315B006: Chunk_0315B006,
-        0x0315B007: Chunk_0315B007,
-        0x0315B008: Chunk_0315B008,
-        0x0315B009: Chunk_0315B009,
-        0x0315B00A: Chunk_0315B00A,
-        0x0315B00B: Chunk_0315B00B,
-        0x0315B00D: Chunk_0315B00D,
-        # 06022
-        0x0602200B: Chunk_0602200B,
-        0x0602200F: Chunk_0602200F,
-        0x06022013: Chunk_06022013,
-        0x06022015: Chunk_06022015,
-        0x06022016: Chunk_06022016,
-        0x06022017: Chunk_06022017,
-        0x06022018: Chunk_06022018,
-        0x06022019: Chunk_06022019,
-        0x0602201A: Chunk_0602201A,
-        # 0315C
-        0x0315C001: Chunk_0315C001,
-        # 09003
-        0x09003003: Chunk_09003003,
-        0x09003004: Chunk_09003004,
-        0x09003005: Chunk_09003005,
-        0x09003006: Chunk_09003006,
-        0x09003007: Chunk_09003007,
-        # 09006
-        0x09006001: Chunk_09006001,
-        0x09006004: Chunk_09006004,
-        0x09006005: Chunk_09006005,
-        0x09006009: Chunk_09006009,
-        0x0900600B: Chunk_0900600B,
-        0x0900600F: Chunk_0900600F,
-        0x09006010: Chunk_09006010,
-        # 0900C
-        0x0900C003: Chunk_0900C003,
-        # 0902C
-        0x0902C002: Chunk_0902C002,
-        0x0902C004: Chunk_0902C004,
-        # 0903A
-        0x0903A004: Chunk_0903A004,
-        0x0903A00A: Chunk_0903A00A,
-        0x0903A00C: Chunk_0903A00C,
-        0x0903A012: Chunk_0903A012,
-        0x0903A013: Chunk_0903A013,
-        # 09056
-        0x09056000: Chunk_09056000,
-        # 09057
-        0x09057001: Chunk_09057001,
-        # 0906A
-        0x0906A001: Chunk_0906A001,
-        # 09079
-        0x09079001: Chunk_09079001,
-        0x09079007: Chunk_09079007,
-        0x09079010: Chunk_09079010,
-        0x09079011: Chunk_09079011,
-        0x09079012: Chunk_09079012,
-        0x09079013: Chunk_09079013,
-        0x09079015: Chunk_09079015,
-        0x09079016: Chunk_09079016,
-        0x09079017: Chunk_09079017,
-        0x09079019: Chunk_09079019,
-        # 090B
-        0x090B202D: Chunk_090B202D,
-        0x090B202E: Chunk_090B202E,
-        0x090B202F: Chunk_090B202F,
-        0x090B2030: Chunk_090B2030,
-        0x090B2031: Chunk_090B2031,
-        0x090B2032: Chunk_090B2032,
-        0x090B2033: Chunk_090B2033,
-        0x090B2034: Chunk_090B2034,
-        0x090B2035: Chunk_090B2035,
-        0x090B2036: Chunk_090B2036,
-        0x090B2037: Chunk_090B2037,
-        0x090B2038: Chunk_090B2038,
-        0x090B2039: Chunk_090B2039,
-        0x090B203A: Chunk_090B203A,
-        0x090B3000: Chunk_090B3000,
-        0x090B203B: Chunk_090B203B,
-        # 090BA
-        # 0x090BA000: Bytes(102),
-        # 0x090F9000: Bytes(56),
-        # 090BB
-        0x090BB000: Chunk_090BB000,
         # 090C
         0x090B5000: Bytes(160),
         0x090C5000: Bytes(84),
         0x090C6000: Bytes(284),
-        # 090F4
-        0x090F4003: Chunk_090F4003,
-        0x090F4005: Chunk_090F4005,
-        # 090FD
-        0x090FD000: Chunk_090FD000,
-        0x090FD001: Chunk_090FD001,
-        0x090FD002: Chunk_090FD002,
-        # 09144
-        0x09144000: Chunk_09144000,
-        # 09145
-        0x09145000: Chunk_09145000,
-        # 09159
-        0x09159000: Chunk_09159000,
-        # 0915C
-        0x0915C000: Chunk_0915C000,
-        # 0915D
-        0x0915D000: Chunk_0915D000,
-        0x0915D001: Chunk_0915D001,
-        # 09179
-        0x09179000: Chunk_09179000,
-        # 09187
-        0x09187000: Chunk_09187000,
-        # 09189
-        0x09189000: Chunk_09189000,
-        # 09128
-        0x09128000: Chunk_09128000,
-        # 2E001
-        0x2E001009: Chunk_2E001009,
-        0x2E00100B: Chunk_2E00100B,
-        0x2E00100C: Chunk_2E00100C,
-        0x2E00100D: Chunk_2E00100D,
-        0x2E00100E: Chunk_2E00100E,
-        0x2E001010: Chunk_2E001010,
-        0x2E001011: Chunk_2E001011,
-        0x2E001012: Chunk_2E001012,
-        # 2E002
-        0x2E002008: Chunk_2E002008,
-        0x2E002009: Chunk_2E002009,
-        0x2E00200C: Chunk_2E00200C,
-        0x2E002012: Chunk_2E002012,
-        0x2E002015: Chunk_2E002015,
-        0x2E002019: Chunk_2E002019,
-        0x2E00201A: Chunk_2E00201A,
-        0x2E00201C: Chunk_2E00201C,
-        0x2E00201E: Chunk_2E00201E,
-        0x2E00201F: Chunk_2E00201F,
-        0x2E002020: Chunk_2E002020,
-        # 2E009
-        0x2E009000: Chunk_2E009000,
-        # 2E020
-        0x2E020000: Chunk_2E020000,
-        0x2E020001: Chunk_2E020001,
-        0x2E020004: Chunk_2E020004,
-        0x2E020005: Chunk_2E020005,
-        # 2E026
-        0x2E026000: Chunk_2E026000,
-        # 2E027
-        0x2E027000: Chunk_2E027000,
-        # 2F074
-        0x2F074000: Chunk_2F074000,
-        # 2F086
-        0x2F086000: Chunk_2F086000,
-        # 2F0BC
-        0x2F0BC000: Chunk_2F0BC000,
-        # 2F0Cx
-        0x2F0C1000: Chunk_2F0C1000,
-        0x2F0C2000: Chunk_2F0C2000,
-        0x2F0C3000: Chunk_2F0C3000,
-        0x2F0C5000: Chunk_2F0C5000,
-        0x2F0C6000: Chunk_2F0C6000,
-        0x2F0C4000: Chunk_2F0C4000,
-        0x2F0C7000: Chunk_2F0C7000,
-        # 2F0CA
-        0x2F0CA000: Chunk_2F0CA000,
     }
 )
 
-
 # Headers chunks
 
-Chunk_2E001003 = Struct(
+header_chunks = {}
+
+header_chunks[0x2E002000] = Struct("itemType" / GbxEItemType)
+
+header_chunks[0x2E001003] = Struct(
     "meta" / GbxMeta,
     "version" / ExprValidator(Int32sl, obj_ >= 7),
     "page_name" / GbxString,
@@ -2868,7 +2718,7 @@ Chunk_2E001003 = Struct(
     "prod_state" / Enum(Byte, Aborted=0, GameBox=1, DevBuild=2, Release=3),
 )
 
-Chunk_2E001004 = Struct(
+header_chunks[0x2E001004] = Struct(
     "width_and_webp"
     / Rebuild(Int16ul, lambda this: this.width + (0x8000 if this.webp else 0x0000)),
     "width" / Computed(this.width_and_webp & 0x7FFF),
@@ -2892,11 +2742,7 @@ Chunk_2E001004 = Struct(
     ),
 )
 
-HeaderChunkId_to_struct = {
-    0x2E001003: Chunk_2E001003,
-    0x2E001004: Chunk_2E001004,
-    0x090F4000: Chunk_090F4005,
-}
+header_chunks[0x090F4005] = body_chunks[0x090F4005]
 
 
 def set_nodes_array(obj, ctx):
@@ -2949,23 +2795,23 @@ def create_gbx_struct(gbx_body):
                             Int32ul,
                             Struct(
                                 "id" / GbxChunkId,
-                                "_size_and_heavy"
-                                / Rebuild(
-                                    Int32ul,
-                                    lambda this: len(
-                                        HeaderChunkId_to_struct.get(
-                                            this.id, GreedyBytes
-                                        ).build(
-                                            this._._.data[this._index],
-                                            gbx_data={},
-                                        )
+                                "meta"
+                                / ByteSwapped(
+                                    BitStruct(
+                                        "heavy" / Flag,
+                                        "size"
+                                        / Rebuild(
+                                            BitsInteger(31),
+                                            lambda this: len(
+                                                header_chunks[this._.id].build(
+                                                    this._._._.data[this._index],
+                                                    gbx_data={},
+                                                )
+                                            )
+                                            if this._.id in header_chunks
+                                            else this.size,
+                                        ),
                                     )
-                                    + (0x80000000 if this.heavy else 0x00),
-                                ),
-                                "size" / Computed(this._size_and_heavy & 0x7FFFFFFF),
-                                "heavy"
-                                / Computed(
-                                    (this._size_and_heavy & 0x80000000) == 0x80000000
                                 ),
                             ),
                         ),
@@ -2976,9 +2822,11 @@ def create_gbx_struct(gbx_body):
                                 Select(
                                     Switch(
                                         lambda this: this.entries[this._index].id,
-                                        HeaderChunkId_to_struct,
+                                        header_chunks,
                                         default=Bytes(
-                                            lambda this: this.entries[this._index].size
+                                            lambda this: this.entries[
+                                                this._index
+                                            ].meta.size
                                         ),
                                     ),
                                     Struct(
@@ -2986,7 +2834,7 @@ def create_gbx_struct(gbx_body):
                                         / Bytes(
                                             lambda this: this._.entries[
                                                 this._index
-                                            ].size
+                                            ].meta.size
                                         )
                                     ),
                                 ),
