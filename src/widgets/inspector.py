@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QHBoxLayout, QWidget, QTextEdit, QFormLayout, QLab
 from PySide6.QtCore import Slot, Qt
 from PySide6.QtGui import QTextCursor
 
-from gbx_parser import GbxVec3Tenb
+from src.gbx_structs import GbxVec3Tenb
 
 
 class AInspector(QHBoxLayout):

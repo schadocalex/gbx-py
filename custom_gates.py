@@ -1,13 +1,23 @@
-# pyinstaller.exe --onefile --paths=./ custom_gate.py
+# pyinstaller.exe --onefile --paths=./ --add-data "assets/all_signs_24.png;assets/" custom_gates.py
 
 import sys
 import os
 import datetime
+from pathlib import Path
 from copy import deepcopy
-from headless_parser import parse_node, generate_node
-from utils import update_surf
+from src.parser import parse_node, generate_node
+from src.utils import update_surf
 
 from construct import Container, ListContainer
+
+from PIL import Image, ImageDraw
+
+
+def resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller"""
+    base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_path, relative_path)
+
 
 BASE_GATE = "Turbo"
 GATES = [
@@ -121,12 +131,10 @@ def change_textures(data, gate):
 if __name__ == "__main__":
     file = sys.argv[1]
 
-    data, nb_nodes = parse_node(file)
+    data, nb_nodes, raw_bytes = parse_node(file)
     data.body[16].chunk.u08 = 0
 
-    export_dir = os.path.dirname(file) + "\\ExportGates\\"
-    if not os.path.exists(export_dir):
-        os.makedirs(export_dir)
+    export_dir = Path(os.path.dirname(os.path.abspath(file)))
 
     data = add_gate_from_trigger(data)
 
@@ -134,27 +142,48 @@ if __name__ == "__main__":
     gate_idx = data.nodes[entity_model_idx].body.Ents[1].model
     surf_idx = data.nodes[gate_idx].body.surf
 
-    ori_file_name = data.header.chunks.data[0].file_name
-    ori_item_name = data.body[2].chunk.string
+    with Image.open(resource_path("assets/all_signs_24.png")) as im_signs:
+        for gate_idx, gate in enumerate(GATES):
+            data_gate = deepcopy(data)
 
-    for gate in GATES:
-        data_gate = deepcopy(data)
+            # modify item name
 
-        data_gate.header.chunks.data[0].file_name = ori_file_name.replace(
-            BASE_GATE, gate
-        )
-        data_gate.body[2].chunk.string = ori_item_name.replace(BASE_GATE, gate)
+            file_name_suffix = "_" + gate
 
-        update_surf(
-            data_gate.nodes[surf_idx], "NotCollidable", GATES_TO_GAMEPLAYID[gate]
-        )
+            data_gate.header.chunks.data[0].file_name += file_name_suffix
+            data_gate.body[2].chunk.name += file_name_suffix
 
-        if gate != BASE_GATE:
-            change_textures(data_gate, gate)
+            # update the gameplay
 
-        new_bytes = generate_node(data_gate, True)
+            update_surf(
+                data_gate.nodes[surf_idx], "NotCollidable", GATES_TO_GAMEPLAYID[gate]
+            )
 
-        export_file_name = export_dir + os.path.basename(file).replace(BASE_GATE, gate)
-        with open(export_file_name, "wb") as f:
-            f.write(new_bytes)
-        print(export_file_name)
+            # update the textures
+
+            if gate != BASE_GATE:
+                change_textures(data_gate, gate)
+
+            # update the icon
+
+            icon_chunk = data_gate.header.chunks.data[1]
+            if not icon_chunk.webp:
+                for y in range(24):
+                    for x in range(24):
+                        dest_idx = (24 - y) * 64 + (40 + x)
+                        px = im_signs.getpixel((gate_idx * 24 + x, y))
+                        icon_chunk.data[dest_idx] = Container(
+                            r=px[0], g=px[1], b=px[2], a=255
+                        )
+
+            # save the new item
+
+            new_bytes = generate_node(data_gate, True)
+
+            new_file_name = os.path.basename(file).split(".")
+            new_file_name[-3] += file_name_suffix
+            new_file_name = ".".join(new_file_name)
+            export_file_name = export_dir / new_file_name
+            with open(export_file_name, "wb") as f:
+                f.write(new_bytes)
+            print(export_file_name)
