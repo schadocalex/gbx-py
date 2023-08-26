@@ -5,6 +5,8 @@ import string
 import lzo
 import src.mini_lzo
 import zlib
+import zipfile
+import io
 
 from construct import (
     Int8sl,
@@ -122,6 +124,17 @@ class CompressedLZ0(Tunnel):
         )
 
 
+class ACompressedZip(Adapter):
+    def _decode(self, raw_bytes, context, path):
+        self.buffer = io.BytesIO(raw_bytes)
+        return zipfile.ZipFile(self.buffer, "a")
+
+    def _encode(self, zip, context, path):
+        return self.buffer.getvalue()
+
+
+GbxCompressedZip = ACompressedZip(Prefixed(Int32ul, GreedyBytes))
+
 import zlib
 
 ini_data = None
@@ -233,6 +246,14 @@ GbxBox = Struct(
     "y2" / GbxFloat,
     "z2" / GbxFloat,
 )
+GbxBoxInt = Struct(
+    "x1" / Int32sl,
+    "y1" / Int32sl,
+    "z1" / Int32sl,
+    "x2" / Int32sl,
+    "y2" / Int32sl,
+    "z2" / Int32sl,
+)
 GbxColor = Struct("b" / Byte, "g" / Byte, "r" / Byte, "a" / Byte)
 GbxPlugSurfaceMaterialId = Struct(
     "physicsId" / GbxEPlugSurfacePhysicsId, "gameplayId" / GbxEPlugSurfaceGameplayId
@@ -281,7 +302,13 @@ class AGbxVec3_10b(Adapter):
 
 GbxVec3Tenb = AGbxVec3_10b(Int32ul)
 
-GbxDict = PrefixedArray(Int32ul, Struct("key" / GbxString, "value" / GbxString))
+
+def GbxDict(key, value):
+    return PrefixedArray(Int32ul, Struct("key" / key, "value" / value))
+
+
+GbxDictString = GbxDict(GbxString, GbxString)
+
 
 GbxMat3x3 = Struct(
     "XX" / GbxFloat,
@@ -555,7 +582,9 @@ GbxNodesWithoutBody = set(
         0x09144000,
         0x09145000,
         0x09159000,
+        0x09178000,
         0x09179000,
+        0x0917B000,
         0x09187000,
         0x2F074000,
         0x2F0BC000,
@@ -722,6 +751,18 @@ GbxMaterial = Struct(
 
 # Body Chunks
 
+# 0301B CGameCtnCollectorList
+body_chunks[0x0301B000] = Struct(
+    "collectorStock"
+    / PrefixedArray(
+        Int32ul,
+        Struct(
+            "ident" / GbxMeta,
+            "count" / Int32ul,
+        ),
+    ),
+)
+
 # 03036 CGameCtnBlockUnitInfo
 body_chunks[0x03036000] = Struct(
     "placePylons" / Int32sl,
@@ -772,6 +813,44 @@ body_chunks[0x0303600C] = Struct(
 )
 
 # 03043 CGameCtnChallenge
+
+GbxBlockInstance = Struct(
+    "name" / GbxLookbackString,
+    "dir" / GbxECardinalDir,
+    "coords" / GbxInt3Byte,
+    "flags"
+    / ByteSwapped(
+        BitStruct(
+            "u04" / BitsInteger(2),
+            "isFree" / Flag,
+            "isGhost" / Flag,
+            "blockVariantIndex" / BitsInteger(6),
+            "u03" / Flag,
+            "isWaypoint" / Flag,
+            "u02" / BitsInteger(4),
+            "isSkinnable" / Flag,
+            "u01" / Flag,
+            "isClip" / Flag,
+            "isGround" / Flag,
+            "mobilVariantIndex" / BitsInteger(6),
+            "mobilIndex" / BitsInteger(6),
+        )
+    ),
+    "skinParams"
+    / If(
+        this.flags.isSkinnable,
+        Struct(
+            "author" / GbxLookbackString,
+            "skin" / GbxNodeRef,
+        ),
+    ),
+    "waypointParams"
+    / If(this.flags.isWaypoint, GbxNodeRef),  # CGameWaypointSpecialProperty
+    # TODO what's this?
+    # coord -= (1, 0, 1); if version >= 6
+    # coord -= (0, 1, 0); if free block
+)
+
 body_chunks[0x0304300D] = Struct(
     "playerModel" / GbxMeta,
 )
@@ -787,47 +866,7 @@ body_chunks[0x0304301F] = Struct(
     "size" / GbxInt3,
     "needUnlock" / GbxBool,
     "version" / Int32ul,  # 6, only if not 03043013
-    # "blockCountTmp" / Int32ul,
-    "blocks"
-    / PrefixedArray(
-        Int32ul,
-        Struct(
-            "name" / GbxLookbackString,
-            "dir" / GbxECardinalDir,
-            "coords" / GbxInt3Byte,
-            "flags"
-            / ByteSwapped(
-                BitStruct(
-                    "u04" / BitsInteger(2),
-                    "isFree" / Flag,
-                    "isGhost" / Flag,
-                    "blockVariantIndex" / BitsInteger(6),
-                    "u03" / Flag,
-                    "isWaypoint" / Flag,
-                    "u02" / BitsInteger(4),
-                    "isSkinnable" / Flag,
-                    "u01" / Flag,
-                    "isClip" / Flag,
-                    "isGround" / Flag,
-                    "mobilVariantIndex" / BitsInteger(6),
-                    "mobilIndex" / BitsInteger(6),
-                )
-            ),
-            "skinParams"
-            / If(
-                this.flags.isSkinnable,
-                Struct(
-                    "author" / GbxLookbackString,
-                    "skin" / GbxNodeRef,
-                ),
-            ),
-            "waypointParams"
-            / If(this.flags.isWaypoint, GbxNodeRef),  # CGameWaypointSpecialProperty
-            # TODO what's this?
-            # coord -= (1, 0, 1); if version >= 6
-            # coord -= (0, 1, 0); if free block
-        ),
-    ),
+    "blocks" / PrefixedArray(Int32ul, GbxBlockInstance),
 )
 body_chunks[0x03043022] = Struct(
     "u01" / Int32sl,
@@ -866,6 +905,23 @@ body_chunks[0x03043028] = Struct(
 body_chunks[0x0304302A] = Struct(
     "u01" / GbxBool,
 )
+body_chunks[0x03043048] = Struct(
+    "version" / Int32ul,
+    "u01" / Int32sl,
+    "BakedBlocks" / PrefixedArray(Int32ul, GbxBlockInstance),
+    "u02" / Int32sl,
+    "BakedClipsAdditionalData"
+    / PrefixedArray(
+        Int32ul,
+        Struct(
+            "Clip1" / GbxMeta,
+            "Clip2" / GbxMeta,
+            "Clip3" / GbxMeta,
+            "Clip4" / GbxMeta,
+            "Coord" / GbxInt3Byte,
+        ),
+    ),
+)
 body_chunks[0x03043049] = Struct(
     "version" / Int32ul,
     "clipIntro" / GbxNodeRef,  # CGameCtnMediaClip
@@ -894,6 +950,21 @@ SHmsLightMapCacheSmall = Struct(
             Struct(
                 "body" / GbxLookbackStringContext(GbxBodyChunks),
                 "rest" / GreedyBytes,
+            )
+        ),
+    ),
+)
+body_chunks[0x03043054] = Struct(  # embedded objects
+    "version" / Int32ul,
+    "u01" / Int32sl,
+    "embeddedData"
+    / Prefixed(
+        Int32ul,
+        GbxLookbackStringContext(
+            Struct(
+                "filesMeta" / PrefixedArray(Int32ul, GbxMeta),
+                "zip" / GbxCompressedZip,
+                "Textures" / PrefixedArray(Int32ul, GbxString),
             )
         ),
     ),
@@ -975,7 +1046,23 @@ body_chunks[0x0304E02F] = Struct(
 body_chunks[0x0304E031] = Struct(
     "rest" / GbxBytesUntilFacade,
 )
+
+# 03059 CGameCtnBlockSkin
+
+body_chunks[0x03059000] = Struct("text" / GbxString, "u01" / GbxString)
+body_chunks[0x03059001] = Struct("text" / GbxString, "packDesc" / GbxFileRef)
+body_chunks[0x03059002] = Struct(
+    "text" / GbxString,
+    "packDesc" / GbxFileRef,
+    "parentPackDesc" / GbxFileRef,
+)
+body_chunks[0x03059003] = Struct(
+    "version" / Int32ul,
+    "foregroundPackDesc" / GbxFileRef,
+)
+
 # 0305B CGameCtnChallengeParameters
+
 body_chunks[0x0305B001] = Struct(
     "tip" / GbxString[4],
 )
@@ -992,6 +1079,14 @@ body_chunks[0x0305B008] = Struct(
 )
 body_chunks[0x0305B00D] = Struct(
     "raceValidateGhost" / GbxNodeRef,  # CGameCtnGhost
+)
+
+# 0311D CGameCtnZoneGenealogy
+body_chunks[0x0311D002] = Struct(
+    "zoneIds" / PrefixedArray(Int32ul, GbxLookbackString),
+    "currentIndex" / Int32ul,
+    "dir" / GbxEDirection,
+    "currentZoneId" / GbxLookbackString,
 )
 
 # 03120 CGameCtnAutoTerrain
@@ -1155,10 +1250,10 @@ body_chunks[0x0315B00B] = Struct(
     / PrefixedArray(
         Int32ul,
         Struct(
-            "u01" / Bytes(3 * 4 + 3 * 4 + 2 * 4),
-            # "u04" / Bytes(4 * 4),
-            "u05" / GbxBox,
-            "u06" / GbxLookbackString,
+            "chunks" / PrefixedArray(Int32ul, GbxBoxInt),
+            "u01" / Int32sl,
+            "chunksSize" / GbxBox,
+            "waterType" / GbxLookbackString,
         ),
     ),  # WaterArchive
 )
@@ -1686,6 +1781,9 @@ body_chunks[0x09056000] = Struct(
     / Switch(
         lambda this: this.header.u01[2],
         {
+            0x50: Struct(
+                "color" / GbxColor[this._.num_vertices],
+            ),
             0x60: Struct(
                 "uv0" / GbxVec2[this._.num_vertices],
             ),
@@ -1907,7 +2005,7 @@ body_chunks[0x09145000] = Struct(
                         / PrefixedArray(
                             Int32ul,
                             Struct(  # NPlugItemPlacement_SPlacementOption 0x30166000
-                                "RequiredTags" / GbxDict,
+                                "RequiredTags" / GbxDictString,
                             ),
                         ),
                     ),
@@ -1927,7 +2025,7 @@ body_chunks[0x09145000] = Struct(
                                 / PrefixedArray(
                                     Int32ul,
                                     Struct(  # NPlugItemPlacement_SPlacementOption 0x30166000
-                                        "RequiredTags" / GbxDict,
+                                        "RequiredTags" / GbxDictString,
                                     ),
                                 ),
                             ),
@@ -1936,6 +2034,14 @@ body_chunks[0x09145000] = Struct(
                         "u02" / PrefixedArray(Int32ul, GbxLoc),
                     ),
                 ),
+                "instanceParams"
+                / Optional(  # NPlugStaticObjectModel_SInstanceParams
+                    Struct(
+                        "chunkId" / ExprValidator(Hex(Int32ul), obj_ == 0x2F0D9000),
+                        "Phase01" / GbxFloat,
+                    ),
+                    # No LodGroupId when this is true? looks like it's a float
+                ),
                 "LodGroupId" / If(this.model >= 0, Int32sl),
                 "name" / GbxString,
             ),
@@ -1943,6 +2049,14 @@ body_chunks[0x09145000] = Struct(
         ),
     ),
 )
+
+
+def check(obj, ctx):
+    if obj:
+        pass
+    print(obj)
+    return obj
+
 
 # 09159 CPlugStaticObjectModel
 body_chunks[0x09159000] = Select(
@@ -2064,10 +2178,37 @@ body_chunks[0x0915C000] = Struct(
 body_chunks[0x0915D000] = Struct("Remapping" / GbxNodeRef, "RemapFolder" / GbxString)
 body_chunks[0x0915D001] = Struct("name" / GbxLookbackString)
 
-# 09179
+
+# 09178 NPlugTrigger_SWaypoint
+
+body_chunks[0x09178000] = Struct(
+    "version" / Int32ul,
+    "Type" / GbxEWayPointType,
+    "TriggerShape" / GbxNodeRef,
+    "NoRespawn" / GbxBool,
+)
+
+# 09179 NPlugTrigger_SSpecial
 body_chunks[0x09179000] = Struct(
     "version" / Int32ul,
     "surf" / GbxNodeRef,
+)
+
+# 0917A CPlugSpawnModel
+body_chunks[0x0917A000] = Struct(
+    "version" / Int32ul,
+    "Loc" / GbxIso4,
+    "TorqueX" / GbxFloat,
+    "TorqueDuration" / Int32ul,
+    "DefaultGravitySpawn" / GbxVec3,
+    "u01" / Int32sl,
+)
+
+# 0917B CPlugEditorHelper
+body_chunks[0x0917B000] = Struct(
+    "version" / Int32ul,
+    "helper" / GbxNodeRef,
+    Probe(),
 )
 
 # 09187 NPlugItemPlacement_SClass
@@ -2510,6 +2651,7 @@ body_chunks[0x2E009000] = Struct(
 )
 
 # 2E020 CGameItemPlacementParam
+
 body_chunks[0x2E020000] = Struct(
     "version" / Int32ul,
     "flags" / Int16ul,
@@ -2541,7 +2683,20 @@ body_chunks[0x2E020004] = Struct(
 )
 body_chunks[0x2E020005] = Struct("item_placement" / GbxNodeRef)
 
+# 2E025 CGameBlockItem
+
+body_chunks[0x2E025000] = Struct(
+    "version" / Int32ul,
+    "archetypeBlockInfoId" / GbxLookbackString,
+    "archetypeBlockInfoCollectionId" / GbxLookbackString,
+    "customizedVariants" / GbxDict(Int32ul, GbxNodeRef),
+    "rest" / GreedyBytes,
+    # "u01" / GbxBoolByte,
+)
+
+
 # 2E026 CGameCommonItemEntityModelEdition
+
 body_chunks[0x2E026000] = Struct(
     "version" / Int32ul,
     "itemType" / ExprValidator(GbxEItemType, obj_ == "Ornament"),
@@ -2578,7 +2733,7 @@ body_chunks[0x2E027000] = Struct(
     "props"
     / Struct(
         "triggerArea" / GbxNodeRef,  # CPlugSurface
-        "u01" / GbxIso4,
+        "spawnLoc" / GbxIso4,
         "emitterModel" / GbxNodeRef,  # CPlugParticleEmitterModel
         "actionModels"
         / PrefixedArray(Int32ul, GbxNodeRef),  # CGameCtnPlaygroundActionModel
@@ -2640,7 +2795,7 @@ body_chunks[0x2F0BC000] = Struct(
     / PrefixedArray(
         Int32ul,
         Struct(
-            "Tags" / GbxDict,
+            "Tags" / GbxDictString,
             "EntityModel" / GbxNodeRef,
             "HiddenInManualCycle" / GbxBool,
         ),

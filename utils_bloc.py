@@ -77,6 +77,8 @@ def extract_variant_chunk(export_dir, file, data, variant):
 
 def extract_block_meshes(file, data):
     for chunk in data.body:
+        if chunk is None:
+            continue
         if chunk.chunk_id == 0x0304E023:
             print("ground")
             extract_variant_chunk(

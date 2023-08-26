@@ -33,6 +33,12 @@ def parse_node(file_path):
         return data, nb_nodes, raw_bytes
 
 
+def construct_all_folders(all_folders, parent_folder_path, current_folder):
+    for folder in current_folder.folders:
+        all_folders.append(parent_folder_path + folder.name + "/")
+        construct_all_folders(all_folders, all_folders[-1], folder)
+
+
 def parse_node_recursive(file_path: Path, node_offset=0, path=None):
     file_path = os.path.abspath(file_path)
     if path is None:
@@ -83,7 +89,9 @@ def parse_node_recursive(file_path: Path, node_offset=0, path=None):
                 continue
             elif external_node.ref.endswith(".Texture.gbx"):
                 continue
-            elif external_node.ref.endswith(".Light.gbx"):
+            elif external_node.ref.endswith(".Light.Gbx"):
+                continue
+            elif external_node.ref.endswith(".Sound.Gbx"):
                 continue
             # elif external_node.ref.endswith(".PlaceParam.Gbx"):
             #     continue

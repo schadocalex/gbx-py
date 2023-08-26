@@ -129,6 +129,19 @@ def export_ents(export_dir, file, data, offset_index=None, off_pos=None, off_rot
             return None
 
         node = data.nodes[static_node.body.mesh]
+        if node.header.class_id == 0x09145000:
+            export_ents(
+                export_dir,
+                file,
+                node,
+                [*offset_index, ent_idx],
+                off_pos,
+                off_rot,
+            )
+            return None
+        if node.header.class_id == 0x09159000:
+            # TODO why we have that case?
+            node = data.nodes[node.body.mesh]
         assert node.header.class_id == 0x090BB000
 
         obj_chunk = node.body[0].chunk
@@ -150,7 +163,11 @@ def export_ents(export_dir, file, data, offset_index=None, off_pos=None, off_rot
 
             vertices = root_node.nodes[idx + 1].body[0].chunk.vertices_coords
             normals = root_node.nodes[idx + 1].body[0].chunk.normals
-            uv0 = root_node.nodes[idx + 1].body[0].chunk.others.uv0
+            others = root_node.nodes[idx + 1].body[0].chunk.others
+            if others is not None and "uv0" in others:
+                uv0 = others.uv0
+            else:
+                uv0 = []
             indices = root_node.nodes[idx].body[8].chunk.index_buffer[0].chunk.indices
 
             if len(obj_chunk.materials) > 0:
@@ -160,7 +177,10 @@ def export_ents(export_dir, file, data, offset_index=None, off_pos=None, off_rot
                     geom.material_index
                 ].material_user_inst
 
-            mat = root_node.nodes[mat_idx].body[0].chunk.link
+            if type(root_node.nodes[mat_idx]) == str:
+                mat = root_node.nodes[mat_idx].split(".")[0]
+            else:
+                mat = root_node.nodes[mat_idx].body[0].chunk.link
             meshes.append([vertices, normals, uv0, indices, mat])
 
         return meshes

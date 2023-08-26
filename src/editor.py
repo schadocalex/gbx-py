@@ -56,20 +56,24 @@ def tree_widget_item(key, value):
             item.addChild(tree_widget_item(str(i), child))
 
         return item
+    elif type(value).__name__ == "bytes":
+        return QTreeWidgetItem_WithData(
+            Container(type=type(value).__name__, value=value),
+            [
+                key,
+                type(value).__name__,
+                str(value[:12]) + ("..." if len(value) > 12 else ""),
+            ],
+        )
     else:
-        if type(value).__name__ == "bytes":
-            return QTreeWidgetItem_WithData(
-                Container(type=type(value).__name__, value=value),
-                [
-                    key,
-                    type(value).__name__,
-                    str(value[:12]) + ("..." if len(value) > 12 else ""),
-                ],
-            )
         return QTreeWidgetItem_WithData(
             Container(type=type(value).__name__, value=value),
             [key, type(value).__name__, str(value)],
         )
+
+
+def expand_items(top_level_item):
+    return
 
 
 def GbxDataViewer(data, on_item_select):
@@ -78,7 +82,9 @@ def GbxDataViewer(data, on_item_select):
     tree.setHeaderLabels(["Name", "Type", "Value"])
 
     for key, value in container_iter(data):
-        tree.addTopLevelItem(tree_widget_item(key, value))
+        top_level_item = tree_widget_item(key, value)
+        tree.addTopLevelItem(top_level_item)
+        # expand_items(top_level_item)
 
     tree.expandToDepth(3)
     tree.resizeColumnToContents(0)
@@ -144,12 +150,6 @@ def wrapStruct(struct):
         return RawCopy(Struct(*[wrapStruct(s) for s in struct.subcons]))
     else:
         return RawCopy(struct)
-
-
-def construct_all_folders(all_folders, parent_folder_path, current_folder):
-    for folder in current_folder.folders:
-        all_folders.append(parent_folder_path + folder.name + "/")
-        construct_all_folders(all_folders, all_folders[-1], folder)
 
 
 def generate_node(data, remove_external=True, editor=True):
