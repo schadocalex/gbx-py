@@ -2462,14 +2462,11 @@ body_chunks[0x09128000] = Struct(
 )
 
 # 2E001 CGameCtnCollector
-body_chunks[0x2E001009] = (
-    Struct(
-        "page_path" / GbxString,
-        "has_icon_fed" / GbxBool,
-        "icon_fed" / If(this.has_icon_fed, Pass),
-        "u01" / GbxLookbackString,
-    )
-    * "Icon"
+body_chunks[0x2E001009] = Struct(
+    "page_path" / GbxString,
+    "has_icon_fed" / GbxBool,
+    "icon_fed" / If(this.has_icon_fed, GbxNodeRef),
+    "u01" / GbxLookbackString,
 )
 body_chunks[0x2E00100B] = Struct("author" / GbxMeta)
 body_chunks[0x2E00100C] = Struct("name" / GbxString)
