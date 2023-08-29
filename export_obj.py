@@ -52,9 +52,7 @@ def transform_pos(pos, ps, qs):
     return [x, -z, y]
 
 
-def export_obj(
-    filename, vertices, normals, uv0, indices, material_name, pos=None, rot=None
-):
+def export_obj(filename, vertices, normals, uv0, indices, material_name, pos=None, rot=None):
     N = len(vertices)
 
     # print(f"export_obj {filename} {pos} {rot}")
@@ -95,6 +93,69 @@ def export_obj2(filename, vertices, faces, material_name):  # surf
 
         for face in faces:
             f.write(f"f {face.x+1} {face.y+1} {face.z+1}\n")
+
+
+def extract_solid2model(data, node, lod=1):
+    assert node.header.class_id == 0x090BB000
+
+    obj_chunk = node.body[0].chunk
+
+    if len(obj_chunk.lodDistances) == 0:
+        lod = 1
+    elif len(obj_chunk.lodDistances) < lod:
+        lod = obj_chunk.lodDistances
+    lod = 2 ** (lod - 1)
+
+    meshes = []
+    for i, geom in enumerate(obj_chunk.shaded_geoms):
+        if (geom.lod & lod) == 0:
+            continue
+
+        visual_idx = obj_chunk.visuals[geom.visual_index]
+
+        vertices = []
+        normals = []
+        uv0 = []
+
+        root_node = data  # node if "nodes" in node else node.root_node
+        vertex_stream = root_node.nodes[visual_idx + 1].body[0].chunk
+        for data_idx, data_decl in enumerate(vertex_stream.DataDecl):
+            match data_decl.header.Name:
+                case "Position":
+                    vertices = vertex_stream.Data[data_idx]
+                case "Normal":
+                    normals = vertex_stream.Data[data_idx]
+                case "TexCoord0":
+                    uv0 = vertex_stream.Data[data_idx]
+
+        indices = root_node.nodes[visual_idx].body[8].chunk.index_buffer[0].chunk.indices
+
+        if len(obj_chunk.materials_names) > 0:
+            mat = obj_chunk.materials_names[geom.material_index]
+        else:
+            if len(obj_chunk.materials) > 0:
+                mat_idx = obj_chunk.materials[geom.material_index]
+            else:
+                mat_idx = obj_chunk.custom_materials[geom.material_index].material_user_inst
+
+            if type(root_node.nodes[mat_idx]) == str:
+                mat = root_node.nodes[mat_idx].split(".")[0]
+            else:
+                mat = root_node.nodes[mat_idx].body[0].chunk.link
+
+        meshes.append([vertices, normals, uv0, indices, mat])
+
+    return meshes
+
+
+def export_meshes(export_dir, filename, meshes, pos=None, rot=None):
+    for sub_mesh_idx, sub_mesh in enumerate(meshes):
+        obj_filepath = export_dir + filename + f"_{sub_mesh_idx}.obj"
+        print(obj_filepath)
+        # print(sub_mesh)
+        # print(final_pos)
+        # print(final_rot)
+        export_obj(obj_filepath, *sub_mesh, pos, rot)
 
 
 def export_ents(export_dir, file, data, offset_index=None, off_pos=None, off_rot=None):
@@ -142,48 +203,8 @@ def export_ents(export_dir, file, data, offset_index=None, off_pos=None, off_rot
         if node.header.class_id == 0x09159000:
             # TODO why we have that case?
             node = data.nodes[node.body.mesh]
-        assert node.header.class_id == 0x090BB000
 
-        obj_chunk = node.body[0].chunk
-
-        if len(obj_chunk.lodDistances) == 0:
-            lod = 1
-        elif len(obj_chunk.lodDistances) < lod:
-            lod = obj_chunk.lodDistances
-        lod = 2 ** (lod - 1)
-
-        meshes = []
-        for i, geom in enumerate(obj_chunk.shaded_geoms):
-            if (geom.lod & lod) == 0:
-                continue
-
-            idx = obj_chunk.visuals[geom.visual_index]
-
-            root_node = data  # node if "nodes" in node else node.root_node
-
-            vertices = root_node.nodes[idx + 1].body[0].chunk.vertices_coords
-            normals = root_node.nodes[idx + 1].body[0].chunk.normals
-            others = root_node.nodes[idx + 1].body[0].chunk.others
-            if others is not None and "uv0" in others:
-                uv0 = others.uv0
-            else:
-                uv0 = []
-            indices = root_node.nodes[idx].body[8].chunk.index_buffer[0].chunk.indices
-
-            if len(obj_chunk.materials) > 0:
-                mat_idx = obj_chunk.materials[geom.material_index]
-            else:
-                mat_idx = obj_chunk.custom_materials[
-                    geom.material_index
-                ].material_user_inst
-
-            if type(root_node.nodes[mat_idx]) == str:
-                mat = root_node.nodes[mat_idx].split(".")[0]
-            else:
-                mat = root_node.nodes[mat_idx].body[0].chunk.link
-            meshes.append([vertices, normals, uv0, indices, mat])
-
-        return meshes
+        return extract_solid2model(data, node)
 
     for ent_idx, ent in enumerate(data.body.Ents):
         model = data.nodes[ent.model]
@@ -194,21 +215,11 @@ def export_ents(export_dir, file, data, offset_index=None, off_pos=None, off_rot
         final_pos = [ent.pos, *off_pos]
         final_rot = [ent.rot, *off_rot]
 
-        meshes = extract_mesh(
-            data, model, 1, offset_index, ent_idx, final_pos, final_rot
+        meshes = extract_mesh(data, model, 1, offset_index, ent_idx, final_pos, final_rot)
+        filename = (
+            os.path.basename(file).split(".")[0]
+            + ("_" if len(offset_index) > 0 else "")
+            + "_".join(map(str, offset_index))
+            + f"_{ent_idx}"
         )
-        if meshes is not None:
-            # TODO LOD?
-            for sub_mesh_idx, sub_mesh in enumerate(meshes):
-                obj_filepath = (
-                    export_dir
-                    + os.path.basename(file).split(".")[0]
-                    + ("_" if len(offset_index) > 0 else "")
-                    + "_".join(map(str, offset_index))
-                    + f"_{ent_idx}_{sub_mesh_idx}.obj"
-                )
-                print(obj_filepath)
-                # print(sub_mesh)
-                # print(final_pos)
-                # print(final_rot)
-                export_obj(obj_filepath, *sub_mesh, final_pos, final_rot)
+        export_meshes(export_dir, filename, meshes, final_pos, final_rot)

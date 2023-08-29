@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QHBoxLayout, QWidget, QTextEdit, QFormLayout, QLab
 from PySide6.QtCore import Slot, Qt
 from PySide6.QtGui import QTextCursor
 
-from src.gbx_structs import GbxVec3Tenb
+# from src.gbx_structs import GbxVec3Tenb
 
 
 class AInspector(QHBoxLayout):
@@ -32,18 +32,18 @@ class Count_Inspector(AInspector):
         self.labels[0].setText(str(len(raw_bytes) + 1))
 
 
-class Vec3_tenb_Inspector(AInspector):
-    def inspect(self, raw_bytes):
-        for label in self.labels:
-            label.setText("")
+# class Vec3_tenb_Inspector(AInspector):
+#     def inspect(self, raw_bytes):
+#         for label in self.labels:
+#             label.setText("")
 
-        if len(raw_bytes) >= 4:
-            for i in range(0, len(raw_bytes) // 4):
-                if i >= len(self.labels):
-                    break
+#         if len(raw_bytes) >= 4:
+#             for i in range(0, len(raw_bytes) // 4):
+#                 if i >= len(self.labels):
+#                     break
 
-                x = GbxVec3Tenb.parse(raw_bytes[i * 4 : (i + 1) * 4])
-                self.labels[i].setText(str(x))
+#                 x = GbxVec3Tenb.parse(raw_bytes[i * 4 : (i + 1) * 4])
+#                 self.labels[i].setText(str(x))
 
 
 def inspector_from_format(format, nb_labels):
@@ -89,7 +89,7 @@ class Inspector(QWidget):
         self.float32_widget = inspector_from_format("<f", 4)
         self.uint64_widget = inspector_from_format("<Q", 2)
         self.int64_widget = inspector_from_format("<q", 2)
-        self.vec_tenb_widget = Vec3_tenb_Inspector(4)
+        # self.vec_tenb_widget = Vec3_tenb_Inspector(4)
 
         layout = QFormLayout()
         layout.addRow("count", self.count_inspector)
@@ -104,7 +104,7 @@ class Inspector(QWidget):
         layout.addRow("Int64", self.int64_widget)
         layout.addRow("UInt8", self.uint8_widget)
         layout.addRow("Int8", self.int8_widget)
-        layout.addRow("Vec3_tenb", self.vec_tenb_widget)
+        # layout.addRow("Vec3_tenb", self.vec_tenb_widget)
         self.setLayout(layout)
 
     def inspect(self, raw_bytes, selection):
@@ -120,4 +120,4 @@ class Inspector(QWidget):
         self.int64_widget.inspect(raw_bytes)
         self.uint8_widget.inspect(raw_bytes)
         self.int8_widget.inspect(raw_bytes)
-        self.vec_tenb_widget.inspect(raw_bytes)
+        # self.vec_tenb_widget.inspect(raw_bytes)

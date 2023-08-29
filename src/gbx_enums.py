@@ -1,4 +1,4 @@
-from construct import Enum, Byte, Int32ul, Int32sl
+from construct import Enum, Byte, Int32ul, Int32sl, BitsInteger
 
 GbxEProdState = Enum(Byte, Aborted=0, GameBox=1, DevBuild=2, Release=3)
 GbxEItemType = Enum(
@@ -66,9 +66,7 @@ GbxELayerType = Enum(
     Trigger=14,
     SpawnPosition=15,
 )
-GbxEWayPointType = Enum(
-    Int32ul, Start=0, Finish=1, Checkpoint=2, No=3, StartFinish=4, Dispenser=5
-)
+GbxEWayPointType = Enum(Int32ul, Start=0, Finish=1, Checkpoint=2, No=3, StartFinish=4, Dispenser=5)
 GbxETexAddress = Enum(Int32ul, Wrap=0, Mirror=1, Clamp=2, Border=3)
 GbxESurfType = Enum(
     Int32sl,
@@ -309,15 +307,58 @@ GbxELightMapCacheEQualityVer = Enum(
     Current=13,
 )
 GbxELightMapCacheESortMode = Enum(Int32ul, No=0, HDiagCenter=1)
-GbxELightMapCacheEAllocMode = Enum(
-    Int32ul, _64_2=0, _64_2PUseFree=1, BestSizePUseFree=2
+GbxELightMapCacheEAllocMode = Enum(Int32ul, _64_2=0, _64_2PUseFree=1, BestSizePUseFree=2)
+GbxELightMapCacheECompressMode = Enum(Int32ul, Ldr_DXT1=0, sRGB_Hyper_DXT1=1, Hyper_sRGB_DXT1=2, Scale_sRGB_DXT1=3)
+GbxELightMapCacheEBump = Enum(Int32ul, TxTyTz=0, TxTyTz_Intens=1, No=2, HBasis_Color=3, HBasis_Intens=4)
+GbxELightMapCacheEPlugGpuPlatform = Enum(Int32ul, _00=0, D3D11=1, pf3=2, pf4=3, pf5=4, pf6=5)
+GbxEPlugVDcl = Enum(
+    BitsInteger(9),
+    Position=0,
+    Position1=1,
+    TgtRotation=2,
+    BlendWeight=3,
+    BlendIndices=4,
+    Normal=5,
+    Normal1=6,
+    PointSize=7,
+    Color0=8,
+    Color1=9,
+    TexCoord0=10,
+    TexCoord1=11,
+    TexCoord2=12,
+    TexCoord3=13,
+    TexCoord4=14,
+    TexCoord5=15,
+    TexCoord6=16,
+    TexCoord7=17,
+    TangentU=18,
+    TangentU1=19,
+    TangentV=20,
+    TangentV1=21,
+    Color2=22,
 )
-GbxELightMapCacheECompressMode = Enum(
-    Int32ul, Ldr_DXT1=0, sRGB_Hyper_DXT1=1, Hyper_sRGB_DXT1=2, Scale_sRGB_DXT1=3
+GbxPlugVDclTypes = [2, 2, 0, 0, 5, 2, 2, 0, 4, 4, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 4]  # ?
+GbxPlugVDclSpaces = [0, 0, 2, 2, 2, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 2]
+GbxEPlugVDclType = Enum(
+    BitsInteger(9),
+    Float1=0,
+    Float2=1,
+    Float3=2,
+    Float4=3,
+    ColorD3D=4,
+    UByte4=5,
+    Short2=6,
+    Short4=7,
+    UByte4N=8,
+    Short2N=9,
+    Short4N=10,
+    UShort2N=11,
+    UShort4N=12,
+    UDec3=13,
+    Dec3N=14,
+    Half2=15,
+    Half4=16,
 )
-GbxELightMapCacheEBump = Enum(
-    Int32ul, TxTyTz=0, TxTyTz_Intens=1, No=2, HBasis_Color=3, HBasis_Intens=4
-)
-GbxELightMapCacheEPlugGpuPlatform = Enum(
-    Int32ul, _00=0, D3D11=1, pf3=2, pf4=3, pf5=4, pf6=5
-)
+GbxPlugVDclTypeBytes = [4, 8, 0xC, 0x10, 4, 4, 4, 8, 4, 4, 8, 4, 8, 4, 4, 4, 8]
+GbxPlugVDclTypeComps = [1, 2, 3, 4, 4, 4, 2, 4, 4, 2, 4, 2, 4, 3, 3, 2, 4]
+GbxEPlugSolidVisCstType = Enum(Int32ul, No=0, Static=1, Dynamic=2, TmCar=3, SmBody=4)

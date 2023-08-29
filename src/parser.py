@@ -23,9 +23,7 @@ def parse_node(file_path):
 
         gbx_data = {}
         nodes = []
-        data = GbxStruct.parse(
-            raw_bytes, gbx_data=gbx_data, nodes=nodes, filename=file_path
-        )
+        data = GbxStruct.parse(raw_bytes, gbx_data=gbx_data, nodes=nodes, filename=file_path)
         data.nodes = ListContainer(nodes)
         data.node_offset = 0
         nb_nodes = len(data.nodes) - 1
@@ -60,9 +58,7 @@ def parse_node_recursive(file_path: Path, node_offset=0, path=None):
 
         gbx_data = {}
         nodes = []
-        data = GbxStruct.parse(
-            raw_bytes, gbx_data=gbx_data, nodes=nodes, filename=file_path
-        )
+        data = GbxStruct.parse(raw_bytes, gbx_data=gbx_data, nodes=nodes, filename=file_path)
         # for i, n in enumerate(nodes):
         #     if type(n) is Container:
         #         n.root_node = data
@@ -83,9 +79,7 @@ def parse_node_recursive(file_path: Path, node_offset=0, path=None):
 
         # parse external nodes
         for external_node in data.reference_table.external_nodes:
-            if not external_node.ref.endswith(
-                ".gbx"
-            ) and not external_node.ref.endswith(".Gbx"):
+            if not external_node.ref.endswith(".gbx") and not external_node.ref.endswith(".Gbx"):
                 continue
             elif external_node.ref.endswith(".Texture.gbx"):
                 continue
@@ -101,9 +95,7 @@ def parse_node_recursive(file_path: Path, node_offset=0, path=None):
                 continue
             elif external_node.ref.endswith(".Material.Gbx"):
                 material_name = external_node.ref.split(".")[0]
-                data.nodes[external_node.node_index] = create_custom_material(
-                    material_name
-                )
+                data.nodes[external_node.node_index] = create_custom_material(material_name)
                 # print(
                 #     "  " * (depth + 1) + f"- {material_name} Material (1 custom node)"
                 # )
@@ -114,13 +106,9 @@ def parse_node_recursive(file_path: Path, node_offset=0, path=None):
             #     )
             else:
                 # print(external_node.ref + " " + str(node_offset))
-                ext_node_filepath = (
-                    all_folders[external_node.folder_index] + external_node.ref
-                )
+                ext_node_filepath = all_folders[external_node.folder_index] + external_node.ref
                 if not os.path.exists(ext_node_filepath):
-                    data.nodes[external_node.node_index] = (
-                        "[NOT FOUND] " + ext_node_filepath
-                    )
+                    data.nodes[external_node.node_index] = "[NOT FOUND] " + ext_node_filepath
                     print("[NOT FOUND] " + ext_node_filepath)
                 else:
                     ext_node_data, nb_sub_nodes, sub_raw_bytes = parse_node_recursive(
