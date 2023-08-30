@@ -2198,7 +2198,7 @@ body_chunks[0x090B3000] = Struct(
 )
 # 090BA CPlugSkel
 body_chunks[0x090BA000] = Struct(
-    "version" / ExprValidator(Int32ul, obj_ >= 16),  # TODO < 16 ?
+    "version" / ExprValidator(Int32ul, obj_ >= 12),
     "name" / GbxLookbackString,
     "joints"
     / PrefixedArray(
@@ -2227,6 +2227,7 @@ body_chunks[0x090BA000] = Struct(
     StopIf(this.version < 9),
     "u04" / ExprValidator(GbxBool, obj_ == 0),  # TODO
     StopIf(this.version < 10),
+    "u05" / If(this.version <= 15, PrefixedArray(Int32ul, Int32ul)),
     "u06" / If(this.version > 15, PrefixedArray(Int32ul, Int8ul)),
     "u09" / If(this.version > 17, PrefixedArray(Int32ul, Int8ul)),
     "u10_func_rotation_order" / If(this.version >= 19, PrefixedArray(Int32ul, Int8ul)),  # enum?
