@@ -1456,9 +1456,9 @@ body_chunks[0x0900600D] = Struct(
             "bit8" / Flag,
             "bit7" / Flag,
             Padding(1),
-            "bit5" / Flag,
-            Padding(1),
-            "bit3" / Flag,
+            "HasVertexNormals" / Flag,
+            "isIndexationStaticBit" / Flag,
+            "isGeometryStaticBit" / Flag,
             "SkinIndexCount" / BitsInteger(3),  # max 4
         )
     ),
@@ -1578,32 +1578,34 @@ body_chunks[0x0900C003] = Struct(
 # 0902C CPlugVisual3D
 
 
-def get_flags_plug_visual(ctx):
-    return ctx._._._array[4].chunk.ChunkFlags
+def get_chunk_900600F(ctx):
+    for chunk in ctx._._._array:
+        if chunk.chunk_id == 0x900600F:
+            return chunk.chunk
 
 
 body_chunks[0x0902C002] = Struct("u01" / GbxNodeRef)
 body_chunks[0x0902C004] = Struct(
-    "flags" / Computed(this._._._array[4].chunk.ChunkFlags),
-    "u01" / Computed(lambda this: not this.flags.bit22),
+    "flags" / Computed(lambda ctx: get_chunk_900600F(ctx).ChunkFlags),
+    "readNormals" / Computed(lambda this: not this.flags.bit22 or this.flags.HasVertexNormals),
     "u02" / Computed(lambda this: not this.flags.bit22 or this.flags.bit8),
     "u03" / Computed(lambda this: this.flags.bit20),  # or CPlugVisualSprite
     "vertices"
     / IfThenElse(
         # TODO verify
         this.u01 and not this.u03 and not this.flags.bit21 and this.u02,
-        Bytes(0x28)[this._._._array[4].chunk.VertexCount],
+        Bytes(0x28)[lambda ctx: get_chunk_900600F(ctx).VertexCount],
         If(
-            lambda ctx: len(ctx._._._array[4].chunk.vertexStreams) == 0,
+            lambda ctx: len(get_chunk_900600F(ctx).vertexStreams) == 0,
             Array(
-                lambda ctx: ctx._._._array[4].chunk.VertexCount,
+                lambda ctx: get_chunk_900600F(ctx).VertexCount,
                 Struct(
                     "position" / GbxVec3,
                     "normal"
                     / If(
-                        lambda this: not this._.u01,
+                        lambda this: this._.readNormals,
                         IfThenElse(
-                            this.u03,
+                            this._.u03,
                             GbxDec3N,
                             GbxVec3,
                         ),
@@ -1622,8 +1624,8 @@ body_chunks[0x0902C004] = Struct(
             ),
         ),
     ),
-    "tangentsU" / Int32ul,
-    "tangentsV" / Int32ul,
+    "tangentsU" / PrefixedArray(Int32ul, IfThenElse(this._.flags.bit20, GbxDec3N, GbxVec3)),
+    "tangentsV" / PrefixedArray(Int32ul, IfThenElse(this._.flags.bit20, GbxDec3N, GbxVec3)),
 )
 
 # 0903A CPlugMaterialCustom
