@@ -52,10 +52,14 @@ def transform_pos(pos, ps, qs):
     return [x, -z, y]
 
 
-def export_obj(filename, vertices, normals, uv0, indices, material_name, pos=None, rot=None):
+def export_obj(filename, vertices, normals, uv0, indices, material_name, absolute_indice=False, pos=None, rot=None):
     N = len(vertices)
 
     # print(f"export_obj {filename} {pos} {rot}")
+
+    export_dir = os.path.dirname(filename)
+    if not os.path.exists(export_dir):
+        os.makedirs(export_dir)
 
     with open(filename, "w") as f:
         f.write(f"o {os.path.basename(filename)}\n")
@@ -71,7 +75,10 @@ def export_obj(filename, vertices, normals, uv0, indices, material_name, pos=Non
 
         current_indice = 0
         for i, indice in enumerate(indices):
-            current_indice = (current_indice + indice) % N
+            if absolute_indice:
+                current_indice = indice
+            else:
+                current_indice = (current_indice + indice) % N
 
             if (i % 3) == 0:
                 f.write("f")
@@ -93,6 +100,26 @@ def export_obj2(filename, vertices, faces, material_name):  # surf
 
         for face in faces:
             f.write(f"f {face.x+1} {face.y+1} {face.z+1}\n")
+
+
+def export_CPlugVisualIndexedTriangles_without_vertex_stream(node, mat):
+    vertices = []
+    normals = []
+    uv0 = []
+    indices = []
+
+    for chunk in node.body:
+        if chunk.chunk_id == 0x0900600F:
+            for tex in chunk.chunk.texCoords[0].tex_coords:
+                uv0.append(tex.uv)
+        if chunk.chunk_id == 0x0902C004:
+            for v in chunk.chunk.vertices:
+                vertices.append(v.position)
+                normals.append(v.normal)
+        if chunk.chunk_id == 0x0906A001:
+            indices = chunk.chunk.index_buffer[0].chunk.indices
+
+    return [vertices, normals, uv0, indices, mat, True]
 
 
 def extract_solid2model(data, node, lod=1):
@@ -118,6 +145,32 @@ def extract_solid2model(data, node, lod=1):
         uv0 = []
 
         root_node = data  # node if "nodes" in node else node.root_node
+
+        if len(obj_chunk.materials_names) > 0:
+            mat = obj_chunk.materials_names[geom.material_index]
+        else:
+            if len(obj_chunk.material_insts_lt_v16) > 0:
+                mat_idx = obj_chunk.material_insts_lt_v16[geom.material_index]
+            elif len(obj_chunk.materials) > 0:
+                mat_idx = obj_chunk.materials[geom.material_index]
+            else:
+                mat_idx = obj_chunk.custom_materials[geom.material_index].material_user_inst
+
+            if type(root_node.nodes[mat_idx]) == str:
+                mat = root_node.nodes[mat_idx].split(".")[0]
+            else:
+                mat = root_node.nodes[mat_idx].body[0].chunk.link
+
+        continue_meshes = False
+        visual_node = root_node.nodes[visual_idx]
+        for chunk in visual_node.body:
+            if isinstance(chunk, Container) and chunk.chunk_id == 0x0900600F:
+                if len(chunk.chunk.vertexStreams) == 0:
+                    meshes.append(export_CPlugVisualIndexedTriangles_without_vertex_stream(visual_node, mat))
+                    continue_meshes = True
+        if continue_meshes:
+            continue
+
         vertex_stream = root_node.nodes[visual_idx + 1].body[0].chunk
         for data_idx, data_decl in enumerate(vertex_stream.DataDecl):
             match data_decl.header.Name:
@@ -128,22 +181,9 @@ def extract_solid2model(data, node, lod=1):
                 case "TexCoord0":
                     uv0 = vertex_stream.Data[data_idx]
 
-        indices = root_node.nodes[visual_idx].body[8].chunk.index_buffer[0].chunk.indices
+        indices = visual_node.body[8].chunk.index_buffer[0].chunk.indices
 
-        if len(obj_chunk.materials_names) > 0:
-            mat = obj_chunk.materials_names[geom.material_index]
-        else:
-            if len(obj_chunk.materials) > 0:
-                mat_idx = obj_chunk.materials[geom.material_index]
-            else:
-                mat_idx = obj_chunk.custom_materials[geom.material_index].material_user_inst
-
-            if type(root_node.nodes[mat_idx]) == str:
-                mat = root_node.nodes[mat_idx].split(".")[0]
-            else:
-                mat = root_node.nodes[mat_idx].body[0].chunk.link
-
-        meshes.append([vertices, normals, uv0, indices, mat])
+        meshes.append([vertices, normals, uv0, indices, mat, False])
 
     return meshes
 

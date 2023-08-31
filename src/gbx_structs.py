@@ -1739,6 +1739,10 @@ body_chunks[0x09056000] = Struct(
 
 # 09057 CPlugIndexBuffer
 
+body_chunks[0x09057000] = Struct(
+    "version" / Int32ul,
+    "indices" / PrefixedArray(Int32ul, Int16ul),
+)
 body_chunks[0x09057001] = Struct(
     "flags" / Int32ul,  # TODO check if not 2 what that means
     "indices" / PrefixedArray(Int32ul, Int16sl),
