@@ -149,7 +149,7 @@ def extract_solid2model(data, node, lod=1):
         if len(obj_chunk.materials_names) > 0:
             mat = obj_chunk.materials_names[geom.material_index]
         else:
-            if len(obj_chunk.material_insts_lt_v16) > 0:
+            if obj_chunk.material_insts_lt_v16 is not None and len(obj_chunk.material_insts_lt_v16) > 0:
                 mat_idx = obj_chunk.material_insts_lt_v16[geom.material_index]
             elif len(obj_chunk.materials) > 0:
                 mat_idx = obj_chunk.materials[geom.material_index]
@@ -189,6 +189,8 @@ def extract_solid2model(data, node, lod=1):
 
 
 def export_meshes(export_dir, filename, meshes, pos=None, rot=None):
+    if meshes is None:
+        return
     for sub_mesh_idx, sub_mesh in enumerate(meshes):
         obj_filepath = export_dir + filename + f"_{sub_mesh_idx}.obj"
         print(obj_filepath)

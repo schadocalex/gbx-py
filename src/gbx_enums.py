@@ -362,3 +362,4 @@ GbxEPlugVDclType = Enum(
 GbxPlugVDclTypeBytes = [4, 8, 0xC, 0x10, 4, 4, 4, 8, 4, 4, 8, 4, 8, 4, 4, 4, 8]
 GbxPlugVDclTypeComps = [1, 2, 3, 4, 4, 4, 2, 4, 4, 2, 4, 2, 4, 3, 3, 2, 4]
 GbxEPlugSolidVisCstType = Enum(Int32ul, No=0, Static=1, Dynamic=2, TmCar=3, SmBody=4)
+GbxERotationOrder = Enum(Byte, XYZ=0, XZY=1, YXZ=2, YZX=3, ZXY=4, ZYX=5)

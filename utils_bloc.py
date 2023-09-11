@@ -18,10 +18,7 @@ def extract_mobil(export_dir, file, data, mobil):
 def extract_variant_chunk(export_dir, file, data, variant):
     for chunk in variant:
         if chunk.chunk_id == 0x0315B003:
-            print(
-                "\tsymmetrical_variant_index: "
-                + str(chunk.chunk.symmetrical_variant_index)
-            )
+            print("\tsymmetrical_variant_index: " + str(chunk.chunk.symmetrical_variant_index))
             print("\tvariant_base_type: " + str(chunk.chunk.variant_base_type))
         if chunk.chunk_id == 0x0315B005:
             for mobil_idx, mobil in enumerate(chunk.chunk.mobils):
@@ -34,38 +31,24 @@ def extract_variant_chunk(export_dir, file, data, variant):
                         data,
                         data.nodes[sub_mobil],
                     )
-        if chunk.chunk_id == 0x0315B008:
-            for block_unit_model_idx in chunk.chunk.blockUnitModels:
-                print(
-                    "\tblock_unit_model (contains clips): " + str(block_unit_model_idx)
-                )
-                # block_unit_model = data.nodes[block_unit_model_idx]
-                # for chunk in block_unit_model.body:
-                #     if chunk.chunk_id == 0x0303600C:
-                #         for clip in chunk.chunk.clipsNorth:
-                #             extract_block_meshes(
-                #                 data.nodes[clip].body[2].chunk.string, data.nodes[clip]
-                #             )
-                #         for clip in chunk.chunk.clipsEast:
-                #             extract_block_meshes(
-                #                 data.nodes[clip].body[2].chunk.string, data.nodes[clip]
-                #             )
-                #         for clip in chunk.chunk.clipsSouth:
-                #             extract_block_meshes(
-                #                 data.nodes[clip].body[2].chunk.string, data.nodes[clip]
-                #             )
-                #         for clip in chunk.chunk.clipsWest:
-                #             extract_block_meshes(
-                #                 data.nodes[clip].body[2].chunk.string, data.nodes[clip]
-                #             )
-                #         for clip in chunk.chunk.clipsTop:
-                #             extract_block_meshes(
-                #                 data.nodes[clip].body[2].chunk.string, data.nodes[clip]
-                #             )
-                #         for clip in chunk.chunk.clipsBottom:
-                #             extract_block_meshes(
-                #                 data.nodes[clip].body[2].chunk.string, data.nodes[clip]
-                #             )
+        # if chunk.chunk_id == 0x0315B008:
+        #     for block_unit_model_idx in chunk.chunk.blockUnitModels:
+        #         print("\tblock_unit_model (contains clips): " + str(block_unit_model_idx))
+        #         block_unit_model = data.nodes[block_unit_model_idx]
+        #         for chunk in block_unit_model.body:
+        #             if chunk.chunk_id == 0x0303600C:
+        #                 for clip in chunk.chunk.clipsNorth:
+        #                     extract_block_meshes(data.nodes[clip].body[2].chunk.string, data.nodes[clip])
+        #                 for clip in chunk.chunk.clipsEast:
+        #                     extract_block_meshes(data.nodes[clip].body[2].chunk.string, data.nodes[clip])
+        #                 for clip in chunk.chunk.clipsSouth:
+        #                     extract_block_meshes(data.nodes[clip].body[2].chunk.string, data.nodes[clip])
+        #                 for clip in chunk.chunk.clipsWest:
+        #                     extract_block_meshes(data.nodes[clip].body[2].chunk.string, data.nodes[clip])
+        #                 for clip in chunk.chunk.clipsTop:
+        #                     extract_block_meshes(data.nodes[clip].body[2].chunk.string, data.nodes[clip])
+        #                 for clip in chunk.chunk.clipsBottom:
+        #                     extract_block_meshes(data.nodes[clip].body[2].chunk.string, data.nodes[clip])
 
         # if chunk.chunk_id == 0x0315B009:
         #     for u01 in chunk.chunk.u01:
@@ -96,9 +79,7 @@ def extract_block_meshes(file, data):
             )
 
         if chunk.chunk_id == 0x0304E027:
-            for idx, additional_variant_ground in enumerate(
-                chunk.chunk.additionalVariantsGround
-            ):
+            for idx, additional_variant_ground in enumerate(chunk.chunk.additionalVariantsGround):
                 print("additional_variant_ground: " + str(additional_variant_ground))
                 extract_variant_chunk(
                     f"./ExportObj/{file}/ground{idx+1}/",
@@ -108,9 +89,7 @@ def extract_block_meshes(file, data):
                 )
 
         if chunk.chunk_id == 0x0304E02C:
-            for idx, additional_variant_air in enumerate(
-                chunk.chunk.additionalVariantsAir
-            ):
+            for idx, additional_variant_air in enumerate(chunk.chunk.additionalVariantsAir):
                 print("additional_variant_air: " + str(additional_variant_air))
                 extract_variant_chunk(
                     f"./ExportObj/{file}/air{idx+1}/",

@@ -172,7 +172,7 @@ GbxBytesUntilFacade = Struct(
     / ExprAdapter(
         RepeatUntil(lambda x, lst, ctx: lst[-4:] == [0x01, 0xDE, 0xCA, 0xFA], Byte),
         lambda obj, ctx: bytes(obj[:-4]),
-        lambda obj, ctx: GreedyBytes.build(obj),
+        lambda obj, ctx: GreedyBytes.build(obj + b"\x01\xDE\xCA\xFA"),
     ),
     Seek(-4, 1),
 )
@@ -1495,8 +1495,13 @@ body_chunks[0x0900600D] = Struct(
         Struct(
             "u01" / GbxBool,
             "u02" / Int32sl,
-            "u03" / ExprValidator(If(this._.version >= 3, Int32ul), obj_ == 0),
+            "u03" / If(this._.version >= 3, GbxBool),
             "u04" / If(this._.version >= 3, GbxBool),
+            "u05"
+            / If(
+                this.u03,
+                Array(lambda this: this._.VertexCount, GbxFloat[this._.ChunkFlags.SkinIndexCount]),  # or GbxVec3?
+            ),
             "boneNames" / PrefixedArray(Int32ul, GbxLookbackString),
             StopIf(this._.version < 2),
             "boneIndices" / PrefixedArray(Int32ul, Int32sl),
@@ -2197,12 +2202,15 @@ body_chunks[0x090B203B] = Struct(
 )
 
 # 090B3 CPlugParticleEmitterModel
+
 body_chunks[0x090B3000] = Struct(
     "listVersion" / Int32ul,
     "ParticleEmitterSubModels" / PrefixedArray(Int32ul, GbxNodeRef),
     # "rest" / GreedyBytes,
 )
+
 # 090BA CPlugSkel
+
 body_chunks[0x090BA000] = Struct(
     "version" / ExprValidator(Int32ul, obj_ >= 12),
     "name" / GbxLookbackString,
@@ -2212,14 +2220,42 @@ body_chunks[0x090BA000] = Struct(
         Struct(
             "name" / GbxLookbackString,
             "parentIndex" / Int16sl,
-            "globalJoint" / If(this._._.version < 15, GbxQuat),
-            "u01" / If(this._._.version < 15, GbxVec3),
+            "globalJointPos" / If(this._._.version < 15, GbxQuat),  # todo check
+            "globalJointRot" / If(this._._.version < 15, GbxVec3),  # todo check
             StopIf(this._._.version < 1),
-            "loc" / GbxIso4,
+            "localLoc" / GbxIso4,  # rot + pos from parent?
         ),
     ),
     StopIf(this.version < 2),
-    "u03" / ExprValidator(GbxBool, obj_ == 0),  # TODO CPlugSkelSetup
+    "hasU03" / GbxBool,
+    "u03"
+    / If(
+        this.hasU03,
+        Struct(
+            "u01"
+            / PrefixedArray(
+                Int32ul,
+                Struct(
+                    "bone0" / Int32sl,
+                    "bone1" / Int32sl,
+                    "bone2" / Int32sl,
+                ),
+            ),
+            "u02"
+            / PrefixedArray(
+                Int32ul,
+                Struct(
+                    "u01" / Int32sl,
+                    "u02" / Int32sl,
+                    "u03" / Int32sl,
+                    "u04" / Int32sl,
+                ),
+            ),
+            "u03" / PrefixedArray(Int32ul, Int32sl),
+            "u05" / Int16sl,
+            "u06" / Int16sl,
+        ),
+    ),
     StopIf(this.version < 6),
     "sockets"
     / PrefixedArray(
@@ -2231,130 +2267,140 @@ body_chunks[0x090BA000] = Struct(
         ),
     ),
     StopIf(this.version < 9),
-    "u04" / ExprValidator(GbxBool, obj_ == 0),  # TODO
+    "hasU04" / GbxBool,
+    "u04"
+    / If(
+        this.hasU04,
+        Struct(
+            "u01" / PrefixedArray(Int32ul, GbxLookbackString),
+            "u02_SPlugSkelGlobalTargetInfo" / PrefixedArray(Int32ul, Int32sl),
+            "u03_SPlugSkelGlobalTargetInfo" / PrefixedArray(Int32ul, Int32sl),
+            "u04" / PrefixedArray(Int32ul, GbxQuat),
+        ),
+    ),
     StopIf(this.version < 10),
-    "u05" / If(this.version <= 15, PrefixedArray(Int32ul, Int32ul)),
+    "u05_SPlugSkelGlobalTargetInfo" / If(this.version <= 15, PrefixedArray(Int32ul, Int32ul)),
     "u06" / If(this.version > 15, PrefixedArray(Int32ul, Int8ul)),
-    "u09" / If(this.version > 17, PrefixedArray(Int32ul, Int8ul)),
+    "rotationOrder" / If(this.version > 13, PrefixedArray(Int32ul, GbxERotationOrder)),
+    "u11" / If(this.version == 14, Int32sl),
+    "cElem_0" / If(this.version == 14, Int32sl),  # = 0 ?
     "u10_func_rotation_order" / If(this.version >= 19, PrefixedArray(Int32ul, Int8ul)),  # enum?
     StopIf(this.version < 17),
-    "u07" / Int8ul,
-    "u08_M05" / PrefixedArray(Int32ul, GbxFloat),
+    "cLod" / Int8ul,
+    "u08" / PrefixedArray(Int32ul, GbxFloat),
 )
 
 # 090BB CPlugSolid2Model
-body_chunks[0x090BB000] = (
-    Struct(
-        "version" / Int32ul,
-        "u01" / GbxLookbackString,
-        "shaded_geoms"
-        / PrefixedArray(
-            Int32ul,
-            Struct(
-                "visual_index" / Int32sl,
-                "material_index" / Int32sl,
-                "u01" / Int32sl,  # unused, -1
-                StopIf(this._._.version < 1),
-                "lod" / Int32sl,
-                StopIf(this._._.version < 32),
-                "u02" / Int32sl,
-            ),
+
+body_chunks[0x090BB000] = Struct(
+    "version" / Int32ul,
+    "u01" / GbxLookbackString,
+    "shaded_geoms"
+    / PrefixedArray(
+        Int32ul,
+        Struct(
+            "visual_index" / Int32sl,
+            "material_index" / Int32sl,
+            "u01" / Int32sl,  # unused, -1
+            StopIf(this._._.version < 1),
+            "lod" / Int32sl,
+            StopIf(this._._.version < 32),
+            "u02" / Int32sl,
         ),
-        "list_version_01" / If(this.version >= 6, ExprValidator(Int32ul, obj_ == 10)),
-        "visuals" / If(this.version >= 6, PrefixedArray(Int32ul, GbxNodeRef)),
-        "materials_names" / PrefixedArray(Int32ul, GbxLookbackString),
-        "material_count" / IfThenElse(this.version >= 29, Int32ul, Computed(lambda this: 0)),
-        "list_version_02" / If(this.material_count == 0, ExprValidator(Int32ul, obj_ == 10)),
-        "materials" / If(this.material_count == 0, PrefixedArray(Int32ul, GbxNodeRef)),
-        "skel" / GbxNodeRef,
-        StopIf(this.version < 1),
-        "lodDistances" / PrefixedArray(Int32ul, Float32l),  # lod distance?
-        StopIf(this.version < 2),
-        "VisCstType" / GbxEPlugSolidVisCstType,
-        StopIf(this.version < 3),
-        "hasPreLightGen" / GbxBool,
-        "PreLightGen"
-        / If(
-            this.hasPreLightGen,
-            Struct(
-                "version" / Int32ul,  # 1
-                "u01" / Int32sl,
-                "lightmapSize" / Float32l,  # lightmap size in meters
-                "u03" / GbxBool,
-                "u04" / Float32l[4],
-                "u05_u10" / Int32sl[6],
-                "u14" / PrefixedArray(Int32ul, GbxBox),
-                "uv_groups" / PrefixedArray(Int32ul, Float32l[5]),  # TODO
-            ),
+    ),
+    "list_version_01" / If(this.version >= 6, ExprValidator(Int32ul, obj_ == 10)),
+    "visuals" / If(this.version >= 6, PrefixedArray(Int32ul, GbxNodeRef)),
+    "materials_names" / PrefixedArray(Int32ul, GbxLookbackString),
+    "material_count" / IfThenElse(this.version >= 29, Int32ul, Computed(lambda this: 0)),
+    "list_version_02" / If(this.material_count == 0, ExprValidator(Int32ul, obj_ == 10)),
+    "materials" / If(this.material_count == 0, PrefixedArray(Int32ul, GbxNodeRef)),
+    "skel" / GbxNodeRef,
+    StopIf(this.version < 1),
+    "lodDistances" / PrefixedArray(Int32ul, Float32l),  # lod distance?
+    StopIf(this.version < 2),
+    "VisCstType" / GbxEPlugSolidVisCstType,
+    StopIf(this.version < 3),
+    "hasPreLightGen" / GbxBool,
+    "PreLightGen"
+    / If(
+        this.hasPreLightGen,
+        Struct(
+            "version" / Int32ul,  # 1
+            "u01" / Int32sl,
+            "lightmapSize" / Float32l,  # lightmap size in meters
+            "u03" / GbxBool,
+            "u04" / Float32l[4],
+            "u05_u10" / Int32sl[6],
+            "u14" / PrefixedArray(Int32ul, GbxBox),
+            "uv_groups" / PrefixedArray(Int32ul, Float32l[5]),  # TODO
         ),
-        StopIf(this.version < 4),
-        "updatedTime" / GbxFileTime,
-        StopIf(this.version < 5),
-        "ImportString" / GbxString,
-        StopIf(this.version < 7),
-        "materialFolderName" / GbxString,
-        "u09" / If(this.version >= 19, GbxString),
-        StopIf(this.version < 8),
-        "lights"
-        / PrefixedArray(
-            Int32ul,
-            Struct(
-                "name" / GbxLookbackString,
-                "u02" / GbxBool,
-                "u03" / If(this.u02, GbxNodeRef),  # CPlugLight
-                "u04" / If(lambda this: not this.u02, GbxString),
-                "u05" / GbxIso4,
-                "u06" / Bytes(12),  # 6*4bytes
-                "u12" / If(this._._.version >= 26, Bytes(12)),  # 3*4bytes, [1] and [2] = 0 if version < 26
-                "u15" / GbxBool,
-                "u16" / If(this.u15, Bytes(12)),  # 3*4bytes
-            ),
+    ),
+    StopIf(this.version < 4),
+    "updatedTime" / GbxFileTime,
+    StopIf(this.version < 5),
+    "ImportString" / GbxString,
+    StopIf(this.version < 7),
+    "materialFolderName" / GbxString,
+    "u09" / If(this.version >= 19, GbxString),
+    StopIf(this.version < 8),
+    "lights"
+    / PrefixedArray(
+        Int32ul,
+        Struct(
+            "name" / GbxLookbackString,
+            "u02" / GbxBool,
+            "u03" / If(this.u02, GbxNodeRef),  # CPlugLight
+            "u04" / If(lambda this: not this.u02, GbxString),
+            "u05" / GbxIso4,
+            "u06" / Bytes(12),  # 6*4bytes
+            "u12" / If(this._._.version >= 26, Bytes(12)),  # 3*4bytes, [1] and [2] = 0 if version < 26
+            "u15" / GbxBool,
+            "u16" / If(this.u15, Bytes(12)),  # 3*4bytes
         ),
-        "material_insts_lt_v16" / If(this.version < 16, PrefixedArray(Int32ul, GbxNodeRef)),
-        StopIf(this.version < 10),
-        "lightUserModels" / PrefixedArray(Int32ul, GbxNodeRef),
-        "light_insts" / PrefixedArray(Int32ul, Struct("model_index" / Int32ul, "socket_index" / Int32ul)),
-        StopIf(this.version < 11),
-        "damage_zone" / Int32sl,
-        StopIf(this.version < 12),
-        "flags" / Int32ul,
-        # if version < 28, flags are adjusted, TODO?
-        # flags &= 0xfffffbff
-        StopIf(this.version < 13),
-        "u12" / Int32sl,
-        StopIf(this.version < 14),
-        "creation_cmd" / GbxString,
-        StopIf(this.version < 15),
-        "material_count_<v29" / If(this.version < 29, Int32ul),
-        "u14" / If(this.version >= 30, Int32sl),  # material_count?
-        "custom_materials"
-        / Array(
-            lambda this: this.material_count if this.version >= 29 else this.material_count_lt_v29,
-            GbxMaterial,
-        ),
-        StopIf(this.version < 17),
-        "u15" / If(this.version < 21, PrefixedArray(Int32ul, GbxBox)),
-        StopIf(this.version < 20),
-        "bonesNames" / PrefixedArray(Int32ul, GbxLookbackString),
-        StopIf(this.version < 22),
-        "u17" / PrefixedArray(Int32ul, Int32sl),
-        StopIf(this.version < 23),
-        "u18" / ExprValidator(PrefixedArray(Int32ul, Pass), lambda obj, ctx: len(obj) == 0),  # TODO
-        "u19" / PrefixedArray(Int32ul, Int32sl),
-        StopIf(this.version < 24),
-        "u20" / Bytes(4),
-        StopIf(this.version < 25),
-        "icon" / GbxNodeRef,  # CPlugFileImg
-        "u22" / GbxVec2,
-        StopIf(this.version < 27),
-        "u24" / GbxLookbackString,
-        StopIf(this.version < 31),
-        "u25" / PrefixedArray(Int32ul, Bytes(8)),
-        StopIf(this.version < 33),
-        "cst_0" / If(this.version == 33, ExprValidator(Int32ul, obj_ == 0)),
-        "u26" / PrefixedArray(Int32ul, Int32sl[5]),
-    )
-    * "Solid2 Model"
+    ),
+    "material_insts_lt_v16" / If(this.version < 16, PrefixedArray(Int32ul, GbxNodeRef)),
+    StopIf(this.version < 10),
+    "lightUserModels" / PrefixedArray(Int32ul, GbxNodeRef),
+    "light_insts" / PrefixedArray(Int32ul, Struct("model_index" / Int32ul, "socket_index" / Int32ul)),
+    StopIf(this.version < 11),
+    "damage_zone" / Int32sl,
+    StopIf(this.version < 12),
+    "flags" / Int32ul,
+    # if version < 28, flags are adjusted, TODO?
+    # flags &= 0xfffffbff
+    StopIf(this.version < 13),
+    "u12" / Int32sl,
+    StopIf(this.version < 14),
+    "creation_cmd" / GbxString,
+    StopIf(this.version < 15),
+    "material_count_lt_v29" / If(this.version < 29, Int32ul),
+    "u14" / If(this.version >= 30, Int32sl),  # material_count?
+    "custom_materials"
+    / Array(
+        lambda this: this.material_count if this.version >= 29 else this.material_count_lt_v29,
+        GbxMaterial,
+    ),
+    StopIf(this.version < 17),
+    "u15" / If(this.version < 21, PrefixedArray(Int32ul, GbxBox)),
+    StopIf(this.version < 20),
+    "bonesNames" / PrefixedArray(Int32ul, GbxLookbackString),
+    StopIf(this.version < 22),
+    "u17" / PrefixedArray(Int32ul, Int32sl),
+    StopIf(this.version < 23),
+    "u18" / ExprValidator(PrefixedArray(Int32ul, Pass), lambda obj, ctx: len(obj) == 0),  # TODO
+    "u19" / PrefixedArray(Int32ul, Int32sl),
+    StopIf(this.version < 24),
+    "u20" / Bytes(4),
+    StopIf(this.version < 25),
+    "icon" / GbxNodeRef,  # CPlugFileImg
+    "u22" / GbxVec2,
+    StopIf(this.version < 27),
+    "u24" / GbxLookbackString,
+    StopIf(this.version < 31),
+    "u25" / PrefixedArray(Int32ul, Bytes(8)),
+    StopIf(this.version < 33),
+    "cst_0" / If(this.version == 33, ExprValidator(Int32ul, obj_ == 0)),
+    "u26" / PrefixedArray(Int32ul, Int32sl[5]),
 )
 # body_chunks[0x090BB002] = Struct(
 #     "img" / Prefixed(Int32ul, GreedyBytes),
