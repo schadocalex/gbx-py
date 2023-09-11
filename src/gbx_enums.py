@@ -338,6 +338,7 @@ GbxEPlugVDcl = Enum(
     Color2=22,
 )
 GbxPlugVDclTypes = [2, 2, 0, 0, 5, 2, 2, 0, 4, 4, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 4]  # ?
+GbxEPlugVDclSpace = Enum(BitsInteger(4), Global3D=0, Local3D=1, Global2D=2, Local2D=3)
 GbxPlugVDclSpaces = [0, 0, 2, 2, 2, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 2]
 GbxEPlugVDclType = Enum(
     BitsInteger(9),

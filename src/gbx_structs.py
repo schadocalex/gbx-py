@@ -1699,10 +1699,10 @@ body_chunks[0x09056000] = Struct(
             "header"
             / ByteSwapped(
                 BitStruct(
-                    Padding(20),
+                    "u20" / BitsInteger(20),
                     "PtrOffset" / BitsInteger(10),
-                    Padding(2),
-                    "Space" / BitsInteger(4),  # 4 bits
+                    "u2" / BitsInteger(2),
+                    "Space" / GbxEPlugVDclSpace,  # 4 bits
                     "Stride" / BitsInteger(10),
                     "Type" / GbxEPlugVDclType,  # 9 bits
                     "Name" / GbxEPlugVDcl,  # 9 bits
@@ -1713,12 +1713,16 @@ body_chunks[0x09056000] = Struct(
             "Offset" / Int16ul,
         ),
     ),
-    "u03" / GbxBool,  # TODO check
+    "compressFloat3InLocal3D" / GbxBool,  # always true for version > 0?
     "Data"
     / Array(
         lambda this: len(this.DataDecl),
         Switch(
-            lambda this: this.DataDecl[this._index].header.Type,
+            lambda this: "Dec3N"
+            if this.DataDecl[this._index].header.Space == "Local3D"
+            and this.DataDecl[this._index].header.Type == "Float3"
+            and this.compressFloat3InLocal3D
+            else this.DataDecl[this._index].header.Type,
             {
                 "Float1": Float32l[this.num_vertices],
                 "Float2": GbxVec2[this.num_vertices],
@@ -2381,7 +2385,7 @@ body_chunks[0x090BB000] = Struct(
         GbxMaterial,
     ),
     StopIf(this.version < 17),
-    "u15" / If(this.version < 21, PrefixedArray(Int32ul, GbxBox)),
+    "u15_bonesBoxes" / If(this.version < 21, PrefixedArray(Int32ul, GbxBox)),
     StopIf(this.version < 20),
     "bonesNames" / PrefixedArray(Int32ul, GbxLookbackString),
     StopIf(this.version < 22),
@@ -2894,7 +2898,7 @@ def create_gbx_struct(gbx_body):
             "version" / ExprValidator(Int16ul, obj_ == 6),
             Const(b"BU"),
             "body_compression" / Enum(Byte, compressed=ord("C"), uncompressed=ord("U")),
-            Const(b"R"),  # or E?
+            "u01_R_or_E" / Bytes(1),
             "class_id" / GbxChunkId,
             "chunks"
             / Select(
