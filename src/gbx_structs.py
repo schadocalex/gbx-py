@@ -2240,9 +2240,9 @@ body_chunks[0x090BA000] = Struct(
             / PrefixedArray(
                 Int32ul,
                 Struct(
-                    "bone0" / Int32sl,
-                    "bone1" / Int32sl,
-                    "bone2" / Int32sl,
+                    "bone0" / Int16sl,
+                    "bone1" / Int16sl,
+                    "bone2" / Int16sl,
                 ),
             ),
             "u02"
