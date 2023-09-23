@@ -32,7 +32,7 @@ EWaypoint = {
     "Start": "Start",
     "Finish": "Finish",
     "Checkpoint": "Checkpoint",
-    "NoRespawnCheckpoint": "Checkpoint",
+    "NoRespawn Checkpoint": "Checkpoint",
     "Multilap": "StartFinish",
 }
 
@@ -93,14 +93,44 @@ class Shape:
         self.physicsId = EPhysics[gameplayId]
         self.gameplayId = EGameplay[gameplayId].nice_id
 
+    def get_entities(self, refidx):
+        return [
+            Ctn(
+                model=refidx,
+                rot=Ctn(x=0, y=0, z=0, w=1),
+                pos=Ctn(x=0, y=0, z=0),
+                params=Ctn(chunkId=-1, chunk=None),
+                u01=b"",
+            )
+        ]
+
 
 class Mesh:
     """Visible but NOT collidable mesh"""
 
-    def __init__(self, mesh_filepath):
+    def __init__(self, mesh_filepath, shape_filepath=None):
         self.mesh_filepath = mesh_filepath
+        self.shape_filepath = shape_filepath
 
-    def get_entities(self, refidx):
+    def get_entities(self, nodes, files_refidx):
+        refidx = len(nodes)
+        static_object = new_struct(
+            0x09159000,
+            Ctn(
+                version=3,
+                Mesh=-1,
+                isMeshCollidable=False,
+                Shape=-1,
+            ),
+        )
+        nodes.append(static_object)
+
+        static_object.body.Mesh = get_refidx(nodes, files_refidx, self.mesh_filepath, extract_file, 0x090BB000)
+        if self.shape_filepath is not None:
+            static_object.body.Shape = get_refidx(nodes, files_refidx, self.shape_filepath, extract_shape)
+        else:
+            static_object.body.Shape = -1
+
         return [
             Ctn(
                 model=refidx,
@@ -141,13 +171,7 @@ class AdvancedItem:
         files_refidx = {}
         entities = []
         for entity in self.entities:
-            if isinstance(entity, Mesh):
-                if entity.mesh_filepath in files_refidx:
-                    refidx = files_refidx[entity.mesh_filepath]
-                else:
-                    refidx = files_refidx[entity.mesh_filepath] = extract_mesh(nodes, entity.mesh_filepath)
-
-                entities += entity.get_entities(refidx)
+            entities += entity.get_entities(nodes, files_refidx)
 
         nodes[1] = new_composed_model(entities)
 

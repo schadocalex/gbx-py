@@ -284,18 +284,20 @@ def extract_file(nodes, filepath, classId=None):
     return refidx
 
 
-def extract_mesh(nodes, filepath):
+def extract_shape(nodes, filepath):
+    data, nb_nodes, raw_bytes = parse_file(filepath)
+    assert data.classId == 0x0900C000
+
     refidx = len(nodes)
-    static_object = new_struct(
-        0x09159000,
-        Ctn(
-            version=3,
-            Mesh=-1,
-            isMeshCollidable=True,
-            Shape=None,
-        ),
-    )
-    nodes.append(static_object)
-    static_object.body.Mesh = extract_file(nodes, filepath, 0x090BB000)
+    data.body[0].chunk.skel = -1  # remove useless skel
+    nodes.append(Ctn(classId=data.classId, body=data.body))
 
     return refidx
+
+
+def get_refidx(nodes, files_refidx, filepath, extract_fn=extract_file, *params):
+    if filepath in files_refidx:
+        return files_refidx[filepath]
+    else:
+        files_refidx[filepath] = extract_fn(nodes, filepath, *params)
+        return files_refidx[filepath]

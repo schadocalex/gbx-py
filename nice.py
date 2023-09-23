@@ -7,7 +7,10 @@ if __name__ == "__main__":
         waypoint_type="None",
         icon_filepath=None,
         entities=[
-            Mesh(r"C:\Users\schad\Documents\Trackmania\Items\NICE\Part1.Mesh.Gbx"),
+            Mesh(
+                r"C:\Users\schad\Documents\Trackmania\Items\NICE\Part1.Mesh.Gbx",  # visual, not collidable, mandatory
+                r"C:\Users\schad\Documents\Trackmania\Items\NICE\Part1.Shape.Gbx",  # invisible, collidable, optional
+            ),
         ],
     )
 
