@@ -8,8 +8,14 @@ if __name__ == "__main__":
         icon_filepath=None,
         entities=[
             Mesh(
-                r"C:\Users\schad\Documents\Trackmania\Items\NICE\Part1.Mesh.Gbx",  # visual, not collidable, mandatory
-                r"C:\Users\schad\Documents\Trackmania\Items\NICE\Part1.Shape.Gbx",  # invisible, collidable, optional
+                loc=Loc((0, 0, 0), (1, 0, 0, 0)),
+                mesh_filepath=r"C:\Users\schad\Documents\Trackmania\Items\NICE\Part1.Mesh.Gbx",
+                # r"C:\Users\schad\Documents\Trackmania\Items\NICE\Part1.Shape.Gbx",
+            ),
+            Gate(
+                loc=Loc((0, 0, 0), (1, 0, 0, 0)),
+                shape_filepath=r"C:\Users\schad\Documents\Trackmania\Items\NICE\Part1.Shape.Gbx",
+                gameplayId="ReactorBoost2",
             ),
         ],
     )

@@ -3,25 +3,23 @@ import datetime
 from construct import Container, ListContainer
 
 
-def update_surf(
-    node, physics=None, gameplay=None, materialIndex=None, gameplayMainDir=None
-):
+def update_surf(node, physicsId=None, gameplayId=None, materialIndex=None, gameplayMainDir=None):
     # remove native materials from surf
     node.body[0].chunk.materials = ListContainer([])
 
     for idx, materialId in enumerate(node.body[0].chunk.materialsIds):
         if materialIndex is None or materialIndex == idx:
-            if physics is not None:
-                materialId.physicsId = physics
-            if gameplay is not None:
-                materialId.gameplayId = gameplay
+            if physicsId is not None:
+                materialId.physicsId = physicsId
+            if gameplayId is not None:
+                materialId.gameplayId = gameplayId
 
         for tri in node.body[0].chunk.surf.data.triangles:
             if materialIndex is None or materialIndex == tri.materialIndex:
-                if physics is not None:
-                    tri.materialId.physicsId = physics
-                if gameplay is not None:
-                    tri.materialId.gameplayId = gameplay
+                if physicsId is not None:
+                    tri.materialId.physicsId = physicsId
+                if gameplayId is not None:
+                    tri.materialId.gameplayId = gameplayId
 
     if gameplayMainDir is not None:
         node.body[0].chunk.surf.u01 = gameplayMainDir
@@ -30,7 +28,7 @@ def update_surf(
 def update_all_surf(data, *surfParams, **surfParamsKw):
     for node in data.nodes:
         if type(node) == Container:
-            if node.header.class_id == 0x0900C000:
+            if node.classId == 0x0900C000:
                 update_surf(node, *surfParams, **surfParamsKw)
 
 
@@ -53,7 +51,7 @@ def animate(
     dyna_node_index = len(data.nodes)
     data.nodes.append(
         Container(
-            header=Container(class_id=0x09144000),
+            classId=0x09144000,
             body=Container(
                 version=13,
                 IsStatic=False,
@@ -87,27 +85,17 @@ def animate(
     kinematic_node_index = len(data.nodes)
     data.nodes.append(
         Container(
-            header=Container(class_id=0x2F0CA000),
+            classId=0x2F0CA000,
             body=Container(
                 version=0,
                 subVersion=3,
                 TransAnimFunc=Container(
                     TimeIsDuration=True,
-                    SubFuncs=ListContainer(
-                        [
-                            Container(ease=fn[0], reverse=fn[1], duration=fn[2])
-                            for fn in transFn
-                        ]
-                    ),
+                    SubFuncs=ListContainer([Container(ease=fn[0], reverse=fn[1], duration=fn[2]) for fn in transFn]),
                 ),
                 RotAnimFunc=Container(
                     TimeIsDuration=True,
-                    SubFuncs=ListContainer(
-                        [
-                            Container(ease=fn[0], reverse=fn[1], duration=fn[2])
-                            for fn in rotFn
-                        ]
-                    ),
+                    SubFuncs=ListContainer([Container(ease=fn[0], reverse=fn[1], duration=fn[2]) for fn in rotFn]),
                 ),
                 ShaderTcType="No",
                 ShaderTcVersion=0,
@@ -133,7 +121,7 @@ def animate(
     )
 
     data.nodes[1] = Container(
-        header=Container(class_id=0x09145000),
+        classId=0x09145000,
         body=Container(
             version=11,
             updatedTime=datetime.datetime.now(),

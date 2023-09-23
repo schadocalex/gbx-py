@@ -10,10 +10,9 @@ def parse_node(file_path):
     file_path = os.path.abspath(file_path)
 
     if not os.path.exists(file_path):
-        nf = "NOT FOUND" if not os.path.exists(file_path) else ""
         print(f"[NOT FOUND] {file_path}")
         return (
-            f"[NOT FOUND] {file_path}",
+            Container(file=f"[NOT FOUND] {file_path}" if not os.path.exists(file_path) else ""),
             0,
             b"",
         )
@@ -29,6 +28,9 @@ def parse_node(file_path):
         nb_nodes = len(data.nodes) - 1
 
         return data, nb_nodes, raw_bytes
+
+
+parse_file = parse_node
 
 
 def construct_all_folders(all_folders, parent_folder_path, current_folder):
@@ -70,15 +72,15 @@ def parse_node_recursive(file_path: Path, node_offset=0, path=None):
         node_offset += len(data.nodes) - 1
 
         # get all folders
-        external_folders = data.reference_table.external_folders
+        external_folders = data.referenceTable.externalFolders
         root_folder_name = os.path.dirname(file_path) + "/"
         all_folders = [root_folder_name]
         if external_folders is not None:
-            root_folder_name += "../" * external_folders.ancestor_level
+            root_folder_name += "../" * external_folders.ancestorLevel
             construct_all_folders(all_folders, root_folder_name, external_folders)
 
         # parse external nodes
-        for external_node in data.reference_table.external_nodes:
+        for external_node in data.referenceTable.externalNodes:
             if not external_node.ref.endswith(".gbx") and not external_node.ref.endswith(".Gbx"):
                 continue
             elif external_node.ref.endswith(".Texture.gbx"):
@@ -95,7 +97,7 @@ def parse_node_recursive(file_path: Path, node_offset=0, path=None):
                 continue
             elif external_node.ref.endswith(".Material.Gbx"):
                 material_name = external_node.ref.split(".")[0]
-                data.nodes[external_node.node_index] = create_custom_material(material_name)
+                data.nodes[external_node.nodeIndex] = create_custom_material(material_name)
                 # print(
                 #     "  " * (depth + 1) + f"- {material_name} Material (1 custom node)"
                 # )
@@ -106,19 +108,19 @@ def parse_node_recursive(file_path: Path, node_offset=0, path=None):
             #     )
             else:
                 # print(external_node.ref + " " + str(node_offset))
-                ext_node_filepath = all_folders[external_node.folder_index] + external_node.ref
+                ext_node_filepath = all_folders[external_node.folderIndex] + external_node.ref
                 if not os.path.exists(ext_node_filepath):
-                    data.nodes[external_node.node_index] = "[NOT FOUND] " + ext_node_filepath
+                    data.nodes[external_node.nodeIndex] = "[NOT FOUND] " + ext_node_filepath
                     print("[NOT FOUND] " + ext_node_filepath)
                 else:
                     ext_node_data, nb_sub_nodes, sub_raw_bytes = parse_node_recursive(
-                        all_folders[external_node.folder_index] + external_node.ref,
+                        all_folders[external_node.folderIndex] + external_node.ref,
                         node_offset,
                         path[:],
                     )
                     nb_nodes += nb_sub_nodes
                     node_offset += nb_sub_nodes
-                    data.nodes[external_node.node_index] = ext_node_data
+                    data.nodes[external_node.nodeIndex] = ext_node_data
                     data.nodes.extend(ext_node_data.nodes[1:])
 
         for i, n in enumerate(data.nodes):
@@ -134,10 +136,18 @@ def generate_node(data, remove_external=True):
 
     # remove external nodes because we merge them
     if remove_external:
-        data.reference_table.num_external_nodes = 0
-        data.reference_table.external_folders = None
-        data.reference_table.external_nodes = []
+        data.referenceTable.numExternalNodes = 0
+        data.referenceTable.externalFolders = None
+        data.referenceTable.externalNodes = []
 
+    gbx_data = {}
+    nodes = data.nodes[:]
+    new_bytes = GbxStruct.build(data, gbx_data=gbx_data, nodes=nodes)
+
+    return new_bytes
+
+
+def generate_file(data):
     gbx_data = {}
     nodes = data.nodes[:]
     new_bytes = GbxStruct.build(data, gbx_data=gbx_data, nodes=nodes)

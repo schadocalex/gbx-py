@@ -2,6 +2,7 @@ from collections import namedtuple
 
 from src.nice.utils import *
 from src.parser import generate_file
+import src.utils as utils
 
 EGameplayProps = namedtuple("EGameplayProps", ["label", "nice_id", "as_gate"])
 
@@ -38,26 +39,22 @@ EWaypoint = {
 
 
 class Loc:
-    def __init__(self, pos, rot=(0, 0, 0)):
+    def __init__(self, pos, quat):
         self.pos = pos
-        self.rot = rot
+        self.quat = quat
 
-    def to_bytes():
-        # TODO euler angles
-        return Ctn(
-            XX=1,
-            XY=0,
-            XZ=0,
-            YX=0,
-            YY=1,
-            YZ=0,
-            ZX=0,
-            ZY=0,
-            ZZ=1,
-            TX=self.pos.x,
-            TY=self.pos.y,
-            TZ=self.pos.z,
-        )
+    def as_matrix(self):
+        x, y, z = self.pos
+        # TODO rot
+        return Ctn(XX=1, XY=0, XZ=0, YX=0, YY=1, YZ=0, ZX=0, ZY=0, ZZ=1, TX=x, TY=y, TZ=z)
+
+    def as_quat(self):
+        w, x, y, z = self.quat
+        return Ctn(x=x, y=z, z=-y, w=w)  # TODO check rotation
+
+    def as_pos(self):
+        x, y, z = self.pos
+        return Ctn(x=x, y=z, z=-y)
 
 
 class StaticObject:
@@ -80,9 +77,32 @@ class DynaObject:
 class Gate:
     """Invisible shape without collision that has a gameplay id"""
 
-    def __init__(self, shape_filepath, gameplayId="Turbo"):
+    def __init__(self, loc, shape_filepath, gameplayId="Turbo"):
+        self.loc = loc
         self.shape_filepath = shape_filepath
         self.gameplayId = EGameplay[gameplayId].nice_id
+
+    def get_entities(self, nodes, files_refidx):
+        gate_index = len(nodes)
+        gate = new_struct(0x09179000, Ctn(version=1, surf=-1))
+        nodes.append(gate)
+        gate.body.surf = get_refidx(nodes, files_refidx, self.shape_filepath, extract_shape)
+        utils.update_surf(
+            nodes[gate.body.surf],
+            physicsId="Concrete",
+            gameplayId=self.gameplayId,
+            gameplayMainDir=None,  # TODO
+        )
+
+        return [
+            Ctn(
+                model=gate_index,
+                rot=self.loc.as_quat(),
+                pos=self.loc.as_pos(),
+                params=Ctn(chunkId=-1, chunk=None),
+                u01=b"",
+            )
+        ]
 
 
 class Shape:
@@ -93,22 +113,12 @@ class Shape:
         self.physicsId = EPhysics[gameplayId]
         self.gameplayId = EGameplay[gameplayId].nice_id
 
-    def get_entities(self, refidx):
-        return [
-            Ctn(
-                model=refidx,
-                rot=Ctn(x=0, y=0, z=0, w=1),
-                pos=Ctn(x=0, y=0, z=0),
-                params=Ctn(chunkId=-1, chunk=None),
-                u01=b"",
-            )
-        ]
-
 
 class Mesh:
     """Visible but NOT collidable mesh"""
 
-    def __init__(self, mesh_filepath, shape_filepath=None):
+    def __init__(self, loc, mesh_filepath, shape_filepath=None):
+        self.loc = loc
         self.mesh_filepath = mesh_filepath
         self.shape_filepath = shape_filepath
 
@@ -134,8 +144,8 @@ class Mesh:
         return [
             Ctn(
                 model=refidx,
-                rot=Ctn(x=0, y=0, z=0, w=1),
-                pos=Ctn(x=0, y=0, z=0),
+                rot=self.loc.as_quat(),
+                pos=self.loc.as_pos(),
                 params=Ctn(chunkId=-1, chunk=None),
                 u01=b"",
             )
