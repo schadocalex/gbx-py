@@ -157,11 +157,11 @@ def generate_file(data):
 
 def create_custom_material(material_name):
     return Container(
-        header=(Container(class_id=0x090FD000)),
+        classId=0x090FD000,
         body=ListContainer(
             [
                 Container(
-                    chunk_id=0x090FD000,
+                    chunkId=0x090FD000,
                     chunk=Container(
                         version=11,
                         isUsingGameMaterial=False,
@@ -181,7 +181,7 @@ def create_custom_material(material_name):
                     ),
                 ),
                 Container(
-                    chunk_id=0x090FD001,
+                    chunkId=0x090FD001,
                     chunk=Container(
                         version=5,
                         u01=-1,
@@ -192,9 +192,9 @@ def create_custom_material(material_name):
                         is_natural=False,
                     ),
                 ),
-                Container(chunk_id=0x090FD002, chunk=Container(version=0, u01=0)),
+                Container(chunkId=0x090FD002, chunk=Container(version=0, u01=0)),
                 Container(
-                    chunk_id=0xFACADE01,
+                    chunkId=0xFACADE01,
                 ),
             ]
         ),

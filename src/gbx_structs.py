@@ -2636,15 +2636,39 @@ body_chunks[0x2E020005] = Struct("item_placement" / GbxNodeRef)
 # 2E025 CGameBlockItem
 
 body_chunks[0x2E025000] = Struct(
-    "version" / Int32ul,
+    "version" / Int32ul,  # 1
     "ArchetypeBlockInfoId" / GbxLookbackString,
     "ArchetypeBlockInfoCollectionId" / GbxLookbackString,
-    "CustomizedVariants" / GbxDict(Int32ul, GbxNodeRef),
-    "u01" / GbxBoolByte,
+    "CustomizedVariants" / GbxDict(Hex(Int32ul), GbxNodeRef),
+    StopIf(this.version < 1),
+    "hasCustomProps" / GbxBoolByte,
+    "customProps"
+    / If(
+        this.hasCustomProps,
+        Array(
+            len_(this.CustomizedVariants),
+            Struct(
+                "flags"
+                / ByteSwapped(  # little endian 32 bit
+                    BitStruct(
+                        Padding(4),
+                        "hasU02" / Flag,
+                        "hasU01" / Flag,
+                        "hasSurf" / Flag,
+                        "hasMesh" / Flag,
+                    )
+                ),
+                "mesh" / If(this.flags.hasMesh, GbxNodeRef),  # CPlugStaticObjectModel
+                "surf" / If(this.flags.hasSurf, GbxNodeRef),  # CPlugSurface
+                "u01" / If(this.flags.hasU01, GbxBox),
+                "u02" / If(this.flags.hasU02, GbxVec3),
+            ),
+        ),
+    ),
 )
 body_chunks[0x2E025003] = Struct(
     "version" / Int32ul,  # 0
-    "u01" / Array(lambda this: len(this._._._._array[0].chunk.CustomizedVariants), GbxBoolByte),
+    "u01" / Array(lambda this: len(this._._._array[0].chunk.CustomizedVariants), GbxBoolByte),
 )
 
 

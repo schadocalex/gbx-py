@@ -49,7 +49,9 @@ def transform_pos(pos, ps, qs):
             z += p.z
 
     # convert in blender space
-    return [x, -z, y]
+    # return [x, -z, y]
+    # No? because Blender default obj import is -Z/Y
+    return [x, y, z]
 
 
 def export_obj(filename, vertices, normals, uv0, indices, material_name, absolute_indice=False, pos=None, rot=None):
@@ -109,21 +111,21 @@ def export_CPlugVisualIndexedTriangles_without_vertex_stream(node, mat):
     indices = []
 
     for chunk in node.body:
-        if chunk.chunk_id == 0x0900600F:
+        if chunk.chunkId == 0x0900600F:
             for tex in chunk.chunk.texCoords[0].tex_coords:
                 uv0.append(tex.uv)
-        if chunk.chunk_id == 0x0902C004:
+        if chunk.chunkId == 0x0902C004:
             for v in chunk.chunk.vertices:
                 vertices.append(v.position)
                 normals.append(v.normal)
-        if chunk.chunk_id == 0x0906A001:
+        if chunk.chunkId == 0x0906A001:
             indices = chunk.chunk.index_buffer[0].chunk.indices
 
     return [vertices, normals, uv0, indices, mat, True]
 
 
 def extract_solid2model(data, node, lod=1):
-    assert node.header.class_id == 0x090BB000
+    assert node.classId == 0x090BB000
 
     obj_chunk = node.body[0].chunk
 
@@ -164,7 +166,7 @@ def extract_solid2model(data, node, lod=1):
         continue_meshes = False
         visual_node = root_node.nodes[visual_idx]
         for chunk in visual_node.body:
-            if isinstance(chunk, Container) and chunk.chunk_id == 0x0900600F:
+            if isinstance(chunk, Container) and chunk.chunkId == 0x0900600F:
                 if len(chunk.chunk.vertexStreams) == 0:
                     meshes.append(export_CPlugVisualIndexedTriangles_without_vertex_stream(visual_node, mat))
                     continue_meshes = True
@@ -208,13 +210,13 @@ def export_ents(export_dir, file, data, offset_index=None, off_pos=None, off_rot
     if off_rot is None:
         off_rot = []
 
-    assert data.header.class_id == 0x09145000
+    assert data.classId == 0x09145000
 
     if not os.path.exists(export_dir):
         os.makedirs(export_dir)
 
     def extract_mesh(data, static_node, lod, offset_index, ent_idx, off_pos, off_rot):
-        if static_node.header.class_id == 0x09145000:
+        if static_node.classId == 0x09145000:
             export_ents(
                 export_dir,
                 file,
@@ -224,15 +226,15 @@ def export_ents(export_dir, file, data, offset_index=None, off_pos=None, off_rot
                 off_rot,
             )
             return None
-        if static_node.header.class_id == 0x900C000:
+        if static_node.classId == 0x900C000:
             # skip surf (for now?)
             return None
-        if static_node.header.class_id != 0x09159000:
-            print("skip " + hex(static_node.header.class_id))
+        if static_node.classId != 0x09159000:
+            print("skip " + hex(static_node.classId))
             return None
 
-        node = data.nodes[static_node.body.mesh]
-        if node.header.class_id == 0x09145000:
+        node = data.nodes[static_node.body.Mesh]
+        if node.classId == 0x09145000:
             export_ents(
                 export_dir,
                 file,
@@ -242,9 +244,9 @@ def export_ents(export_dir, file, data, offset_index=None, off_pos=None, off_rot
                 off_rot,
             )
             return None
-        if node.header.class_id == 0x09159000:
+        if node.classId == 0x09159000:
             # TODO why we have that case?
-            node = data.nodes[node.body.mesh]
+            node = data.nodes[node.body.Mesh]
 
         return extract_solid2model(data, node)
 
