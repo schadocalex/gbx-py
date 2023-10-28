@@ -30,17 +30,11 @@ if __name__ == "__main__":
                 vertices = root_node.nodes[idx + 1].body[0].chunk.vertices_coords
                 normals = root_node.nodes[idx + 1].body[0].chunk.normals
                 uv0 = root_node.nodes[idx + 1].body[0].chunk.others.uv0
-                indices = (
-                    root_node.nodes[idx].body[8].chunk.index_buffer[0].chunk.indices
-                )
+                indices = root_node.nodes[idx].body[8].chunk.index_buffer[0].chunk.indices
                 obj_filepath = (
-                    export_dir
-                    + os.path.basename(file).split(".")[0]
-                    + f"_{node_index}_lod{geom.lod}_{idx}.obj"
+                    export_dir + os.path.basename(file).split(".")[0] + f"_{node_index}_lod{geom.lod}_{idx}.obj"
                 )
-                mat_idx = obj_chunk.custom_materials[
-                    geom.material_index
-                ].material_user_inst
+                mat_idx = obj_chunk.custom_materials[geom.material_index].material_user_inst
                 mat = root_node.nodes[mat_idx].body[0].chunk.link
                 print(obj_filepath)
-                export_obj(obj_filepath, vertices, normals, uv0, indices, mat)
+                export_obj(obj_filepath, vertices, normals, uv0, indices, mat, False)

@@ -18,7 +18,10 @@ def extract_mobil(export_dir, file, data, mobil):
 def extract_variant_chunk(result, export_dir, file, data, variant):
     for chunk in variant:
         if chunk.chunkId == 0x0315B003:
-            print("\tsymmetrical_variant_index: " + str(chunk.chunk.symmetrical_variant_index))
+            print(
+                "\tsymmetrical_variant_index: "
+                + str(chunk.chunk.symmetrical_variant_index)
+            )
             print("\tvariant_base_type: " + str(chunk.chunk.variant_base_type))
         if chunk.chunkId == 0x0315B005:
             for mobil_idx, mobil in enumerate(chunk.chunk.mobils):
@@ -34,23 +37,37 @@ def extract_variant_chunk(result, export_dir, file, data, variant):
                     )
         if chunk.chunkId == 0x0315B008:
             for block_unit_model_idx in chunk.chunk.blockUnitModels:
-                print("\tblock_unit_model (contains clips): " + str(block_unit_model_idx))
+                print(
+                    "\tblock_unit_model (contains clips): " + str(block_unit_model_idx)
+                )
                 block_unit_model = data.nodes[block_unit_model_idx]
                 print("\tblock_unit_model: " + str(block_unit_model))
                 for chunk in block_unit_model.body:
                     if chunk.chunkId == 0x0303600C:
                         for clip in chunk.chunk.clipsNorth:
-                            extract_block_meshes(data.nodes[clip].body[2].chunk.name, data.nodes[clip])
+                            extract_block_meshes(
+                                data.nodes[clip].body[2].chunk.name, data.nodes[clip]
+                            )
                         for clip in chunk.chunk.clipsEast:
-                            extract_block_meshes(data.nodes[clip].body[2].chunk.name, data.nodes[clip])
+                            extract_block_meshes(
+                                data.nodes[clip].body[2].chunk.name, data.nodes[clip]
+                            )
                         for clip in chunk.chunk.clipsSouth:
-                            extract_block_meshes(data.nodes[clip].body[2].chunk.name, data.nodes[clip])
+                            extract_block_meshes(
+                                data.nodes[clip].body[2].chunk.name, data.nodes[clip]
+                            )
                         for clip in chunk.chunk.clipsWest:
-                            extract_block_meshes(data.nodes[clip].body[2].chunk.name, data.nodes[clip])
+                            extract_block_meshes(
+                                data.nodes[clip].body[2].chunk.name, data.nodes[clip]
+                            )
                         for clip in chunk.chunk.clipsTop:
-                            extract_block_meshes(data.nodes[clip].body[2].chunk.name, data.nodes[clip])
+                            extract_block_meshes(
+                                data.nodes[clip].body[2].chunk.name, data.nodes[clip]
+                            )
                         for clip in chunk.chunk.clipsBottom:
-                            extract_block_meshes(data.nodes[clip].body[2].chunk.name, data.nodes[clip])
+                            extract_block_meshes(
+                                data.nodes[clip].body[2].chunk.name, data.nodes[clip]
+                            )
 
         # if chunk.chunkId == 0x0315B009:
         #     for u01 in chunk.chunk.u01:
@@ -79,7 +96,9 @@ def extract_block_meshes(file, data):
             )
 
         if chunk.chunkId == 0x0304E027:
-            for idx, additional_variant_ground in enumerate(chunk.chunk.additionalVariantsGround):
+            for idx, additional_variant_ground in enumerate(
+                chunk.chunk.additionalVariantsGround
+            ):
                 print("additional_variant_ground: " + str(additional_variant_ground))
                 extract_variant_chunk(
                     f"./ExportObj/{file}/ground{idx+1}/",
@@ -89,7 +108,9 @@ def extract_block_meshes(file, data):
                 )
 
         if chunk.chunkId == 0x0304E02C:
-            for idx, additional_variant_air in enumerate(chunk.chunk.additionalVariantsAir):
+            for idx, additional_variant_air in enumerate(
+                chunk.chunk.additionalVariantsAir
+            ):
                 print("additional_variant_air: " + str(additional_variant_air))
                 extract_variant_chunk(
                     f"./ExportObj/{file}/air{idx+1}/",
@@ -109,7 +130,9 @@ def extract_mobil2(result, filename, data, mobil_model):
                 continue
 
             prefab = data.nodes[chunk.chunk.prefab_fid]
-            all_meshes = extract_meshes(prefab, prefab, extracted_files=result["extracted_files"])
+            all_meshes = extract_meshes(
+                prefab, prefab, extracted_files=result["extracted_files"]
+            )
 
             mobil = {
                 "meshes": [],
@@ -123,7 +146,9 @@ def extract_mobil2(result, filename, data, mobil_model):
                         export_folder = result["export_folder"] + filepath + "\\"
                         if not os.path.exists(export_folder):
                             os.makedirs(export_folder)
-                        obj_filepath = export_folder + f"mesh{idx}_lod{obj_params[-1]}.obj"
+                        obj_filepath = (
+                            export_folder + f"mesh{idx}_lod{obj_params[-1]}.obj"
+                        )
                         export_obj(obj_filepath, *obj_params)
 
                 pos, quat = transform_final_pos(all_pos, all_rot)
@@ -142,14 +167,19 @@ def extract_variant_chunk2(result, filename, data, variant_model):
 
     for chunk in variant_model:
         if chunk.chunkId == 0x0315B003:
-            print("\tsymmetrical_variant_index: " + str(chunk.chunk.symmetrical_variant_index))
+            print(
+                "\tsymmetrical_variant_index: "
+                + str(chunk.chunk.symmetrical_variant_index)
+            )
             print("\tvariant_base_type: " + str(chunk.chunk.variant_base_type))
         if chunk.chunkId == 0x0315B005:
             for mobil_idx, mobil in enumerate(chunk.chunk.mobils):
                 print("\tmobil" + str(mobil_idx))
                 for sub_mobil_idx, sub_mobil in enumerate(mobil):
                     print("\t\tsub_mobil" + str(sub_mobil_idx))
-                    mobils[f"mobil{mobil_idx}_submobil{sub_mobil_idx}"] = extract_mobil2(
+                    mobils[
+                        f"mobil{mobil_idx}_submobil{sub_mobil_idx}"
+                    ] = extract_mobil2(
                         result,
                         filename,
                         data,
@@ -160,7 +190,9 @@ def extract_variant_chunk2(result, filename, data, variant_model):
                 block_unit = {}
                 blocks_units.append(block_unit)
 
-                print("\tblock_unit_model (contains clips): " + str(block_unit_model_idx))
+                print(
+                    "\tblock_unit_model (contains clips): " + str(block_unit_model_idx)
+                )
                 block_unit_model = data.nodes[block_unit_model_idx]
 
                 for chunk in block_unit_model.body:
@@ -168,10 +200,21 @@ def extract_variant_chunk2(result, filename, data, variant_model):
                         pos = chunk.chunk.relativeOffset
                         block_unit["pos"] = (pos.x, pos.y, pos.z)
                     if chunk.chunkId == 0x0303600C:
-                        for prop in ("clipsNorth", "clipsEast", "clipsSouth", "clipsWest", "clipsTop", "clipsBottom"):
+                        for prop in (
+                            "clipsNorth",
+                            "clipsEast",
+                            "clipsSouth",
+                            "clipsWest",
+                            "clipsTop",
+                            "clipsBottom",
+                        ):
                             block_unit[prop] = []
                             for clip in chunk.chunk[prop]:
-                                block_unit[prop].append(data.nodes[clip].filepath.replace(result["base_folder"], ""))
+                                block_unit[prop].append(
+                                    data.nodes[clip].filepath.replace(
+                                        result["base_folder"], ""
+                                    )
+                                )
 
         # if chunk.chunkId == 0x0315B009:
         #     for u01 in chunk.chunk.u01:
@@ -208,7 +251,9 @@ def extract_block_meshes2(result, filename, data):
             )
 
         if chunk.chunkId == 0x0304E027:
-            for idx, additional_variant_ground in enumerate(chunk.chunk.additionalVariantsGround):
+            for idx, additional_variant_ground in enumerate(
+                chunk.chunk.additionalVariantsGround
+            ):
                 print("additional_variant_ground: " + str(additional_variant_ground))
                 variants[f"ground{idx+1}"] = extract_variant_chunk2(
                     result,
@@ -218,7 +263,9 @@ def extract_block_meshes2(result, filename, data):
                 )
 
         if chunk.chunkId == 0x0304E02C:
-            for idx, additional_variant_air in enumerate(chunk.chunk.additionalVariantsAir):
+            for idx, additional_variant_air in enumerate(
+                chunk.chunk.additionalVariantsAir
+            ):
                 print("additional_variant_air: " + str(additional_variant_air))
                 variants[f"air{idx+1}"] = extract_variant_chunk2(
                     result,
