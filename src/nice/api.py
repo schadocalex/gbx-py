@@ -50,7 +50,7 @@ class Loc:
 
     def as_quat(self):
         w, x, y, z = self.quat
-        return Ctn(x=x, y=z, z=-y, w=w)  # TODO check rotation
+        return Ctn(x=x, y=z, z=-y, w=w)
 
     def as_pos(self):
         x, y, z = self.pos

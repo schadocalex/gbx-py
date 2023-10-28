@@ -966,6 +966,11 @@ body_chunks[0x0304305B] = Struct(
     StopIf(lambda this: not this.u01),
     "lightmaps" / SHmsLightMapCacheSmall,
 )
+body_chunks[0x0304305F] = Struct(
+    "version" / Int32ul,  # 0
+    "freeBlocks" / GreedyRange(Struct("pos" / GbxVec3, "rotPitchYawRoll" / GbxVec3)),
+)
+
 
 # 0304E CGameCtnBlockInfo
 body_chunks[0x0304E00F] = Struct(
