@@ -35,6 +35,40 @@ def quaternion_rotation(x, y, z, q):
     return new_x, new_y, new_z
 
 
+def q_to_blender(q):
+    return Container(w=q.w, x=q.x, y=-q.z, z=q.y)
+
+
+def quaternion_mult(q1, q2):
+    return Container(
+        x=q1.w * q2.x + q1.x * q2.w + q1.y * q2.z - q1.z * q2.y,
+        y=q1.w * q2.y + q1.y * q2.w + q1.z * q2.x - q1.x * q2.z,
+        z=q1.w * q2.z + q1.z * q2.w + q1.x * q2.y - q1.y * q2.x,
+        w=q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z,
+    )
+
+
+def transform_final_pos(ps, qs):
+    x, y, z = 0, 0, 0
+    q = Container(x=0, y=0, z=0, w=1)
+
+    if ps is not None:
+        for i in range(len(ps)):
+            p, q2 = ps[i], qs[i]
+
+            x, y, z = quaternion_rotation(x, y, z, q2)
+            q = quaternion_mult(q, q2)
+
+            x += p.x
+            y += p.y
+            z += p.z
+
+    # convert in blender space
+    return (x, -z, y), (q.w, q.x, -q.z, q.y)
+    # No? because Blender default obj import is -Z/Y
+    # return (x, y, z), (q.x, q.y, q.z, q.w)
+
+
 def transform_pos(pos, ps, qs):
     x, y, z = pos.x, pos.y, pos.z
 
@@ -50,9 +84,22 @@ def transform_pos(pos, ps, qs):
 
     # convert in blender space
     return [x, -z, y]
+    # No? because Blender default obj import is -Z/Y
+    # return [x, y, z]
 
 
-def export_obj(filename, vertices, normals, uv0, indices, material_name, absolute_indice=False, pos=None, rot=None):
+def export_obj(
+    filename,
+    vertices,
+    normals,
+    uv0,
+    indices,
+    material_name,
+    absolute_indice=False,
+    lod=1,
+    pos=None,
+    rot=None,
+):
     N = len(vertices)
 
     # print(f"export_obj {filename} {pos} {rot}")
@@ -109,52 +156,50 @@ def export_CPlugVisualIndexedTriangles_without_vertex_stream(node, mat):
     indices = []
 
     for chunk in node.body:
-        if chunk.chunk_id == 0x0900600F:
+        if chunk.chunkId == 0x0900600F:
             for tex in chunk.chunk.texCoords[0].tex_coords:
                 uv0.append(tex.uv)
-        if chunk.chunk_id == 0x0902C004:
+        if chunk.chunkId == 0x0902C004:
             for v in chunk.chunk.vertices:
                 vertices.append(v.position)
                 normals.append(v.normal)
-        if chunk.chunk_id == 0x0906A001:
+        if chunk.chunkId == 0x0906A001:
             indices = chunk.chunk.index_buffer[0].chunk.indices
 
-    return [vertices, normals, uv0, indices, mat, True]
+    return [vertices, normals, uv0, indices, mat, True, 1]
 
 
-def extract_solid2model(data, node, lod=1):
-    assert node.header.class_id == 0x090BB000
+def extract_solid2model(root_node, node):
+    if "nodes" in node:
+        root_node = node
+    assert node.classId == 0x090BB000
 
     obj_chunk = node.body[0].chunk
 
-    if len(obj_chunk.lodDistances) == 0:
-        lod = 1
-    elif len(obj_chunk.lodDistances) < lod:
-        lod = obj_chunk.lodDistances
-    lod = 2 ** (lod - 1)
-
     meshes = []
     for i, geom in enumerate(obj_chunk.shaded_geoms):
-        if (geom.lod & lod) == 0:
+        if geom.lod != 1 and geom.lod != 3 and geom.lod != 7:
             continue
-
         visual_idx = obj_chunk.visuals[geom.visual_index]
 
         vertices = []
         normals = []
         uv0 = []
 
-        root_node = data  # node if "nodes" in node else node.root_node
-
         if len(obj_chunk.materials_names) > 0:
             mat = obj_chunk.materials_names[geom.material_index]
         else:
-            if obj_chunk.material_insts_lt_v16 is not None and len(obj_chunk.material_insts_lt_v16) > 0:
+            if (
+                obj_chunk.material_insts_lt_v16 is not None
+                and len(obj_chunk.material_insts_lt_v16) > 0
+            ):
                 mat_idx = obj_chunk.material_insts_lt_v16[geom.material_index]
-            elif len(obj_chunk.materials) > 0:
+            elif obj_chunk.materials is not None and len(obj_chunk.materials) > 0:
                 mat_idx = obj_chunk.materials[geom.material_index]
             else:
-                mat_idx = obj_chunk.custom_materials[geom.material_index].material_user_inst
+                mat_idx = obj_chunk.custom_materials[
+                    geom.material_index
+                ].material_user_inst
 
             if type(root_node.nodes[mat_idx]) == str:
                 mat = root_node.nodes[mat_idx].split(".")[0]
@@ -164,9 +209,13 @@ def extract_solid2model(data, node, lod=1):
         continue_meshes = False
         visual_node = root_node.nodes[visual_idx]
         for chunk in visual_node.body:
-            if isinstance(chunk, Container) and chunk.chunk_id == 0x0900600F:
+            if isinstance(chunk, Container) and chunk.chunkId == 0x0900600F:
                 if len(chunk.chunk.vertexStreams) == 0:
-                    meshes.append(export_CPlugVisualIndexedTriangles_without_vertex_stream(visual_node, mat))
+                    meshes.append(
+                        export_CPlugVisualIndexedTriangles_without_vertex_stream(
+                            visual_node, mat
+                        )
+                    )
                     continue_meshes = True
         if continue_meshes:
             continue
@@ -183,7 +232,9 @@ def extract_solid2model(data, node, lod=1):
 
         indices = visual_node.body[8].chunk.index_buffer[0].chunk.indices
 
-        meshes.append([vertices, normals, uv0, indices, mat, False])
+        # TODO check relative/absolute face indexes
+
+        meshes.append([vertices, normals, uv0, indices, mat, False, geom.lod])
 
     return meshes
 
@@ -192,7 +243,7 @@ def export_meshes(export_dir, filename, meshes, pos=None, rot=None):
     if meshes is None:
         return
     for sub_mesh_idx, sub_mesh in enumerate(meshes):
-        obj_filepath = export_dir + filename + f"_{sub_mesh_idx}.obj"
+        obj_filepath = export_dir + filename + f"_{sub_mesh_idx}_lod{sub_mesh[-1]}.obj"
         print(obj_filepath)
         # print(sub_mesh)
         # print(final_pos)
@@ -208,13 +259,13 @@ def export_ents(export_dir, file, data, offset_index=None, off_pos=None, off_rot
     if off_rot is None:
         off_rot = []
 
-    assert data.header.class_id == 0x09145000
+    assert data.classId == 0x09145000
 
     if not os.path.exists(export_dir):
         os.makedirs(export_dir)
 
     def extract_mesh(data, static_node, lod, offset_index, ent_idx, off_pos, off_rot):
-        if static_node.header.class_id == 0x09145000:
+        if static_node.classId == 0x09145000:
             export_ents(
                 export_dir,
                 file,
@@ -224,15 +275,15 @@ def export_ents(export_dir, file, data, offset_index=None, off_pos=None, off_rot
                 off_rot,
             )
             return None
-        if static_node.header.class_id == 0x900C000:
+        if static_node.classId == 0x900C000:
             # skip surf (for now?)
             return None
-        if static_node.header.class_id != 0x09159000:
-            print("skip " + hex(static_node.header.class_id))
+        if static_node.classId != 0x09159000:
+            print("skip " + hex(static_node.classId))
             return None
 
-        node = data.nodes[static_node.body.mesh]
-        if node.header.class_id == 0x09145000:
+        node = data.nodes[static_node.body.Mesh]
+        if node.classId == 0x09145000:
             export_ents(
                 export_dir,
                 file,
@@ -242,9 +293,9 @@ def export_ents(export_dir, file, data, offset_index=None, off_pos=None, off_rot
                 off_rot,
             )
             return None
-        if node.header.class_id == 0x09159000:
+        if node.classId == 0x09159000:
             # TODO why we have that case?
-            node = data.nodes[node.body.mesh]
+            node = data.nodes[node.body.Mesh]
 
         return extract_solid2model(data, node)
 
@@ -257,7 +308,9 @@ def export_ents(export_dir, file, data, offset_index=None, off_pos=None, off_rot
         final_pos = [ent.pos, *off_pos]
         final_rot = [ent.rot, *off_rot]
 
-        meshes = extract_mesh(data, model, 1, offset_index, ent_idx, final_pos, final_rot)
+        meshes = extract_mesh(
+            data, model, 1, offset_index, ent_idx, final_pos, final_rot
+        )
         filename = (
             os.path.basename(file).split(".")[0]
             + ("_" if len(offset_index) > 0 else "")
@@ -265,3 +318,60 @@ def export_ents(export_dir, file, data, offset_index=None, off_pos=None, off_rot
             + f"_{ent_idx}"
         )
         export_meshes(export_dir, filename, meshes, final_pos, final_rot)
+
+
+def extract_meshes(root_data, data, off_pos=None, off_rot=None, extracted_files=None):
+    if off_pos is None:
+        off_pos = []
+    if off_rot is None:
+        off_rot = []
+
+    if "nodes" in data:
+        root_data = data
+
+    if data.classId == 0x09145000:
+        result = []
+        for ent_idx, ent in enumerate(data.body.Ents):
+            model = root_data.nodes[ent.model]
+            if type(model) == str:
+                print("skip " + model)
+                continue
+
+            final_pos = [ent.pos, *off_pos]
+            final_rot = [ent.rot, *off_rot]
+
+            result += extract_meshes(
+                root_data, model, final_pos, final_rot, extracted_files
+            )
+        return result
+    elif data.classId == 0x900C000:
+        # print("skip surf (for now?)")
+        return []
+    elif data.classId == 0x09159000:
+        mesh = root_data.nodes[data.body.Mesh]
+        if mesh.classId == 0x090BB000:
+            root_mesh = mesh if "nodes" in mesh else root_data
+
+            # avoid extracting twice
+
+            if extracted_files is not None:
+                if root_data.filepath in extracted_files:
+                    return [(root_data.filepath, None, off_pos, off_rot)]
+                else:
+                    extracted_files.add(root_data.filepath)
+
+            return [
+                (
+                    root_data.filepath,
+                    extract_solid2model(root_data, mesh),
+                    off_pos,
+                    off_rot,
+                )
+            ]
+        else:
+            return extract_meshes(root_data, mesh, off_pos, off_rot, extracted_files)
+    elif data.classId in (0x9119000, 0x9160000):
+        return []
+    else:
+        print("skip " + hex(data.classId))
+        return []

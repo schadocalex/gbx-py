@@ -12,7 +12,9 @@ def parse_node(file_path):
     if not os.path.exists(file_path):
         print(f"[NOT FOUND] {file_path}")
         return (
-            Container(file=f"[NOT FOUND] {file_path}" if not os.path.exists(file_path) else ""),
+            Container(
+                file=f"[NOT FOUND] {file_path}" if not os.path.exists(file_path) else ""
+            ),
             0,
             b"",
         )
@@ -22,7 +24,9 @@ def parse_node(file_path):
 
         gbx_data = {}
         nodes = []
-        data = GbxStruct.parse(raw_bytes, gbx_data=gbx_data, nodes=nodes, filename=file_path)
+        data = GbxStruct.parse(
+            raw_bytes, gbx_data=gbx_data, nodes=nodes, filename=file_path
+        )
         data.nodes = ListContainer(nodes)
         data.node_offset = 0
         nb_nodes = len(data.nodes) - 1
@@ -35,11 +39,22 @@ parse_file = parse_node
 
 def construct_all_folders(all_folders, parent_folder_path, current_folder):
     for folder in current_folder.folders:
-        all_folders.append(parent_folder_path + folder.name + "/")
+        all_folders.append(
+            os.path.normpath(parent_folder_path + folder.name) + os.path.sep
+        )
         construct_all_folders(all_folders, all_folders[-1], folder)
 
 
-def parse_node_recursive(file_path: Path, node_offset=0, path=None):
+all_file_paths = {}
+
+
+def parse_node_recursive(
+    file_path: Path, node_offset=0, path=None, flatten_nodes=False
+):
+    if file_path in all_file_paths:
+        print("reuse " + file_path)
+        return all_file_paths[file_path]
+
     file_path = os.path.abspath(file_path)
     if path is None:
         path = []
@@ -60,7 +75,9 @@ def parse_node_recursive(file_path: Path, node_offset=0, path=None):
 
         gbx_data = {}
         nodes = []
-        data = GbxStruct.parse(raw_bytes, gbx_data=gbx_data, nodes=nodes, filename=file_path)
+        data = GbxStruct.parse(
+            raw_bytes, gbx_data=gbx_data, nodes=nodes, filename=file_path
+        )
         # for i, n in enumerate(nodes):
         #     if type(n) is Container:
         #         n.root_node = data
@@ -73,15 +90,17 @@ def parse_node_recursive(file_path: Path, node_offset=0, path=None):
 
         # get all folders
         external_folders = data.referenceTable.externalFolders
-        root_folder_name = os.path.dirname(file_path) + "/"
+        root_folder_name = os.path.dirname(file_path) + os.path.sep
         all_folders = [root_folder_name]
         if external_folders is not None:
-            root_folder_name += "../" * external_folders.ancestorLevel
+            root_folder_name += (".." + os.path.sep) * external_folders.ancestorLevel
             construct_all_folders(all_folders, root_folder_name, external_folders)
 
         # parse external nodes
         for external_node in data.referenceTable.externalNodes:
-            if not external_node.ref.endswith(".gbx") and not external_node.ref.endswith(".Gbx"):
+            if not external_node.ref.endswith(
+                ".gbx"
+            ) and not external_node.ref.endswith(".Gbx"):
                 continue
             elif external_node.ref.endswith(".Texture.gbx"):
                 continue
@@ -97,7 +116,9 @@ def parse_node_recursive(file_path: Path, node_offset=0, path=None):
                 continue
             elif external_node.ref.endswith(".Material.Gbx"):
                 material_name = external_node.ref.split(".")[0]
-                data.nodes[external_node.nodeIndex] = create_custom_material(material_name)
+                data.nodes[external_node.nodeIndex] = create_custom_material(
+                    material_name
+                )
                 # print(
                 #     "  " * (depth + 1) + f"- {material_name} Material (1 custom node)"
                 # )
@@ -108,26 +129,34 @@ def parse_node_recursive(file_path: Path, node_offset=0, path=None):
             #     )
             else:
                 # print(external_node.ref + " " + str(node_offset))
-                ext_node_filepath = all_folders[external_node.folderIndex] + external_node.ref
+                ext_node_filepath = (
+                    all_folders[external_node.folderIndex] + external_node.ref
+                )
                 if not os.path.exists(ext_node_filepath):
-                    data.nodes[external_node.nodeIndex] = "[NOT FOUND] " + ext_node_filepath
+                    data.nodes[external_node.nodeIndex] = (
+                        "[NOT FOUND] " + ext_node_filepath
+                    )
                     print("[NOT FOUND] " + ext_node_filepath)
                 else:
                     ext_node_data, nb_sub_nodes, sub_raw_bytes = parse_node_recursive(
                         all_folders[external_node.folderIndex] + external_node.ref,
                         node_offset,
                         path[:],
+                        flatten_nodes,
                     )
                     nb_nodes += nb_sub_nodes
                     node_offset += nb_sub_nodes
                     data.nodes[external_node.nodeIndex] = ext_node_data
-                    data.nodes.extend(ext_node_data.nodes[1:])
+                    ext_node_data.filepath = ext_node_filepath
+                    if flatten_nodes:
+                        data.nodes.extend(ext_node_data.nodes[1:])
 
         for i, n in enumerate(data.nodes):
             if n is not None and not "path" in n and type(n) is not str:
                 n.path = f"{path} [node={i}]"
 
-        return (data, nb_nodes, raw_bytes)
+        all_file_paths[file_path] = (data, nb_nodes, raw_bytes)
+        return all_file_paths[file_path]
 
 
 def generate_node(data, remove_external=True):
@@ -157,11 +186,11 @@ def generate_file(data):
 
 def create_custom_material(material_name):
     return Container(
-        header=(Container(class_id=0x090FD000)),
+        classId=0x090FD000,
         body=ListContainer(
             [
                 Container(
-                    chunk_id=0x090FD000,
+                    chunkId=0x090FD000,
                     chunk=Container(
                         version=11,
                         isUsingGameMaterial=False,
@@ -181,7 +210,7 @@ def create_custom_material(material_name):
                     ),
                 ),
                 Container(
-                    chunk_id=0x090FD001,
+                    chunkId=0x090FD001,
                     chunk=Container(
                         version=5,
                         u01=-1,
@@ -192,9 +221,9 @@ def create_custom_material(material_name):
                         is_natural=False,
                     ),
                 ),
-                Container(chunk_id=0x090FD002, chunk=Container(version=0, u01=0)),
+                Container(chunkId=0x090FD002, chunk=Container(version=0, u01=0)),
                 Container(
-                    chunk_id=0xFACADE01,
+                    chunkId=0xFACADE01,
                 ),
             ]
         ),
