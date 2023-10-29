@@ -136,9 +136,11 @@ GbxFloat = Float32l
 
 GbxVec2 = Struct("x" / GbxFloat, "y" / GbxFloat)
 GbxVec3 = Struct("x" / GbxFloat, "y" / GbxFloat, "z" / GbxFloat)
+GbxVec3Byte = Struct("x" / Byte, "y" / Byte, "z" / Byte)
 GbxVec4 = Struct("x" / GbxFloat, "y" / GbxFloat, "z" / GbxFloat, "w" / GbxFloat)
 GbxQuat = GbxVec4
 GbxTexPos = Struct("x" / Int16ul, "y" / Int16ul)
+GbxInt2 = Struct("x" / Int32sl, "y" / Int32sl)
 GbxInt3 = Struct("x" / Int32sl, "y" / Int32sl, "z" / Int32sl)
 GbxInt3Byte = Struct("x" / Int8ul, "y" / Int8ul, "z" / Int8ul)
 GbxPose3D = Struct(
@@ -602,6 +604,10 @@ GbxBody = IfThenElse(
     GbxBodyChunks
     # EndWithFACADE01(GbxBodyChunks),
 )
+GbxClass = Struct(
+    "classId" / GbxChunkId,
+    "body" / GbxBody,
+)
 
 
 def need_node_body(this):
@@ -893,6 +899,27 @@ body_chunks[0x03043028] = Struct(
 body_chunks[0x0304302A] = Struct(
     "u01" / GbxBool,
 )
+body_chunks[0x03043040] = GbxLookbackStringContext(
+    Struct(
+        "version" / Int32ul,  # 7
+        "u01" / Int32sl,
+        "size" / Int32sl,
+        "_listVersion" / Int32ul,
+        "anchoredObjects" / PrefixedArray(Int32ul, GbxClass),
+        "itemsOnItem"
+        / If(
+            lambda this: this.version >= 1 and this.version != 5,
+            PrefixedArray(Int32ul, GbxInt2),
+        ),
+        StopIf(this.version < 5),
+        "blockIndexes" / PrefixedArray(Int32ul, Int32sl),
+        "snapItemGroups" / If(this.version < 7, PrefixedArray(Int32ul, Int32sl)),
+        "itemIndexes" / If(this.version >= 6, PrefixedArray(Int32ul, Int32sl)),
+        "snapItemGroups" / If(this.version >= 7, PrefixedArray(Int32ul, Int32sl)),
+        "u07" / If(this.version != 6, PrefixedArray(Int32ul, Int32sl)),
+        "snappedIndexes" / PrefixedArray(Int32ul, Int32sl),
+    )
+)
 body_chunks[0x03043048] = Struct(
     "version" / Int32ul,
     "listBlocksVersion" / Int32ul,
@@ -1075,7 +1102,32 @@ body_chunks[0x0305B00D] = Struct(
     "raceValidateGhost" / GbxNodeRef,  # CGameCtnGhost
 )
 
+# 03101 CGameCtnAnchoredObject
+
+body_chunks[0x03101002] = Struct(
+    "version" / Int32ul,  # 8
+    "itemModel" / GbxMeta,
+    "rotPitchYawRoll" / GbxVec3,
+    "blockUnitCoord" / GbxVec3Byte,
+    "anchorTreeId" / GbxLookbackString,
+    "absolutePositionInMap" / GbxVec3,
+    "waypointSpecialProperty" / GbxNodeRef,
+    "u03" / If(this.version < 5, Int32sl),
+    StopIf(this.version < 4),
+    "flags" / Int16ul,
+    StopIf(this.version < 5),
+    "pivotPosition" / GbxVec3,
+    StopIf(this.version < 6),
+    "scale" / GbxFloat,
+    StopIf(this.version < 7),
+    "packDesc" / If(lambda this: (this.flags & 4) == 4, GbxFileRef),
+    StopIf(this.version < 8),
+    "u01" / GbxVec3,
+    "u02" / GbxVec3,
+)
+
 # 0311D CGameCtnZoneGenealogy
+
 body_chunks[0x0311D002] = Struct(
     "zoneIds" / PrefixedArray(Int32ul, GbxLookbackString),
     "currentIndex" / Int32ul,
@@ -1621,18 +1673,16 @@ body_chunks[0x09006010] = Struct(
 # 0900C CPlugSurface
 
 GbxSurfTypeToStruct = {}
-GbxSurf = Debugger(
-    Struct(
-        "type" / GbxESurfType,
-        "data"
-        / Switch(
-            this.type,
-            GbxSurfTypeToStruct,
-            GbxBytesUntilFacade,
-        ),
-        "u01" / GbxVec3,
-        # / If(this._.surfVersion >= 2, GbxVec3),  #  mainDir? like for boost its dir?
-    )
+GbxSurf = Struct(
+    "type" / GbxESurfType,
+    "data"
+    / Switch(
+        this.type,
+        GbxSurfTypeToStruct,
+        GbxBytesUntilFacade,
+    ),
+    "u01" / GbxVec3,
+    # / If(this._.surfVersion >= 2, GbxVec3),  #  mainDir? like for boost its dir?
 )
 GbxSurfTypeToStruct[GbxESurfType.Sphere] = Struct(
     "u01" / GbxFloat,
