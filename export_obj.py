@@ -69,7 +69,7 @@ def transform_final_pos(ps, qs):
     # return (x, y, z), (q.x, q.y, q.z, q.w)
 
 
-def transform_pos(pos, ps, qs):
+def transform_pos(pos, ps, qs, blender_space):
     x, y, z = pos.x, pos.y, pos.z
 
     if ps is not None:
@@ -82,10 +82,11 @@ def transform_pos(pos, ps, qs):
             y += p.y
             z += p.z
 
-    # convert in blender space
-    return [x, -z, y]
-    # No? because Blender default obj import is -Z/Y
-    # return [x, y, z]
+    if blender_space:
+        # convert in blender space
+        return [x, -z, y]
+    else:  # No? because Blender default obj import is -Z/Y
+        return [x, y, z]
 
 
 def export_obj(
@@ -99,6 +100,7 @@ def export_obj(
     lod=1,
     pos=None,
     rot=None,
+    blender_space=False,
 ):
     N = len(vertices)
 
@@ -111,10 +113,10 @@ def export_obj(
     with open(filename, "w") as f:
         f.write(f"o {os.path.basename(filename)}\n")
         for v in vertices:
-            v2 = transform_pos(v, pos, rot)
+            v2 = transform_pos(v, pos, rot, blender_space)
             f.write(f"v {v2[0]} {v2[1]} {v2[2]}\n")
         for n in normals:
-            n2 = transform_pos(n, pos, rot)
+            n2 = transform_pos(n, pos, rot, blender_space)
             f.write(f"vn {n2[0]} {n2[1]} {n2[2]}\n")
         for uv in uv0:
             f.write(f"vt {uv.x} {uv.y}\n")
@@ -370,6 +372,9 @@ def extract_meshes(root_data, data, off_pos=None, off_rot=None, extracted_files=
             ]
         else:
             return extract_meshes(root_data, mesh, off_pos, off_rot, extracted_files)
+    elif data.classId == 0x2E027000:
+        mesh = root_data.nodes[data.body[0].chunk.staticObject]
+        return extract_meshes(root_data, mesh, off_pos, off_rot, extracted_files)
     elif data.classId in (0x9119000, 0x9160000):
         return []
     else:
