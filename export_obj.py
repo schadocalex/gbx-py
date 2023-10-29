@@ -334,17 +334,18 @@ def extract_meshes(root_data, data, off_pos=None, off_rot=None, extracted_files=
     if data.classId == 0x09145000:
         result = []
         for ent_idx, ent in enumerate(data.body.Ents):
-            model = root_data.nodes[ent.model]
-            if type(model) == str:
-                print("skip " + model)
-                continue
+            if ent.model > 0:
+                model = root_data.nodes[ent.model]
+                if type(model) == str:
+                    print("skip " + model)
+                    continue
 
-            final_pos = [ent.pos, *off_pos]
-            final_rot = [ent.rot, *off_rot]
+                final_pos = [ent.pos, *off_pos]
+                final_rot = [ent.rot, *off_rot]
 
-            result += extract_meshes(
-                root_data, model, final_pos, final_rot, extracted_files
-            )
+                result += extract_meshes(
+                    root_data, model, final_pos, final_rot, extracted_files
+                )
         return result
     elif data.classId == 0x900C000:
         # print("skip surf (for now?)")

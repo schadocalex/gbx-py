@@ -2050,7 +2050,7 @@ body_chunks[0x09145000] = Struct(
                 # TODO generic meta param
                 "params"
                 / If(
-                    this.model > 0,
+                    True or this.model > 0,  # todo check this in ghidra
                     Struct(
                         "chunkId" / Hex(Int32sl),
                         "chunk"

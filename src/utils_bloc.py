@@ -149,7 +149,7 @@ def extract_mobil2(result, filename, data, mobil_model):
                         obj_filepath = (
                             export_folder + f"mesh{idx}_lod{obj_params[-1]}.obj"
                         )
-                        export_obj(obj_filepath, *obj_params)
+                        export_obj(obj_filepath, *obj_params, blender_space=True)
 
                 pos, quat = transform_final_pos(all_pos, all_rot)
                 mobil["meshes"].append({"path": filepath, "pos": pos, "rot": quat})
