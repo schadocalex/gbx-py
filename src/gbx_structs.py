@@ -304,6 +304,7 @@ GbxCollectionIds = {
     7: "Basic",
     11: "Valley",
     26: "Stadium2020",
+    10003: "Vehicles", # possibly also 15
 }
 
 
