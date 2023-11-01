@@ -304,6 +304,7 @@ GbxCollectionIds = {
     7: "Basic",
     11: "Valley",
     26: "Stadium2020",
+    10003: "Vehicles",
 }
 
 
@@ -2796,6 +2797,17 @@ body_chunks[0x2E009000] = Struct(
     "version" / Int32ul,  # 2
     "tag" / GbxString,
     "order" / Int32sl,
+)
+
+# 2E01C CGameVehicleModel
+# these are indexes
+body_chunks[0x2E01C000] = Struct(
+    "skin_ix" / GbxNodeRef,
+    "phyModel_ix" / GbxNodeRef,
+    "visModel_ix" / GbxNodeRef,
+    "u01" / Int32ul, # 0
+    "u02" / Int32ul, # 0
+    "u03" / Int32ul, # 0xFFFFFFFF
 )
 
 # 2E020 CGameItemPlacementParam
