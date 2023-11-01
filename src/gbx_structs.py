@@ -1547,7 +1547,87 @@ body_chunks[0x09003007] = Struct(
     "u02" / PrefixedArray(Int32ul, Int32sl),
 )
 
+# 09005 CPlugSolid
+
+GbxPlugSolidUvGroup = Struct(
+    "u01" / GbxFloat,
+    "u02" / GbxFloat,
+    "u03" / GbxFloat,
+    "u04" / GbxFloat,
+    "u05" / GbxFloat,
+)
+GbxPlugSolidPreLightGen = Struct(
+    "version" / Int32ul,
+    "u01" / Int32sl,
+    "u02" / GbxFloat,
+    "u03" / GbxBool,
+    "u04" / GbxFloat,
+    "u05" / GbxFloat,
+    "u06" / GbxFloat,
+    "u07" / GbxFloat,
+    "u08" / GbxFloat,
+    "u09" / GbxFloat,
+    "u10" / GbxFloat,
+    "u11" / GbxFloat,
+    "u12" / Int32sl,
+    "u13" / Int32sl,
+    "u14" / PrefixedArray(Int32ul, GbxBox),
+    StopIf(this.version < 1),
+    "u15" / PrefixedArray(Int32ul, GbxPlugSolidUvGroup),
+)
+GbxPlugSolidLocatedInstance = Struct(
+    "u01" / Int32sl,
+    "u02" / GbxIso4,
+)
+
+body_chunks[0x09005000] = Struct("typeAndIndex" / Int32sl)
+body_chunks[0x09005010] = Struct("u01" / GbxNodeRef)
+body_chunks[0x09005011] = Struct(
+    "u01" / GbxBool,
+    "u02" / GbxBool,
+    "u03" / If(this.u02, GbxBool),
+    "tree" / GbxNodeRef,
+)
+body_chunks[0x09005017] = Struct(
+    "version" / ExprValidator(Int32ul, obj_ == 3),  # 3
+    "u09" / If(this.version >= 3, GbxBool),
+    "solidPreLightGen" / If(this.u09, GbxPlugSolidPreLightGen),
+    # TODO version < 3
+    StopIf(this.version < 2),
+    "fileWriteTime" / GbxFileTime,
+)
+body_chunks[0x09005019] = Struct(
+    "version" / Int32ul,  # 5
+    "_listVersion1" / Int32ul,
+    "u01" / PrefixedArray(Int32ul, GbxNodeRef),  # CPlugSound
+    "_listVersion2" / Int32ul,
+    "u02" / PrefixedArray(Int32ul, GbxNodeRef),  # CPlugParticleEmitterModel
+    "u03" / PrefixedArray(Int32ul, GbxPlugSolidLocatedInstance),
+    "u04" / PrefixedArray(Int32ul, GbxPlugSolidLocatedInstance),
+    StopIf(this.version < 1),
+    "u05" / Int32sl,
+    StopIf(this.version < 2),
+    "u06" / PrefixedArray(Int32ul, GbxLookbackString),
+    "u07" / PrefixedArray(Int32ul, GbxIso4),
+    StopIf(this.version < 3),
+    "u08" / GbxString,
+    StopIf(this.version < 4),
+    "u09" / Int32sl,
+    StopIf(this.version < 5),
+    "u10" / GbxNodeRef,  # CPlugPath
+)
+# body_chunks[0x0900501A] = Struct(
+#     "version" / ExprValidator(Int32ul, obj_ == 4),  # 4
+#     "u01"
+#     / Struct(
+#         "version" / Int32ul,  # version
+#         "u01" / GbxNodeRef, # CPlugVisualIndexedTriangles
+#         TODO
+#     ),
+# )
+
 # 09006 CPlugVisual
+
 body_chunks[0x09006001] = Struct("u01" / GbxNodeRef)
 body_chunks[0x09006004] = Struct("u01" / GbxNodeRef)
 body_chunks[0x09006005] = Struct("sub_visuals" / PrefixedArray(Int32ul, GbxInt3))
@@ -1838,7 +1918,29 @@ body_chunks[0x0903A013] = Struct(
     ),
 )
 
+# 0904F
+body_chunks[0x0904F006] = Struct(
+    "listVersion" / Int32sl,
+    "children" / PrefixedArray(Int32ul, GbxNodeRef),
+)
+body_chunks[0x0904F00D] = Struct(
+    "name" / GbxLookbackString,
+    "u02" / GbxLookbackString,
+)
+body_chunks[0x0904F011] = Struct("funcTree" / GbxNodeRef)
+body_chunks[0x0904F016] = Struct(
+    "visual" / GbxNodeRef,
+    "shaderFile" / GbxNodeRef,
+    "surface" / GbxNodeRef,
+    "generator" / GbxNodeRef,
+)
+body_chunks[0x0904F01A] = Struct(
+    "flags" / Int32ul,
+    "translation" / If(lambda this: (this.flags & 4) != 0, GbxIso4),
+)
+
 # 09051 CPlugTreeGenerator
+
 body_chunks[0x09051000] = Struct(
     "version" / Int32ul,
 )
@@ -2257,11 +2359,12 @@ body_chunks[0x0915C000] = Struct(
 )
 
 # 0915D CPlugGameSkinAndFolder
+
 body_chunks[0x0915D000] = Struct(
     "Remapping" / GbxNodeRef,
     "RemapFolder" / GbxString,
 )
-# body_chunks[0x0915D001] = Struct("name" / GbxLookbackString)
+body_chunks[0x0915D001] = Struct("name" / GbxLookbackString)
 
 
 # 09178 NPlugTrigger_SWaypoint
