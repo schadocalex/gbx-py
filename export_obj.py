@@ -180,8 +180,6 @@ def extract_solid2model(root_node, node):
 
     meshes = []
     for i, geom in enumerate(obj_chunk.shaded_geoms):
-        if geom.lod != 1 and geom.lod != 3 and geom.lod != 7:
-            continue
         visual_idx = obj_chunk.visuals[geom.visual_index]
 
         vertices = []
