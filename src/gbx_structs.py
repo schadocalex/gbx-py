@@ -560,10 +560,13 @@ GbxBodyChunks = MyRepeatUntil(
             "chunk"
             / Prefixed(
                 Int32ul,
-                Switch(
-                    this.chunkId,
-                    body_chunks,
-                    default=GreedyBytes,
+                Select(
+                    Switch(
+                        this.chunkId,
+                        body_chunks,
+                        default=GreedyBytes,
+                    ),
+                    Struct("_chunkParseFailed" / GreedyBytes * print_chunk_fail),
                 ),
             ),
         ),
@@ -604,9 +607,10 @@ GbxBody = IfThenElse(
     GbxBodyChunks
     # EndWithFACADE01(GbxBodyChunks),
 )
+# TODO GbxClass is GbxNodeRef when encapsulated
 GbxClass = Struct(
     "classId" / GbxChunkId,
-    "body" / GbxBody,
+    "body" / If(lambda this: this.classId != 0xFFFFFFFF, GbxBody),
 )
 
 
@@ -1111,7 +1115,7 @@ body_chunks[0x03101002] = Struct(
     "blockUnitCoord" / GbxVec3Byte,
     "anchorTreeId" / GbxLookbackString,
     "absolutePositionInMap" / GbxVec3,
-    "waypointSpecialProperty" / GbxNodeRef,
+    "waypointSpecialProperty" / GbxClass,
     "u03" / If(this.version < 5, Int32sl),
     StopIf(this.version < 4),
     "flags" / Int16ul,
