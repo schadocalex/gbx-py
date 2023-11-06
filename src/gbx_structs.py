@@ -304,7 +304,7 @@ GbxCollectionIds = {
     7: "Basic",
     11: "Valley",
     26: "Stadium2020",
-    10003: "Vehicles",
+    10003: "PlayerModels2020",
 }
 
 
@@ -2540,6 +2540,16 @@ body_chunks[0x090BB000] = Struct(
 #     "img" / Prefixed(Int32ul, GreedyBytes),
 #     "u01" / Bytes(60),
 # )
+
+
+# 090EA CPlugVehiclePhyModel
+body_chunks[0x090EA003] = Struct("tunings" / GbxNodeRef)
+
+# 090EB CPlugVehicleGearBox
+# body_chucks[0x090EB]
+
+# 090EC CPlugVehicleTunings
+# body_chucks[0x090EC]
 
 # 090F4 CPlugGameSkin
 body_chunks[0x090F4003] = Struct("u01" / GbxString, "u02" / GbxString)
