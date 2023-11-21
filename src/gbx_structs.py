@@ -2919,7 +2919,8 @@ body_chunks[0x2E002019] = Struct(
     StopIf(this.version < 13),
     "vfxFile" / GbxNodeRef,
     StopIf(this.version < 15),
-    "MaterialModifier" / If(this.EntityModel >= 0, GbxNodeRef),
+    "MaterialModifier"
+    / If(lambda this: this.EntityModel >= 0 or (this.EntityModel == -1 and this.EntityModelEdition == -1), GbxNodeRef),
 )
 body_chunks[0x2E00201A] = Struct("u01" / GbxNodeRef)
 body_chunks[0x2E00201C] = Struct(
