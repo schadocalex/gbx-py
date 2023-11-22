@@ -177,10 +177,14 @@ GbxPlugSurfaceMaterialId = Struct(
 
 GbxBytesUntilFacade = Struct(
     "bytes_until_facade"
-    / ExprAdapter(
-        RepeatUntil(lambda x, lst, ctx: lst[-4:] == [0x01, 0xDE, 0xCA, 0xFA], Byte),
-        lambda obj, ctx: bytes(obj[:-4]),
-        lambda obj, ctx: GreedyBytes.build(obj + b"\x01\xDE\xCA\xFA"),
+    / IfThenElse(
+        lambda this: this._building,
+        GreedyBytes,
+        ExprAdapter(
+            RepeatUntil(lambda x, lst, ctx: lst[-4:] == [0x01, 0xDE, 0xCA, 0xFA], Byte),
+            lambda obj, ctx: bytes(obj[:-4]),
+            lambda obj, ctx: GreedyBytes.build(obj + b"\x01\xDE\xCA\xFA"),
+        ),
     ),
     Seek(-4, 1),
 )
@@ -652,7 +656,7 @@ class GbxNodeRefAdapter(Adapter):
         #     print(f"reuse {obj}")
         #     return obj
 
-        print(f"node ref {obj} + {get_noderef_offset(ctx)} => {obj + get_noderef_offset(ctx)}")
+        # print(f"node ref {obj} + {get_noderef_offset(ctx)} => {obj + get_noderef_offset(ctx)}")
         obj += get_noderef_offset(ctx)
 
         internal_node = None
@@ -934,14 +938,28 @@ body_chunks[0x03043048] = Struct(
     # ),
 )
 body_chunks[0x03043049] = Struct(
-    "version" / Int32ul,
-    "clipIntro" / GbxNodeRef,  # CGameCtnMediaClip
-    "clipPodium" / GbxNodeRef,  # CGameCtnMediaClip
-    "clipGroupInGame" / GbxNodeRef,  # CGameCtnMediaClipGroup
-    "clipGroupEndRace" / GbxNodeRef,  # CGameCtnMediaClipGroup
-    "clipAmbiance" / GbxNodeRef,  # CGameCtnMediaClip
-    "triggerSize" / GbxInt3,  # dividor
+    "bytes_until_0x0304304B"
+    / IfThenElse(
+        lambda this: this._building,
+        GreedyBytes,
+        ExprAdapter(
+            RepeatUntil(lambda x, lst, ctx: lst[-4:] == [0x4B, 0x30, 0x04, 0x03], Byte),
+            lambda obj, ctx: bytes(obj[:-4]),
+            lambda obj, ctx: GreedyBytes.build(obj + b"\x4B\x30\x04\x03"),
+        ),
+    ),
+    Seek(-4, 1),
 )
+# = Struct(
+#     "version" / Int32ul,
+#     "clipIntro" / GbxNodeRef,  # CGameCtnMediaClip
+#     "clipPodium" / GbxNodeRef,  # CGameCtnMediaClip
+#     "clipGroupInGame" / GbxNodeRef,  # CGameCtnMediaClipGroup
+#     "clipGroupEndRace" / GbxNodeRef,  # CGameCtnMediaClipGroup
+#     "clipAmbiance" / GbxNodeRef,  # CGameCtnMediaClip
+#     "triggerSize" / GbxInt3,  # dividor
+# )
+
 SHmsLightMapCacheSmall = Struct(
     "version" / Int32ul,  # 8
     "lightmapFrames"
@@ -3041,7 +3059,7 @@ body_chunks[0x2E025003] = Struct(
 # 2E026 CGameCommonItemEntityModelEdition
 
 body_chunks[0x2E026000] = Struct(
-    "version" / Int32ul,
+    "version" / Int32ul,  # 8
     "itemType" / ExprValidator(GbxEItemType, obj_ == "Ornament"),
     "meshCrystal" / GbxNodeRef,
     "u01" / GbxString,
@@ -3065,12 +3083,12 @@ body_chunks[0x2E026000] = Struct(
     "inventoryItemClass" / Int32sl,
     "inventoryOccupation" / Int32sl,
     StopIf(this.version < 6),
-    "u22" / GbxNodeRef,
+    "u22" / If(this.version < 8, GbxNodeRef),
 )
 
 # 2E027 CGameCommonItemEntityModel
 body_chunks[0x2E027000] = Struct(
-    "version" / Int32ul,
+    "version" / Int32ul,  # 6
     "staticObject" / GbxNodeRef,
     StopIf(this.version < 2),
     "props"
@@ -3079,7 +3097,7 @@ body_chunks[0x2E027000] = Struct(
         "spawnLoc" / GbxIso4,
         "emitter" / GbxNodeRef,  # CPlugParticleEmitterModel
         "actions" / PrefixedArray(Int32ul, GbxNodeRef),  # CGameCtnPlaygroundActionModel
-        "u03" / GbxNodeRef,  # unused?
+        "u03" / If(this._.version < 6, GbxNodeRef),
         "u04" / Array(5, GbxString),
         "u05" / GbxIso4,
         "u06" / ExprValidator(Int32sl, obj_ == 0),  # Array
