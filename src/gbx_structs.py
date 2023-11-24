@@ -40,7 +40,7 @@ class CompressedLZ0(Tunnel):
 class ACompressedZip(Adapter):
     def _decode(self, raw_bytes, context, path):
         self.buffer = io.BytesIO(raw_bytes)
-        return zipfile.ZipFile(self.buffer, "a")
+        return zipfile.ZipFile(self.buffer, "a", compression=zipfile.ZIP_DEFLATED)
 
     def _encode(self, zip, context, path):
         return self.buffer.getvalue()
@@ -307,6 +307,7 @@ GbxCollectionIds = {
     11: "Valley",
     26: "Stadium2020",
 }
+GbxCollectionIdsFromStr = {v: k for k, v in GbxCollectionIds.items()}
 
 
 GbxFolders = Struct(
@@ -316,10 +317,10 @@ GbxFolders = Struct(
 
 
 def need_version(this):
-    if "lookbackstring" in this._root._params.gbx_data:
+    if this._root._params.gbx_data["lookbackstring_version"]:
         return False
     else:
-        this._root._params.gbx_data["lookbackstring"] = []
+        this._root._params.gbx_data["lookbackstring_version"] = True
         return True
 
 
@@ -330,6 +331,8 @@ def need_string(this):
 
 
 def decode_lookbackstring(obj, ctx):
+    gbx_data = ctx._root._params.gbx_data
+
     flags = obj.index >> 30
     idx = obj.index & 0x3FFFFFFF
 
@@ -340,41 +343,42 @@ def decode_lookbackstring(obj, ctx):
             return ""
     elif flags == 0:
         if idx not in GbxCollectionIds:
-            print(f" -- Unknown collection id: {idx} -- ")
-            return f"Unknown collection id: {idx}"
+            s = f"<Unknown collection id: {idx}>"
+            print(s)
+            return s
         return GbxCollectionIds[idx]
     elif idx == 0:
-        # print(f"{flags} - {idx}")
-        # print(
-        #     f"add {len(ctx._root._params.gbx_data['lookbackstring'])} -- {obj.string}"
-        # )
-        ctx._root._params.gbx_data["lookbackstring"].append(obj.string)
+        # new string
+        gbx_data["lookbackstring_index"] += 1
+        gbx_data["lookbackstring_table"][gbx_data["lookbackstring_index"]] = obj.string
         return obj.string
-    elif idx <= len(ctx._root._params.gbx_data["lookbackstring"]):
-        return ctx._root._params.gbx_data["lookbackstring"][idx - 1]
+    elif idx in gbx_data["lookbackstring_table"]:
+        # known string
+        return gbx_data["lookbackstring_table"][idx]
     else:
-        print(f"<INVALID IDX: {idx-1}>")
-        return f"<INVALID IDX: {idx-1}>"
+        s = f"<INVALID IDX: {idx}>"
+        print(s)
+        return s
 
 
 def encode_lookbackstring(obj, ctx):
+    gbx_data = ctx._root._params.gbx_data
     idx = 0x40000000
 
     if obj == "Unassigned":
         idx = 0xBFFFFFFF
     elif obj == "":
         idx = 0xFFFFFFFF
-
-    for key, value in GbxCollectionIds.items():
-        if value == obj:
-            idx = key
-            break
+    elif obj in GbxCollectionIdsFromStr:
+        idx = GbxCollectionIdsFromStr[obj]
+    elif obj in gbx_data["lookbackstring_table"]:
+        # known string
+        idx = 0x40000000 | gbx_data["lookbackstring_table"][obj]
     else:
-        if "lookbackstring" in ctx._root._params.gbx_data:
-            for key, value in enumerate(ctx._root._params.gbx_data["lookbackstring"]):
-                if value == obj:
-                    idx |= key + 1
-                    break
+        # new string
+        gbx_data["lookbackstring_index"] += 1
+        gbx_data["lookbackstring_table"][obj] = gbx_data["lookbackstring_index"]
+        idx = 0x40000000
 
     return Container(version=3, index=idx, string=obj)
 
@@ -400,22 +404,36 @@ class GbxLookbackStringContext(Construct):
         self.subcon = subcon
 
     def _parse(self, stream, context, path):
-        old_ctx = context._root._params.gbx_data["lookbackstring"]
-        context._root._params.gbx_data.pop("lookbackstring", None)
+        old_table = context._root._params.gbx_data.pop("lookbackstring_table", None)
+        old_index = context._root._params.gbx_data.pop("lookbackstring_index", None)
+        old_version = context._root._params.gbx_data.pop("lookbackstring_version", None)
+
+        context._root._params.gbx_data["lookbackstring_table"] = {}
+        context._root._params.gbx_data["lookbackstring_index"] = 0
+        context._root._params.gbx_data["lookbackstring_version"] = False
 
         res = self.subcon._parse(stream, context, path)
 
-        context._root._params.gbx_data["lookbackstring"] = old_ctx
+        context._root._params.gbx_data["lookbackstring_table"] = old_table
+        context._root._params.gbx_data["lookbackstring_index"] = old_index
+        context._root._params.gbx_data["lookbackstring_version"] = old_version
 
         return res
 
     def _build(self, obj, stream, context, path):
-        old_ctx = context._root._params.gbx_data["lookbackstring"]
-        context._root._params.gbx_data.pop("lookbackstring", None)
+        old_table = context._root._params.gbx_data.pop("lookbackstring_table", None)
+        old_index = context._root._params.gbx_data.pop("lookbackstring_index", None)
+        old_version = context._root._params.gbx_data.pop("lookbackstring_version", None)
+
+        context._root._params.gbx_data["lookbackstring_table"] = {}
+        context._root._params.gbx_data["lookbackstring_index"] = 0
+        context._root._params.gbx_data["lookbackstring_version"] = False
 
         res = self.subcon._build(obj, stream, context, path)
 
-        context._root._params.gbx_data["lookbackstring"] = old_ctx
+        context._root._params.gbx_data["lookbackstring_table"] = old_table
+        context._root._params.gbx_data["lookbackstring_index"] = old_index
+        context._root._params.gbx_data["lookbackstring_version"] = old_version
 
         return res
 
@@ -3242,7 +3260,34 @@ header_chunks[0x2E001004] = Struct(
 )
 
 header_chunks[0x090F4005] = body_chunks[0x090F4005]
-
+header_chunks[0x03043003] = Struct(
+    "version" / Int8ul,  # 11
+    "mapInfo" / GbxMeta,
+    "mapName" / GbxString,
+    "kindInHeader" / GbxEMapKindInHeader,
+    StopIf(this.version < 1),
+    "u03" / Int32ul,
+    "password" / GbxString,
+    StopIf(this.version < 2),
+    "decoration" / GbxMeta,
+    StopIf(this.version < 3),
+    "mapCoordOrigin" / GbxVec2,
+    StopIf(this.version < 4),
+    "mapCoordTarget" / GbxVec2,
+    StopIf(this.version < 5),
+    "u01" / Bytes(16),
+    StopIf(this.version < 6),
+    "mapType" / GbxString,
+    "mapStyle" / GbxString,
+    StopIf(this.version < 7),
+    "u02" / If(this.version == 7, Int32sl),
+    StopIf(this.version < 8),
+    "lightmapCacheUID" / Int64ul,
+    StopIf(this.version < 9),
+    "lightmapVersion" / Int8ul,
+    StopIf(this.version < 11),
+    "titleID" / GbxLookbackString,
+)
 header_chunks[0x03043005] = Struct("xml" / GbxString)
 
 
@@ -3303,7 +3348,11 @@ def create_gbx_struct(gbx_body):
                                         lambda this: len(
                                             header_chunks[this._.id].build(
                                                 this._._._.data[this._index],
-                                                gbx_data={},
+                                                gbx_data={
+                                                    "lookbackstring_table": {},
+                                                    "lookbackstring_index": 0,
+                                                    "lookbackstring_version": False,
+                                                },
                                             )
                                         )
                                         if this._.id in header_chunks
@@ -3316,7 +3365,7 @@ def create_gbx_struct(gbx_body):
                     "data"
                     / Array(
                         lambda this: len(this.entries),
-                        ExprAdapter(
+                        GbxLookbackStringContext(
                             Select(
                                 Switch(
                                     lambda this: this.entries[this._index].id,
@@ -3327,9 +3376,7 @@ def create_gbx_struct(gbx_body):
                                     "parse_header_chunk_failed"
                                     / Bytes(lambda this: this._.entries[this._index].meta.size)
                                 ),
-                            ),
-                            reset_lookbackstring,
-                            reset_lookbackstring,
+                            )
                         ),
                     ),
                 ),
@@ -3374,10 +3421,12 @@ def create_gbx_struct(gbx_body):
             ),
         ),
         "body"
-        / IfThenElse(
-            this.bodyCompression == "compressed",
-            CompressedLZ0(gbx_body),
-            gbx_body,
+        / GbxLookbackStringContext(
+            IfThenElse(
+                this.bodyCompression == "compressed",
+                CompressedLZ0(gbx_body),
+                gbx_body,
+            )
         ),
         "rest" / Optional(GreedyBytes),
     )
