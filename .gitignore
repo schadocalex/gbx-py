@@ -3,6 +3,7 @@ dist/
 __pycache__
 result.csv
 *.spec
+.vscode/
 ExportObj
 lm_samples
 missing_files*

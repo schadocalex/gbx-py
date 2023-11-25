@@ -14,7 +14,8 @@ from src.my_construct import MyRepeatUntil
 from src.gbx_enums import *
 
 GbxCompressedBody = Struct(
-    "uncompressed_size" / Int32ul, "compressed_body" / Prefixed(Int32ul, GreedyBytes)
+    "uncompressed_size" / Int32ul,
+    "compressed_body" / Prefixed(Int32ul, GreedyBytes),
 )
 
 
@@ -39,7 +40,7 @@ class CompressedLZ0(Tunnel):
 class ACompressedZip(Adapter):
     def _decode(self, raw_bytes, context, path):
         self.buffer = io.BytesIO(raw_bytes)
-        return zipfile.ZipFile(self.buffer, "a")
+        return zipfile.ZipFile(self.buffer, "a", compression=zipfile.ZIP_DEFLATED)
 
     def _encode(self, zip, context, path):
         return self.buffer.getvalue()
@@ -170,15 +171,20 @@ GbxBoxInt = Struct(
 )
 GbxColor = Struct("b" / Byte, "g" / Byte, "r" / Byte, "a" / Byte)
 GbxPlugSurfaceMaterialId = Struct(
-    "physicsId" / GbxEPlugSurfacePhysicsId, "gameplayId" / GbxEPlugSurfaceGameplayId
+    "physicsId" / GbxEPlugSurfacePhysicsId,
+    "gameplayId" / GbxEPlugSurfaceGameplayId,
 )
 
 GbxBytesUntilFacade = Struct(
     "bytes_until_facade"
-    / ExprAdapter(
-        RepeatUntil(lambda x, lst, ctx: lst[-4:] == [0x01, 0xDE, 0xCA, 0xFA], Byte),
-        lambda obj, ctx: bytes(obj[:-4]),
-        lambda obj, ctx: GreedyBytes.build(obj + b"\x01\xDE\xCA\xFA"),
+    / IfThenElse(
+        lambda this: this._building,
+        GreedyBytes,
+        ExprAdapter(
+            RepeatUntil(lambda x, lst, ctx: lst[-4:] == [0x01, 0xDE, 0xCA, 0xFA], Byte),
+            lambda obj, ctx: bytes(obj[:-4]),
+            lambda obj, ctx: GreedyBytes.build(obj + b"\x01\xDE\xCA\xFA"),
+        ),
     ),
     Seek(-4, 1),
 )
@@ -207,11 +213,7 @@ class AGbxDec3N(Adapter):
         )
 
     def _encode(self, obj, ctx, path):
-        return (
-            float_to_tenb(obj.x)
-            + (float_to_tenb(obj.y) << 10)
-            + (float_to_tenb(obj.z) << 20)
-        )
+        return float_to_tenb(obj.x) + (float_to_tenb(obj.y) << 10) + (float_to_tenb(obj.z) << 20)
 
 
 GbxDec3N = AGbxDec3N(Int32ul)
@@ -306,6 +308,7 @@ GbxCollectionIds = {
     26: "Stadium2020",
     10003: "PlayerModels2020",
 }
+GbxCollectionIdsFromStr = {v: k for k, v in GbxCollectionIds.items()}
 
 
 GbxFolders = Struct(
@@ -315,10 +318,10 @@ GbxFolders = Struct(
 
 
 def need_version(this):
-    if "lookbackstring" in this._root._params.gbx_data:
+    if this._root._params.gbx_data["lookbackstring_version"]:
         return False
     else:
-        this._root._params.gbx_data["lookbackstring"] = []
+        this._root._params.gbx_data["lookbackstring_version"] = True
         return True
 
 
@@ -329,6 +332,8 @@ def need_string(this):
 
 
 def decode_lookbackstring(obj, ctx):
+    gbx_data = ctx._root._params.gbx_data
+
     flags = obj.index >> 30
     idx = obj.index & 0x3FFFFFFF
 
@@ -339,41 +344,42 @@ def decode_lookbackstring(obj, ctx):
             return ""
     elif flags == 0:
         if idx not in GbxCollectionIds:
-            print(f" -- Unknown collection id: {idx} -- ")
-            return f"Unknown collection id: {idx}"
+            s = f"<Unknown collection id: {idx}>"
+            print(s)
+            return s
         return GbxCollectionIds[idx]
     elif idx == 0:
-        # print(f"{flags} - {idx}")
-        # print(
-        #     f"add {len(ctx._root._params.gbx_data['lookbackstring'])} -- {obj.string}"
-        # )
-        ctx._root._params.gbx_data["lookbackstring"].append(obj.string)
+        # new string
+        gbx_data["lookbackstring_index"] += 1
+        gbx_data["lookbackstring_table"][gbx_data["lookbackstring_index"]] = obj.string
         return obj.string
-    elif idx <= len(ctx._root._params.gbx_data["lookbackstring"]):
-        return ctx._root._params.gbx_data["lookbackstring"][idx - 1]
+    elif idx in gbx_data["lookbackstring_table"]:
+        # known string
+        return gbx_data["lookbackstring_table"][idx]
     else:
-        print(f"<INVALID IDX: {idx-1}>")
-        return f"<INVALID IDX: {idx-1}>"
+        s = f"<INVALID IDX: {idx}>"
+        print(s)
+        return s
 
 
 def encode_lookbackstring(obj, ctx):
+    gbx_data = ctx._root._params.gbx_data
     idx = 0x40000000
 
     if obj == "Unassigned":
         idx = 0xBFFFFFFF
     elif obj == "":
         idx = 0xFFFFFFFF
-
-    for key, value in GbxCollectionIds.items():
-        if value == obj:
-            idx = key
-            break
+    elif obj in GbxCollectionIdsFromStr:
+        idx = GbxCollectionIdsFromStr[obj]
+    elif obj in gbx_data["lookbackstring_table"]:
+        # known string
+        idx = 0x40000000 | gbx_data["lookbackstring_table"][obj]
     else:
-        if "lookbackstring" in ctx._root._params.gbx_data:
-            for key, value in enumerate(ctx._root._params.gbx_data["lookbackstring"]):
-                if value == obj:
-                    idx |= key + 1
-                    break
+        # new string
+        gbx_data["lookbackstring_index"] += 1
+        gbx_data["lookbackstring_table"][obj] = gbx_data["lookbackstring_index"]
+        idx = 0x40000000
 
     return Container(version=3, index=idx, string=obj)
 
@@ -399,22 +405,36 @@ class GbxLookbackStringContext(Construct):
         self.subcon = subcon
 
     def _parse(self, stream, context, path):
-        old_ctx = context._root._params.gbx_data["lookbackstring"]
-        context._root._params.gbx_data.pop("lookbackstring", None)
+        old_table = context._root._params.gbx_data.pop("lookbackstring_table", None)
+        old_index = context._root._params.gbx_data.pop("lookbackstring_index", None)
+        old_version = context._root._params.gbx_data.pop("lookbackstring_version", None)
+
+        context._root._params.gbx_data["lookbackstring_table"] = {}
+        context._root._params.gbx_data["lookbackstring_index"] = 0
+        context._root._params.gbx_data["lookbackstring_version"] = False
 
         res = self.subcon._parse(stream, context, path)
 
-        context._root._params.gbx_data["lookbackstring"] = old_ctx
+        context._root._params.gbx_data["lookbackstring_table"] = old_table
+        context._root._params.gbx_data["lookbackstring_index"] = old_index
+        context._root._params.gbx_data["lookbackstring_version"] = old_version
 
         return res
 
     def _build(self, obj, stream, context, path):
-        old_ctx = context._root._params.gbx_data["lookbackstring"]
-        context._root._params.gbx_data.pop("lookbackstring", None)
+        old_table = context._root._params.gbx_data.pop("lookbackstring_table", None)
+        old_index = context._root._params.gbx_data.pop("lookbackstring_index", None)
+        old_version = context._root._params.gbx_data.pop("lookbackstring_version", None)
+
+        context._root._params.gbx_data["lookbackstring_table"] = {}
+        context._root._params.gbx_data["lookbackstring_index"] = 0
+        context._root._params.gbx_data["lookbackstring_version"] = False
 
         res = self.subcon._build(obj, stream, context, path)
 
-        context._root._params.gbx_data["lookbackstring"] = old_ctx
+        context._root._params.gbx_data["lookbackstring_table"] = old_table
+        context._root._params.gbx_data["lookbackstring_index"] = old_index
+        context._root._params.gbx_data["lookbackstring_version"] = old_version
 
         return res
 
@@ -561,10 +581,13 @@ GbxBodyChunks = MyRepeatUntil(
             "chunk"
             / Prefixed(
                 Int32ul,
-                Switch(
-                    this.chunkId,
-                    body_chunks,
-                    default=GreedyBytes,
+                Select(
+                    Switch(
+                        this.chunkId,
+                        body_chunks,
+                        default=GreedyBytes,
+                    ),
+                    Struct("_chunkParseFailed" / GreedyBytes * print_chunk_fail),
                 ),
             ),
         ),
@@ -574,9 +597,7 @@ GbxBodyChunks = MyRepeatUntil(
             / Switch(
                 this.chunkId,
                 body_chunks,
-                default=Struct(
-                    "_unknownChunkId" / GbxBytesUntilFacade * print_chunk_unknown
-                ),
+                default=Struct("_unknownChunkId" / GbxBytesUntilFacade * print_chunk_unknown),
             ),
         ),
         Struct(
@@ -598,16 +619,15 @@ GbxBody = IfThenElse(
     Switch(
         lambda this: this.classId,
         body_chunks,
-        default=Struct(
-            "unknown_chunk_in_node_ref" / GreedyBytes * print_chunk_unknown_noderef
-        ),
+        default=Struct("unknown_chunk_in_node_ref" / GreedyBytes * print_chunk_unknown_noderef),
     ),
     GbxBodyChunks
     # EndWithFACADE01(GbxBodyChunks),
 )
+# TODO GbxClass is GbxNodeRef when encapsulated
 GbxClass = Struct(
     "classId" / GbxChunkId,
-    "body" / GbxBody,
+    "body" / If(lambda this: this.classId != 0xFFFFFFFF, GbxBody),
 )
 
 
@@ -655,9 +675,7 @@ class GbxNodeRefAdapter(Adapter):
         #     print(f"reuse {obj}")
         #     return obj
 
-        print(
-            f"node ref {obj} + {get_noderef_offset(ctx)} => {obj + get_noderef_offset(ctx)}"
-        )
+        # print(f"node ref {obj} + {get_noderef_offset(ctx)} => {obj + get_noderef_offset(ctx)}")
         obj += get_noderef_offset(ctx)
 
         internal_node = None
@@ -714,7 +732,7 @@ body_chunks[0x03036001] = Struct(
     "u03" / Int32sl,
 )
 body_chunks[0x03036002] = Struct(
-    "u01" / Bytes(12),  # undergound?
+    "u01" / GbxBytesUntilFacade,  # Bytes(12),  # undergound?
 )
 body_chunks[0x03036004] = Struct(
     "u01" / Int32sl,
@@ -801,8 +819,7 @@ GbxBlockInstance = Struct(
         ),
     ),
     "u05" / If(this.flags.hasU05, GbxNodeRef),  # CPlugCharPhySpecialProperty
-    "waypointParams"
-    / If(this.flags.isWaypoint, GbxNodeRef),  # CGameWaypointSpecialProperty
+    "waypointParams" / If(this.flags.isWaypoint, GbxNodeRef),  # CGameWaypointSpecialProperty
     "obsolete0" / If(this.flags.hasObsolete0, Pass),  # obsolete, list of vec3?
     "u06"
     / If(
@@ -940,14 +957,28 @@ body_chunks[0x03043048] = Struct(
     # ),
 )
 body_chunks[0x03043049] = Struct(
-    "version" / Int32ul,
-    "clipIntro" / GbxNodeRef,  # CGameCtnMediaClip
-    "clipPodium" / GbxNodeRef,  # CGameCtnMediaClip
-    "clipGroupInGame" / GbxNodeRef,  # CGameCtnMediaClipGroup
-    "clipGroupEndRace" / GbxNodeRef,  # CGameCtnMediaClipGroup
-    "clipAmbiance" / GbxNodeRef,  # CGameCtnMediaClip
-    "triggerSize" / GbxInt3,  # dividor
+    "bytes_until_0x0304304B"
+    / IfThenElse(
+        lambda this: this._building,
+        GreedyBytes,
+        ExprAdapter(
+            RepeatUntil(lambda x, lst, ctx: lst[-4:] == [0x4B, 0x30, 0x04, 0x03], Byte),
+            lambda obj, ctx: bytes(obj[:-4]),
+            lambda obj, ctx: GreedyBytes.build(obj + b"\x4B\x30\x04\x03"),
+        ),
+    ),
+    Seek(-4, 1),
 )
+# = Struct(
+#     "version" / Int32ul,
+#     "clipIntro" / GbxNodeRef,  # CGameCtnMediaClip
+#     "clipPodium" / GbxNodeRef,  # CGameCtnMediaClip
+#     "clipGroupInGame" / GbxNodeRef,  # CGameCtnMediaClipGroup
+#     "clipGroupEndRace" / GbxNodeRef,  # CGameCtnMediaClipGroup
+#     "clipAmbiance" / GbxNodeRef,  # CGameCtnMediaClip
+#     "triggerSize" / GbxInt3,  # dividor
+# )
+
 SHmsLightMapCacheSmall = Struct(
     "version" / Int32ul,  # 8
     "lightmapFrames"
@@ -1032,8 +1063,7 @@ body_chunks[0x0304E023] = Struct(
 body_chunks[0x0304E026] = Struct("wayPointType" / GbxEWayPointType)
 body_chunks[0x0304E027] = Struct(
     "listVersion" / ExprValidator(Int32ul, obj_ == 10),
-    "additionalVariantsGround"
-    / PrefixedArray(Int32ul, GbxNodeRef),  # CGameCtnBlockInfoVariantGround
+    "additionalVariantsGround" / PrefixedArray(Int32ul, GbxNodeRef),  # CGameCtnBlockInfoVariantGround
 )
 body_chunks[0x0304E028] = Struct(
     "symmetricalBlockInfoId" / GbxLookbackString,
@@ -1055,8 +1085,7 @@ body_chunks[0x0304E02B] = Struct(
 )
 body_chunks[0x0304E02C] = Struct(
     "version" / Int32ul,
-    "additionalVariantsAir"
-    / PrefixedArray(Int32ul, GbxNodeRef),  # CGameCtnBlockInfoVariantAir
+    "additionalVariantsAir" / PrefixedArray(Int32ul, GbxNodeRef),  # CGameCtnBlockInfoVariantAir
 )
 body_chunks[0x0304E02F] = Struct(
     "version" / Int32ul,
@@ -1112,7 +1141,7 @@ body_chunks[0x03101002] = Struct(
     "blockUnitCoord" / GbxVec3Byte,
     "anchorTreeId" / GbxLookbackString,
     "absolutePositionInMap" / GbxVec3,
-    "waypointSpecialProperty" / GbxNodeRef,
+    "waypointSpecialProperty" / GbxClass,
     "u03" / If(this.version < 5, Int32sl),
     StopIf(this.version < 4),
     "flags" / Int16ul,
@@ -1208,10 +1237,7 @@ body_chunks[0x0315B003] = Struct(
 body_chunks[0x0315B004] = Struct("u01" / Int16sl)
 body_chunks[0x0315B005] = Struct(
     "version" / Int32ul,  # 3
-    "mobils"
-    / PrefixedArray(
-        Int32ul, PrefixedArray(Int32ul, GbxNodeRef)
-    ),  # CGameCtnBlockInfoMobil
+    "mobils" / PrefixedArray(Int32ul, PrefixedArray(Int32ul, GbxNodeRef)),  # CGameCtnBlockInfoMobil
     StopIf(this.version < 2),
     "u02" / Int32sl,
     "u03" / Int32sl,
@@ -1236,8 +1262,7 @@ body_chunks[0x0315B006] = Struct(
     "turbine" / GbxNodeRef,  # CGameTurbineModel
     StopIf(this.version < 7),
     "flockModel" / GbxNodeRef,  # CPlugFlockModel
-    "flockEmmiter"
-    / If(this.flockModel > 0, PrefixedArray(Int32ul, Struct("TODO" / GreedyBytes))),
+    "flockEmmiter" / If(this.flockModel > 0, PrefixedArray(Int32ul, Struct("TODO" / GreedyBytes))),
     StopIf(this.version < 8),
     "spawnModel" / GbxNodeRef,  # CGameSpawnModel
     StopIf(this.version < 10),
@@ -1310,6 +1335,7 @@ body_chunks[0x0315B00D] = Struct(
 )
 
 # 0315C CGameCtnBlockInfoVariantGround
+
 body_chunks[0x0315C001] = Struct(
     "version" / Int32ul,
     "listVersion" / ExprValidator(Int32ul, obj_ == 10),
@@ -1318,7 +1344,73 @@ body_chunks[0x0315C001] = Struct(
     "autoTerrainPlaceType" / GbxEAutoTerrainPlaceType,
 )
 
+# 04001 GxLight
+
+body_chunks[0x400100A] = Struct(
+    "version" / Int32ul,  # 0
+    "u01" / GbxFloat,
+    "u02" / GbxFloat,
+    "u03" / GbxFloat,
+    "u04" / Int32sl,
+    "u05" / GbxFloat,
+    "u06" / GbxFloat,
+    "u07" / GbxFloat,
+    "u08" / GbxFloat,
+    "u09" / GbxVec3,
+)
+
+# 04002 CGxLightBall
+# inherits GxLightPoint
+
+body_chunks[0x04002008] = Struct(
+    "u01" / Int32sl,
+    "u02" / GbxFloat,
+    "u03" / GbxFloat,
+    "u04" / GbxFloat,
+    "u05" / GbxFloat,
+    "u06" / GbxFloat,
+    "u07" / GbxFloat,
+    "u08" / GbxFloat,
+    "u09" / GbxFloat,
+    "u10" / GbxFloat,
+    "u11" / GbxFloat,
+    "u12" / GbxFloat,
+    "u13" / GbxFloat,
+    "u14" / GbxFloat,
+)
+body_chunks[0x04002009] = Struct(
+    "u01" / GbxFloat,
+)
+body_chunks[0x0400200A] = Struct(
+    "u01" / GbxFloat,
+)
+
+# 04003 GxLightPoint
+# inherits GxLight
+
+body_chunks[0x04003004] = Struct(
+    "u01" / GbxFloat,  # FlareSize?
+    "u02" / GbxFloat,  # FlareBiasZ?
+)
+
+# 0400B CGxLightSpot
+# inherits CGxLightBall
+
+body_chunks[0x0400B003] = Struct(
+    "version" / Int32ul,  # 1
+    "u01" / Int32sl,
+    "u02" / GbxFloat,
+    "u03" / GbxFloat,
+    "u04" / GbxFloat,
+    "u05" / GbxFloat,
+    "u06" / GbxFloat,
+    "u07" / If(this.version >= 1, Int8sl),
+    "u08" / If(this.version >= 1, Int8sl),
+    "u09" / GbxFloat,
+)
+
 # 06022 LightMapCache
+
 body_chunks[0x0602200B] = Struct(
     "mapT3s" / PrefixedArray(Int32ul, Int32sl),
 )
@@ -1384,12 +1476,10 @@ GbxLightMapCacheMapping = Struct(
             "objGroupIdx" / Int16ul,
         )[this._.count]
     ),
-    "positions"
-    / CompressedZLib(GbxTexPos[this._.count]),  # position of the mesh uv in lightmap
+    "positions" / CompressedZLib(GbxTexPos[this._.count]),  # position of the mesh uv in lightmap
     "sizes" / CompressedZLib(GbxTexPos[this._.count]),
     "u09" / Int32sl,
-    "colorData"
-    / CompressedZLib(PrefixedArray(Int32ul, PrefixedArray(Int32ul, Int8ul))),
+    "colorData" / CompressedZLib(PrefixedArray(Int32ul, PrefixedArray(Int32ul, Int8ul))),
     # first one: shadow brightness
 )
 body_chunks[0x0602201A] = Struct(
@@ -1475,10 +1565,7 @@ GbxCrystal = Struct(
             this.facesCount,
             Struct(
                 "vertCount" / Int8ul,
-                "inds"
-                / GbxOptimizedIntArray(
-                    this.vertCount + 3, lambda this: len(this._.positions)
-                ),
+                "inds" / GbxOptimizedIntArray(this.vertCount + 3, lambda this: len(this._.positions)),
                 "material_index" / GbxOptimizedInt(1),  # TODO
                 "group_index" / GbxOptimizedInt(1),  # TODO
             ),
@@ -1492,9 +1579,7 @@ GbxCrystal_Geometry = Struct(
     "isVisible" / GbxBool,
     "isCollidable" / GbxBool,
 )
-GbxCrystal_Trigger = Struct(
-    "crystal" / GbxCrystal, "u01" / PrefixedArray(Int32ul, Int32sl)
-)
+GbxCrystal_Trigger = Struct("crystal" / GbxCrystal, "u01" / PrefixedArray(Int32ul, Int32sl))
 
 body_chunks[0x09003003] = Struct(
     "version" / Int32ul,
@@ -1548,14 +1633,93 @@ body_chunks[0x09003007] = Struct(
     "u02" / PrefixedArray(Int32ul, Int32sl),
 )
 
+# 09005 CPlugSolid
+
+GbxPlugSolidUvGroup = Struct(
+    "u01" / GbxFloat,
+    "u02" / GbxFloat,
+    "u03" / GbxFloat,
+    "u04" / GbxFloat,
+    "u05" / GbxFloat,
+)
+GbxPlugSolidPreLightGen = Struct(
+    "version" / Int32ul,
+    "u01" / Int32sl,
+    "u02" / GbxFloat,
+    "u03" / GbxBool,
+    "u04" / GbxFloat,
+    "u05" / GbxFloat,
+    "u06" / GbxFloat,
+    "u07" / GbxFloat,
+    "u08" / GbxFloat,
+    "u09" / GbxFloat,
+    "u10" / GbxFloat,
+    "u11" / GbxFloat,
+    "u12" / Int32sl,
+    "u13" / Int32sl,
+    "u14" / PrefixedArray(Int32ul, GbxBox),
+    StopIf(this.version < 1),
+    "u15" / PrefixedArray(Int32ul, GbxPlugSolidUvGroup),
+)
+GbxPlugSolidLocatedInstance = Struct(
+    "u01" / Int32sl,
+    "u02" / GbxIso4,
+)
+
+body_chunks[0x09005000] = Struct("typeAndIndex" / Int32sl)
+body_chunks[0x09005010] = Struct("u01" / GbxNodeRef)
+body_chunks[0x09005011] = Struct(
+    "u01" / GbxBool,
+    "u02" / GbxBool,
+    "u03" / If(this.u02, GbxBool),
+    "tree" / GbxNodeRef,
+)
+body_chunks[0x09005017] = Struct(
+    "version" / ExprValidator(Int32ul, obj_ == 3),  # 3
+    "u09" / If(this.version >= 3, GbxBool),
+    "solidPreLightGen" / If(this.u09, GbxPlugSolidPreLightGen),
+    # TODO version < 3
+    StopIf(this.version < 2),
+    "fileWriteTime" / GbxFileTime,
+)
+body_chunks[0x09005019] = Struct(
+    "version" / Int32ul,  # 5
+    "_listVersion1" / Int32ul,
+    "u01" / PrefixedArray(Int32ul, GbxNodeRef),  # CPlugSound
+    "_listVersion2" / Int32ul,
+    "u02" / PrefixedArray(Int32ul, GbxNodeRef),  # CPlugParticleEmitterModel
+    "u03" / PrefixedArray(Int32ul, GbxPlugSolidLocatedInstance),
+    "u04" / PrefixedArray(Int32ul, GbxPlugSolidLocatedInstance),
+    StopIf(this.version < 1),
+    "u05" / Int32sl,
+    StopIf(this.version < 2),
+    "u06" / PrefixedArray(Int32ul, GbxLookbackString),
+    "u07" / PrefixedArray(Int32ul, GbxIso4),
+    StopIf(this.version < 3),
+    "u08" / GbxString,
+    StopIf(this.version < 4),
+    "u09" / Int32sl,
+    StopIf(this.version < 5),
+    "u10" / GbxNodeRef,  # CPlugPath
+)
+# body_chunks[0x0900501A] = Struct(
+#     "version" / ExprValidator(Int32ul, obj_ == 4),  # 4
+#     "u01"
+#     / Struct(
+#         "version" / Int32ul,  # version
+#         "u01" / GbxNodeRef, # CPlugVisualIndexedTriangles
+#         TODO
+#     ),
+# )
+
 # 09006 CPlugVisual
+
 body_chunks[0x09006001] = Struct("u01" / GbxNodeRef)
 body_chunks[0x09006004] = Struct("u01" / GbxNodeRef)
 body_chunks[0x09006005] = Struct("sub_visuals" / PrefixedArray(Int32ul, GbxInt3))
 body_chunks[0x09006009] = Struct("has_vertex_normals " / GbxBool)
 body_chunks[0x0900600B] = Struct(
-    "splits "
-    / PrefixedArray(Int32ul, Struct("u01" / Int32sl, "u02" / Int32sl, "u03" / GbxBox))
+    "splits " / PrefixedArray(Int32ul, Struct("u01" / Int32sl, "u02" / Int32sl, "u03" / GbxBox))
 )
 
 
@@ -1667,9 +1831,7 @@ body_chunks[0x0900600F] = Struct(
     "ByteCount" / Int32ul,
     "u04" / If(this.ByteCount > 0, Bytes(this.ByteCount - 4)),
 )
-body_chunks[0x09006010] = Struct(
-    "version" / Int32ul, "morph_count" / ExprValidator(Int32ul, obj_ == 0)
-)
+body_chunks[0x09006010] = Struct("version" / Int32ul, "morph_count" / ExprValidator(Int32ul, obj_ == 0))
 
 # 0900C CPlugSurface
 
@@ -1725,16 +1887,32 @@ body_chunks[0x0900C003] = Struct(
     / PrefixedArray(
         Int32ul,
         Struct(
-            "hasMaterial"
-            / GbxBool,  # Rebuild(GbxBool, lambda this: this.material is not None),
+            "hasMaterial" / GbxBool,  # Rebuild(GbxBool, lambda this: this.material is not None),
             "material" / If(this.hasMaterial, GbxNodeRef),
-            "materialId"
-            / If(lambda this: not this.hasMaterial, GbxPlugSurfaceMaterialId),
+            "materialId" / If(lambda this: not this.hasMaterial, GbxPlugSurfaceMaterialId),
         ),
     ),
     "u01" / If(lambda this: len(this.materials) > 0, Int32sl),  # TODO check condition
     "materialsIds" / PrefixedArray(Int32ul, GbxPlugSurfaceMaterialId),
     "skel" / If(this.version >= 1, GbxNodeRef),
+)
+
+# 0901D CPlugLight
+
+body_chunks[0x0901D003] = Struct(
+    "version" / Int32ul,  # 1
+    "image" / GbxNodeRef,  # CPlugFileImg
+    "u01" / GbxFloat,
+    "u02" / GbxFloat,
+    StopIf(this.version < 1),
+    "u03" / Int32sl,
+)
+body_chunks[0x0901D004] = Struct(
+    "version" / Int32ul,  # 0
+    "u01_CGxLightSpot" / GbxNodeRef,  # CGxLightSpot
+    "u02" / Int32sl,
+    # "u03_CPlugMaterialColorTargetTable" / GbxNodeRef,  # CPlugMaterialColorTargetTable
+    "rest" / GbxBytesUntilFacade,
 )
 
 # 0902C CPlugVisual3D
@@ -1749,8 +1927,7 @@ def get_chunk_900600F(ctx):
 body_chunks[0x0902C002] = Struct("u01" / GbxNodeRef)
 body_chunks[0x0902C004] = Struct(
     "flags" / Computed(lambda ctx: get_chunk_900600F(ctx).ChunkFlags),
-    "readNormals"
-    / Computed(lambda this: not this.flags.bit22 or this.flags.HasVertexNormals),
+    "readNormals" / Computed(lambda this: not this.flags.bit22 or this.flags.HasVertexNormals),
     "u02" / Computed(lambda this: not this.flags.bit22 or this.flags.bit8),
     "u03" / Computed(lambda this: this.flags.bit20),  # or CPlugVisualSprite
     "vertices"
@@ -1787,10 +1964,8 @@ body_chunks[0x0902C004] = Struct(
             ),
         ),
     ),
-    "tangentsU"
-    / PrefixedArray(Int32ul, IfThenElse(this._.flags.bit20, GbxDec3N, GbxVec3)),
-    "tangentsV"
-    / PrefixedArray(Int32ul, IfThenElse(this._.flags.bit20, GbxDec3N, GbxVec3)),
+    "tangentsU" / PrefixedArray(Int32ul, IfThenElse(this._.flags.bit20, GbxDec3N, GbxVec3)),
+    "tangentsV" / PrefixedArray(Int32ul, IfThenElse(this._.flags.bit20, GbxDec3N, GbxVec3)),
 )
 
 # 0903A CPlugMaterialCustom
@@ -1839,7 +2014,30 @@ body_chunks[0x0903A013] = Struct(
     ),
 )
 
+# 0904F
+
+body_chunks[0x0904F006] = Struct(
+    "listVersion" / Int32sl,
+    "children" / PrefixedArray(Int32ul, GbxNodeRef),
+)
+body_chunks[0x0904F00D] = Struct(
+    "name" / GbxLookbackString,
+    "u02" / GbxLookbackString,
+)
+body_chunks[0x0904F011] = Struct("funcTree" / GbxNodeRef)
+body_chunks[0x0904F016] = Struct(
+    "visual" / GbxNodeRef,
+    "shaderFile" / GbxNodeRef,
+    "surface" / GbxNodeRef,
+    "generator" / GbxNodeRef,
+)
+body_chunks[0x0904F01A] = Struct(
+    "flags" / Int32ul,
+    "translation" / If(lambda this: (this.flags & 4) != 0, GbxIso4),
+)
+
 # 09051 CPlugTreeGenerator
+
 body_chunks[0x09051000] = Struct(
     "version" / Int32ul,
 )
@@ -1959,8 +2157,7 @@ body_chunks[0x09079015] = Struct(
         ),
         Struct(
             StopIf(this._.version < 6),
-            "colorTargetTable"
-            / PrefixedArray(Int32ul, GbxNodeRef),  # CPlugMaterialColorTargetTable
+            "colorTargetTable" / PrefixedArray(Int32ul, GbxNodeRef),  # CPlugMaterialColorTargetTable
             StopIf(this._.version < 7),
             "waterArray" / GbxNodeRef,  # CPlugMaterialWaterArray
         ),
@@ -1984,6 +2181,26 @@ body_chunks[0x09079019] = Struct(
     "flags" / If(this.u01 != 0, Bytes(4)),
 )
 
+# 090F9 CPlugLightUserModel
+
+body_chunks[0x090F9000] = Struct(
+    "version" / Int32ul,  # 1
+    "u01" / GbxFloat,
+    "u02" / GbxFloat,
+    "u03" / GbxFloat,
+    "u04" / GbxFloat,
+    "u05" / GbxFloat,
+    "u06" / GbxFloat,
+    "u07" / GbxFloat,
+    "u08" / GbxFloat,
+    "u09" / GbxFloat,
+    "u10" / GbxFloat,
+    "u11" / GbxFloat,
+    "u12" / GbxFloat,
+    StopIf(this.version < 1),
+    "u13" / GbxFloat,
+)
+
 # 09144 CPlugDynaObjectModel
 
 body_chunks[0x09144000] = Struct(
@@ -1991,8 +2208,7 @@ body_chunks[0x09144000] = Struct(
     "IsStatic" / GbxBool,  # si c'est un dyna mais qui reste tjs statique
     "DynamizeOnSpawn" / GbxBool,
     "Mesh" / GbxNodeRef,
-    "DynaShape"
-    / GbxNodeRef,  # Boite de collision apres destruction, ne supporte pas mesh quelconque
+    "DynaShape" / GbxNodeRef,  # Boite de collision apres destruction, ne supporte pas mesh quelconque
     "StaticShape" / GbxNodeRef,  # Boite de collision avant destruction
     "DestructibleModel"
     / Struct(
@@ -2015,9 +2231,7 @@ body_chunks[0x09144000] = Struct(
     "LocAnim" / If(this.version > 6, GbxNodeRef),
     "u10" / If(this.version > 7, Int32sl),
     "LocAnimIsPhysical"
-    / If(
-        this.version > 9, GbxBool
-    ),  # LocAnim purement visuel ou pas. evitons les calculs physiques si pas necessaire
+    / If(this.version > 9, GbxBool),  # LocAnim purement visuel ou pas. evitons les calculs physiques si pas necessaire
     "WaterModel" / GbxNodeRef,
 )
 
@@ -2145,8 +2359,7 @@ body_chunks[0x09159000] = Select(
         "version" / Int32ul,  # 3
         "Mesh" / GbxNodeRef,  # CPlugSolid2Model
         "isMeshCollidable" / GbxBoolByte,
-        "Shape"
-        / If(lambda this: not this.isMeshCollidable, GbxNodeRef),  # CPlugSurface
+        "Shape" / If(lambda this: not this.isMeshCollidable, GbxNodeRef),  # CPlugSurface
     )
 )
 
@@ -2258,11 +2471,12 @@ body_chunks[0x0915C000] = Struct(
 )
 
 # 0915D CPlugGameSkinAndFolder
+
 body_chunks[0x0915D000] = Struct(
     "Remapping" / GbxNodeRef,
     "RemapFolder" / GbxString,
 )
-# body_chunks[0x0915D001] = Struct("name" / GbxLookbackString)
+body_chunks[0x0915D001] = Struct("name" / GbxLookbackString)
 
 
 # 09178 NPlugTrigger_SWaypoint
@@ -2400,14 +2614,12 @@ body_chunks[0x090BA000] = Struct(
         ),
     ),
     StopIf(this.version < 10),
-    "u05_SPlugSkelGlobalTargetInfo"
-    / If(this.version <= 15, PrefixedArray(Int32ul, Int32ul)),
+    "u05_SPlugSkelGlobalTargetInfo" / If(this.version <= 15, PrefixedArray(Int32ul, Int32ul)),
     "jointsLods" / If(this.version > 15, PrefixedArray(Int32ul, Int8ul)),
     "rotationOrder" / If(this.version > 13, PrefixedArray(Int32ul, GbxERotationOrder)),
     "u11" / If(this.version == 14, Int32sl),
     "cElem_0" / If(this.version == 14, Int32sl),  # = 0 ?
-    "u10_func_rotation_order"
-    / If(this.version >= 19, PrefixedArray(Int32ul, Int8ul)),  # enum?
+    "u10_func_rotation_order" / If(this.version >= 19, PrefixedArray(Int32ul, Int8ul)),  # enum?
     StopIf(this.version < 17),
     "cLod" / Int8ul,
     "LodMaxDists" / PrefixedArray(Int32ul, GbxFloat),
@@ -2434,10 +2646,8 @@ body_chunks[0x090BB000] = Struct(
     "list_version_01" / If(this.version >= 6, ExprValidator(Int32ul, obj_ == 10)),
     "visuals" / If(this.version >= 6, PrefixedArray(Int32ul, GbxNodeRef)),
     "materials_names" / PrefixedArray(Int32ul, GbxLookbackString),
-    "material_count"
-    / IfThenElse(this.version >= 29, Int32ul, Computed(lambda this: 0)),
-    "list_version_02"
-    / If(this.material_count == 0, ExprValidator(Int32ul, obj_ == 10)),
+    "material_count" / IfThenElse(this.version >= 29, Int32ul, Computed(lambda this: 0)),
+    "list_version_02" / If(this.material_count == 0, ExprValidator(Int32ul, obj_ == 10)),
     "materials" / If(this.material_count == 0, PrefixedArray(Int32ul, GbxNodeRef)),
     "skel" / GbxNodeRef,
     StopIf(this.version < 1),
@@ -2478,10 +2688,7 @@ body_chunks[0x090BB000] = Struct(
             "u04" / If(lambda this: not this.u02, GbxString),
             "u05" / GbxIso4,
             "u06" / Bytes(12),  # 6*4bytes
-            "u12"
-            / If(
-                this._._.version >= 26, Bytes(12)
-            ),  # 3*4bytes, [1] and [2] = 0 if version < 26
+            "u12" / If(this._._.version >= 26, Bytes(12)),  # 3*4bytes, [1] and [2] = 0 if version < 26
             "u15" / GbxBool,
             "u16" / If(this.u15, Bytes(12)),  # 3*4bytes
         ),
@@ -2489,8 +2696,7 @@ body_chunks[0x090BB000] = Struct(
     "material_insts_lt_v16" / If(this.version < 16, PrefixedArray(Int32ul, GbxNodeRef)),
     StopIf(this.version < 10),
     "lightUserModels" / PrefixedArray(Int32ul, GbxNodeRef),
-    "light_insts"
-    / PrefixedArray(Int32ul, Struct("model_index" / Int32ul, "socket_index" / Int32ul)),
+    "light_insts" / PrefixedArray(Int32ul, Struct("model_index" / Int32ul, "socket_index" / Int32ul)),
     StopIf(this.version < 11),
     "damage_zone" / Int32sl,
     StopIf(this.version < 12),
@@ -2506,9 +2712,7 @@ body_chunks[0x090BB000] = Struct(
     "u14" / If(this.version >= 30, Int32sl),  # material_count?
     "custom_materials"
     / Array(
-        lambda this: this.material_count
-        if this.version >= 29
-        else this.material_count_lt_v29,
+        lambda this: this.material_count if this.version >= 29 else this.material_count_lt_v29,
         GbxMaterial,
     ),
     StopIf(this.version < 17),
@@ -2518,10 +2722,7 @@ body_chunks[0x090BB000] = Struct(
     StopIf(this.version < 22),
     "u17" / PrefixedArray(Int32ul, Int32sl),
     StopIf(this.version < 23),
-    "u18"
-    / ExprValidator(
-        PrefixedArray(Int32ul, Pass), lambda obj, ctx: len(obj) == 0
-    ),  # TODO
+    "u18" / ExprValidator(PrefixedArray(Int32ul, Pass), lambda obj, ctx: len(obj) == 0),  # TODO
     "u19" / PrefixedArray(Int32ul, Int32sl),
     StopIf(this.version < 24),
     "u20" / Int32sl,
@@ -2717,8 +2918,7 @@ body_chunks[0x2E001010] = Struct(
     "version" / Int32ul,
     "u01" / GbxNodeRef,
     "skinDirectory" / GbxString,
-    "u02"
-    / If(lambda this: this.version >= 2 and len(this.skinDirectory) == 0, GbxNodeRef),
+    "u02" / If(lambda this: this.version >= 2 and len(this.skinDirectory) == 0, GbxNodeRef),
 )
 body_chunks[0x2E001011] = Struct(
     "version" / Int32ul,
@@ -2736,9 +2936,7 @@ body_chunks[0x2E001012] = Struct(
 
 # 2E002 CGameItemModel
 body_chunks[0x2E002008] = Struct("nadeoSkinFids" / PrefixedArray(Int32ul, GbxNodeRef))
-body_chunks[0x2E002009] = Struct(
-    "version" / Int32ul, "cameras" / PrefixedArray(Int32ul, GbxNodeRef)
-)
+body_chunks[0x2E002009] = Struct("version" / Int32ul, "cameras" / PrefixedArray(Int32ul, GbxNodeRef))
 body_chunks[0x2E00200C] = Struct("raceInterfaceFid" / GbxNodeRef)
 body_chunks[0x2E002012] = Struct(
     "groundPoint" / GbxVec3,
@@ -2768,7 +2966,8 @@ body_chunks[0x2E002019] = Struct(
     StopIf(this.version < 13),
     "vfxFile" / GbxNodeRef,
     StopIf(this.version < 15),
-    "MaterialModifier" / If(this.EntityModel >= 0, GbxNodeRef),
+    "MaterialModifier"
+    / If(lambda this: this.EntityModel >= 0 or (this.EntityModel == -1 and this.EntityModelEdition == -1), GbxNodeRef),
 )
 body_chunks[0x2E00201A] = Struct("u01" / GbxNodeRef)
 body_chunks[0x2E00201C] = Struct(
@@ -2893,15 +3092,14 @@ body_chunks[0x2E025000] = Struct(
 )
 body_chunks[0x2E025003] = Struct(
     "version" / Int32ul,  # 0
-    "u01"
-    / Array(lambda this: len(this._._._array[0].chunk.CustomizedVariants), GbxBoolByte),
+    "u01" / Array(lambda this: len(this._._._array[0].chunk.CustomizedVariants), GbxBoolByte),
 )
 
 
 # 2E026 CGameCommonItemEntityModelEdition
 
 body_chunks[0x2E026000] = Struct(
-    "version" / Int32ul,
+    "version" / Int32ul,  # 8
     "itemType" / ExprValidator(GbxEItemType, obj_ == "Ornament"),
     "meshCrystal" / GbxNodeRef,
     "u01" / GbxString,
@@ -2925,12 +3123,12 @@ body_chunks[0x2E026000] = Struct(
     "inventoryItemClass" / Int32sl,
     "inventoryOccupation" / Int32sl,
     StopIf(this.version < 6),
-    "u22" / GbxNodeRef,
+    "u22" / If(this.version < 8, GbxNodeRef),
 )
 
 # 2E027 CGameCommonItemEntityModel
 body_chunks[0x2E027000] = Struct(
-    "version" / Int32ul,
+    "version" / Int32ul,  # 6
     "staticObject" / GbxNodeRef,
     StopIf(this.version < 2),
     "props"
@@ -2939,7 +3137,7 @@ body_chunks[0x2E027000] = Struct(
         "spawnLoc" / GbxIso4,
         "emitter" / GbxNodeRef,  # CPlugParticleEmitterModel
         "actions" / PrefixedArray(Int32ul, GbxNodeRef),  # CGameCtnPlaygroundActionModel
-        "u03" / GbxNodeRef,  # unused?
+        "u03" / If(this._.version < 6, GbxNodeRef),
         "u04" / Array(5, GbxString),
         "u05" / GbxIso4,
         "u06" / ExprValidator(Int32sl, obj_ == 0),  # Array
@@ -2992,14 +3190,14 @@ body_chunks[0x2F086000] = Struct(
 
 # 2F0BC NPlugItem_SVariantList
 body_chunks[0x2F0BC000] = Struct(
-    "version" / Int32ul,
+    "version" / Int32ul,  # 0
     "variants"
     / PrefixedArray(
         Int32ul,
         Struct(
             "Tags" / GbxDictString,
             "EntityModel" / GbxNodeRef,
-            "HiddenInManualCycle" / GbxBool,
+            # "HiddenInManualCycle" / GbxBool, where is that from?
         ),
     ),
 )
@@ -3067,18 +3265,11 @@ header_chunks[0x2E001003] = Struct(
 )
 
 header_chunks[0x2E001004] = Struct(
-    "width_and_webp"
-    / Rebuild(Int16ul, lambda this: this.width + (0x8000 if this.webp else 0x0000)),
+    "width_and_webp" / Rebuild(Int16ul, lambda this: this.width + (0x8000 if this.webp else 0x0000)),
     "width" / Computed(this.width_and_webp & 0x7FFF),
-    "height_and_webp"
-    / Rebuild(Int16ul, lambda this: this.height + (0x8000 if this.webp else 0x0000)),
+    "height_and_webp" / Rebuild(Int16ul, lambda this: this.height + (0x8000 if this.webp else 0x0000)),
     "height" / Computed(this.height_and_webp & 0x7FFF),
-    "webp"
-    / Computed(
-        lambda this: (this.width_and_webp & 0x8000)
-        == (this.height_and_webp & 0x8000)
-        == 0x8000
-    ),
+    "webp" / Computed(lambda this: (this.width_and_webp & 0x8000) == (this.height_and_webp & 0x8000) == 0x8000),
     "data"
     / IfThenElse(
         this.webp,
@@ -3091,7 +3282,34 @@ header_chunks[0x2E001004] = Struct(
 )
 
 header_chunks[0x090F4005] = body_chunks[0x090F4005]
-
+header_chunks[0x03043003] = Struct(
+    "version" / Int8ul,  # 11
+    "mapInfo" / GbxMeta,
+    "mapName" / GbxString,
+    "kindInHeader" / GbxEMapKindInHeader,
+    StopIf(this.version < 1),
+    "u03" / Int32ul,
+    "password" / GbxString,
+    StopIf(this.version < 2),
+    "decoration" / GbxMeta,
+    StopIf(this.version < 3),
+    "mapCoordOrigin" / GbxVec2,
+    StopIf(this.version < 4),
+    "mapCoordTarget" / GbxVec2,
+    StopIf(this.version < 5),
+    "u01" / Bytes(16),
+    StopIf(this.version < 6),
+    "mapType" / GbxString,
+    "mapStyle" / GbxString,
+    StopIf(this.version < 7),
+    "u02" / If(this.version == 7, Int32sl),
+    StopIf(this.version < 8),
+    "lightmapCacheUID" / Int64ul,
+    StopIf(this.version < 9),
+    "lightmapVersion" / Int8ul,
+    StopIf(this.version < 11),
+    "titleID" / GbxLookbackString,
+)
 header_chunks[0x03043005] = Struct("xml" / GbxString)
 
 
@@ -3127,8 +3345,7 @@ def create_gbx_struct(gbx_body):
         / Select(
             Struct("size" / ExprValidator(Int32ul, obj_ == 0)),
             Struct(
-                "corrupted_size"
-                / ExprAdapter(Int32ul, lambda obj, ctx: obj, lambda obj, ctx: 0),
+                "corrupted_size" / ExprAdapter(Int32ul, lambda obj, ctx: obj, lambda obj, ctx: 0),
                 "nb_nodes"
                 / ExprValidator(
                     Peek(Int32ul[2]),
@@ -3153,7 +3370,11 @@ def create_gbx_struct(gbx_body):
                                         lambda this: len(
                                             header_chunks[this._.id].build(
                                                 this._._._.data[this._index],
-                                                gbx_data={},
+                                                gbx_data={
+                                                    "lookbackstring_table": {},
+                                                    "lookbackstring_index": 0,
+                                                    "lookbackstring_version": False,
+                                                },
                                             )
                                         )
                                         if this._.id in header_chunks
@@ -3166,26 +3387,18 @@ def create_gbx_struct(gbx_body):
                     "data"
                     / Array(
                         lambda this: len(this.entries),
-                        ExprAdapter(
+                        GbxLookbackStringContext(
                             Select(
                                 Switch(
                                     lambda this: this.entries[this._index].id,
                                     header_chunks,
-                                    default=Bytes(
-                                        lambda this: this.entries[this._index].meta.size
-                                    ),
+                                    default=Bytes(lambda this: this.entries[this._index].meta.size),
                                 ),
                                 Struct(
                                     "parse_header_chunk_failed"
-                                    / Bytes(
-                                        lambda this: this._.entries[
-                                            this._index
-                                        ].meta.size
-                                    )
+                                    / Bytes(lambda this: this._.entries[this._index].meta.size)
                                 ),
-                            ),
-                            reset_lookbackstring,
-                            reset_lookbackstring,
+                            )
                         ),
                     ),
                 ),
@@ -3222,8 +3435,7 @@ def create_gbx_struct(gbx_body):
                         ),
                         "nodeIndex" / Int32ul,
                         "useFile" / GbxBool,
-                        "folderIndex"
-                        / If(lambda this: not this.flags.isRefResourceIndex, Int32ul),
+                        "folderIndex" / If(lambda this: not this.flags.isRefResourceIndex, Int32ul),
                     ),
                     load_external_nodes,
                     lambda obj, _: obj,
@@ -3231,10 +3443,12 @@ def create_gbx_struct(gbx_body):
             ),
         ),
         "body"
-        / IfThenElse(
-            this.bodyCompression == "compressed",
-            CompressedLZ0(gbx_body),
-            gbx_body,
+        / GbxLookbackStringContext(
+            IfThenElse(
+                this.bodyCompression == "compressed",
+                CompressedLZ0(gbx_body),
+                gbx_body,
+            )
         ),
         "rest" / Optional(GreedyBytes),
     )

@@ -276,6 +276,22 @@ GbxEMapKind = Enum(
     SoloNadeo=11,
     MultiNadeo=12,
 )
+GbxEMapKindInHeader = Enum(
+    Byte,
+    EndMarker=0,
+    Campaign=1,
+    Puzzle=2,
+    Retro=3,
+    TimeAttack=4,
+    Rounds=5,
+    InProgress=6,
+    Campaign_7=7,
+    Multi=8,
+    Solo=9,
+    Site=10,
+    SoloNadeo=11,
+    MultiNadeo=12,
+)
 GbxELightMapCacheEQuality = Enum(Int32ul, VFast=0, Fast=1, Default=2, High=3, Ultra=4)
 GbxELightMapCacheEVersion = Enum(
     Int32ul,

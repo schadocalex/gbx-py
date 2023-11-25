@@ -180,8 +180,6 @@ def extract_solid2model(root_node, node):
 
     meshes = []
     for i, geom in enumerate(obj_chunk.shaded_geoms):
-        if geom.lod != 1 and geom.lod != 3 and geom.lod != 7:
-            continue
         visual_idx = obj_chunk.visuals[geom.visual_index]
 
         vertices = []
@@ -191,17 +189,12 @@ def extract_solid2model(root_node, node):
         if len(obj_chunk.materials_names) > 0:
             mat = obj_chunk.materials_names[geom.material_index]
         else:
-            if (
-                obj_chunk.material_insts_lt_v16 is not None
-                and len(obj_chunk.material_insts_lt_v16) > 0
-            ):
+            if obj_chunk.material_insts_lt_v16 is not None and len(obj_chunk.material_insts_lt_v16) > 0:
                 mat_idx = obj_chunk.material_insts_lt_v16[geom.material_index]
             elif obj_chunk.materials is not None and len(obj_chunk.materials) > 0:
                 mat_idx = obj_chunk.materials[geom.material_index]
             else:
-                mat_idx = obj_chunk.custom_materials[
-                    geom.material_index
-                ].material_user_inst
+                mat_idx = obj_chunk.custom_materials[geom.material_index].material_user_inst
 
             if type(root_node.nodes[mat_idx]) == str:
                 mat = root_node.nodes[mat_idx].split(".")[0]
@@ -213,11 +206,7 @@ def extract_solid2model(root_node, node):
         for chunk in visual_node.body:
             if isinstance(chunk, Container) and chunk.chunkId == 0x0900600F:
                 if len(chunk.chunk.vertexStreams) == 0:
-                    meshes.append(
-                        export_CPlugVisualIndexedTriangles_without_vertex_stream(
-                            visual_node, mat
-                        )
-                    )
+                    meshes.append(export_CPlugVisualIndexedTriangles_without_vertex_stream(visual_node, mat))
                     continue_meshes = True
         if continue_meshes:
             continue
@@ -310,9 +299,7 @@ def export_ents(export_dir, file, data, offset_index=None, off_pos=None, off_rot
         final_pos = [ent.pos, *off_pos]
         final_rot = [ent.rot, *off_rot]
 
-        meshes = extract_mesh(
-            data, model, 1, offset_index, ent_idx, final_pos, final_rot
-        )
+        meshes = extract_mesh(data, model, 1, offset_index, ent_idx, final_pos, final_rot)
         filename = (
             os.path.basename(file).split(".")[0]
             + ("_" if len(offset_index) > 0 else "")
@@ -350,9 +337,7 @@ def extract_meshes(root_data, data, off_pos=None, off_rot=None, extracted_files=
                 final_pos = [ent.pos, *off_pos]
                 final_rot = [ent.rot, *off_rot]
 
-                result += extract_meshes(
-                    root_data, model, final_pos, final_rot, extracted_files
-                )
+                result += extract_meshes(root_data, model, final_pos, final_rot, extracted_files)
         return result
     elif data.classId == 0x900C000:
         # print("skip surf (for now?)")
