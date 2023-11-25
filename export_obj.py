@@ -328,8 +328,15 @@ def extract_meshes(root_data, data, off_pos=None, off_rot=None, extracted_files=
     if off_rot is None:
         off_rot = []
 
-    if "nodes" in data:
-        root_data = data
+    # if root_data.
+
+    # if "nodes" in data:
+    #     root_data = data
+
+    mesh = None
+
+    if root_data.classId == 0x090BB000:
+        mesh = root_data
 
     if data.classId == 0x09145000:
         result = []
@@ -350,8 +357,8 @@ def extract_meshes(root_data, data, off_pos=None, off_rot=None, extracted_files=
     elif data.classId == 0x900C000:
         # print("skip surf (for now?)")
         return []
-    elif data.classId == 0x09159000:
-        mesh = root_data.nodes[data.body.Mesh]
+    elif mesh is not None or data.classId == 0x09159000:
+        mesh = mesh if mesh else root_data.nodes[data.body.Mesh]
         if mesh.classId == 0x090BB000:
             root_mesh = mesh if "nodes" in mesh else root_data
 
