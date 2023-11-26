@@ -913,6 +913,10 @@ body_chunks[0x03043028] = Struct(
     *body_chunks[0x03043027].subcons,
     "comments" / GbxString,
 )
+body_chunks[0x03043029] = Struct(
+    "passwordHash" / Hex(BytesInteger(16, swapped=True)),
+    "crc32" / Int32ul,  # CRC32("0x" + uppercase(hex(passwordHash)) + "???" + mapId) TODO autocompute
+)
 body_chunks[0x0304302A] = Struct(
     "u01" / GbxBool,
 )
@@ -2180,6 +2184,350 @@ body_chunks[0x09079019] = Struct(
     "flags" / If(this.u01 != 0, Bytes(4)),
 )
 
+# NPlugCurve
+
+# TODO tag as NPlugCurve
+# TODO what are the variants?
+
+NPlugCurve = Struct(
+    "version" / ExprValidator(Int32ul, obj_ == 2),  # 2
+    "u01" / Int32sl,
+    "u02" / Int32sl,
+    "u03" / Array(this.u01 * 2, GbxFloat),
+)
+
+NPlugCurve_Simple = Struct(
+    "version" / Int8ul,  # 0
+    "u01" / Int32sl,
+    "u02" / GbxFloat[4],
+    "u03" / GbxFloat[12],
+)
+
+# 090B2 CPlugParticleEmitterSubModel
+
+body_chunks[0x090B202D] = Struct(
+    "version" / Int32ul,  # 4
+    "u01" / Int32sl,
+    "u02" / If(this.version > 2, Int32sl),
+    "u03" / If(this.version > 2, Int32sl),
+    "u04" / Int32sl,
+    "u05" / Int32sl,
+    "u06" / Int32sl,
+    "u07" / Int32sl,
+    "u08" / Int32sl,
+    "u09" / If(this.version < 2, Int32sl),
+    StopIf(this.version < 1),
+    "u10" / GbxLookbackString,
+    StopIf(this.version < 4),
+    "u11" / Int32sl,
+)
+body_chunks[0x090B202E] = Struct(
+    "version" / Int32ul,  # 0
+    "SplashModel" / GbxNodeRef,  # CPlugParticleSplashModel
+)
+body_chunks[0x090B202F] = Struct(
+    "version" / Int32ul,  # 3
+    "u01" / GbxVec3,
+    StopIf(this.version < 1),
+    "u02" / GbxIso4,
+    StopIf(this.version < 2),
+    "u03_curve" / NPlugCurve,
+)
+body_chunks[0x090B2030] = Struct(
+    "version" / Int32ul,  # 0
+    "u01" / GbxVec3,
+)
+body_chunks[0x090B2031] = Struct(
+    "version" / ExprValidator(Int32ul, obj_ >= 6),  # 14
+    "u01" / Int32sl[3],
+    "u02" / GbxFloat,
+    "material" / GbxNodeRef,  # CPlugMaterial
+    "shader" / If(this.material == -1, GbxNodeRef),  # CPlugShader
+    "u03" / GbxString,
+    "model" / If(lambda _: True, GbxNodeRef),  # TODO cond
+    "u04" / If(this.version > 6, GbxIso4),
+    "u05" / GbxVec2,
+    "u06" / Int32sl,
+    "u07" / GbxFloat,
+    "u08" / GbxFloat,
+    StopIf(this.version < 3),
+    "u09" / GbxFloat,
+    StopIf(this.version < 4),
+    "u10" / Int32sl,
+    StopIf(this.version < 5),
+    "u11" / Int32sl,
+    StopIf(this.version < 9),
+    "u12" / Int32sl,
+    StopIf(this.version < 10),
+    "u13" / Int32sl,
+    StopIf(this.version < 11),
+    "u14" / Int32sl,
+    StopIf(this.version < 13),
+    "u15_curve" / NPlugCurve,
+    StopIf(this.version < 13),
+    "u16_curve" / NPlugCurve,
+    "u17_curve" / NPlugCurve,
+)
+body_chunks[0x090B2032] = Struct(
+    "version" / Int32ul,  # 0
+    "u01" / Int32sl[8],  # common with 0x90b2025
+)
+body_chunks[0x090B2033] = Struct(
+    "version" / ExprValidator(Int32ul, obj_ == 5),  # 5
+    "u01" / GbxFloat[5],
+    "u02" / Int32sl,
+    "u03_curve" / NPlugCurve,
+    "u04" / Int32sl,
+    "u05_curve" / NPlugCurve,
+    "u06" / Int32sl[3],
+    "u07_curve" / NPlugCurve_Simple,
+    "u08" / Int32sl,
+    "u09" / Int32sl,
+    "u10" / Int32sl,
+    "u11" / GbxFloat,
+    "u12" / Int32sl,
+    "u13" / Int32sl,
+    "u14_curve" / NPlugCurve,
+    "u15" / GbxFloat[2],
+    StopIf(this.version < 4),
+    "u16" / Int32sl,
+    "u17_curve" / NPlugCurve,
+)
+body_chunks[0x090B2034] = Struct(
+    "version" / ExprValidator(Int32ul, obj_ == 3),  # 3
+    "u01_lightBall" / GbxNodeRef,  # CGxLightBall
+    "u02_curve" / NPlugCurve,
+    "u03_curve" / NPlugCurve_Simple,
+    StopIf(this.version < 1),
+    "u04" / Int32sl,
+    StopIf(this.version < 2),
+    "u05" / Int32sl,
+)
+body_chunks[0x090B2035] = Struct(
+    "version" / ExprValidator(Int32ul, obj_ == 1),  # 1
+)
+body_chunks[0x090B2036] = Struct(
+    "version" / Int32ul,  # 0
+    "u01" / Int32sl,
+    "u02" / Int32sl,
+    "u03" / Int32sl,
+)
+body_chunks[0x090B2037] = Struct(
+    "version" / ExprValidator(Int32ul, obj_ == 1),  # 1
+    "u01" / Int32sl,
+    "u02" / Int32sl,
+    "u03" / Int32sl,
+    "u04_curve" / NPlugCurve,
+    "u05_curve" / NPlugCurve,
+    "u06" / GbxFloat[2],
+    "u07" / Int32sl[2],
+    "u08" / GbxFloat[4],
+    "u09" / Int32sl,
+    "u10_curve" / NPlugCurve,
+    "u11" / GbxFloat[3],
+)
+body_chunks[0x090B2038] = Struct(
+    "version" / Int32ul,  # 0
+    "u01" / GbxFloat,
+    "u02" / GbxFloat,
+)
+body_chunks[0x090B2039] = Struct(
+    "version" / Int32ul,  # 0
+    "u01" / GbxFloat[10],
+    "u02" / GbxFloat,
+)
+body_chunks[0x090B203A] = Struct(
+    "version" / ExprValidator(Int32ul, obj_ == 1),  # 1
+    "particleGpuSpawn" / GbxNodeRef,  # CPlugParticleGpuSpawn
+    "particleGpuModel" / GbxNodeRef,  # CPlugParticleGpuModel
+)
+body_chunks[0x090B203B] = Struct(
+    "version" / Int32ul,  # 1
+    "u01" / GbxFloat[10],
+    StopIf(this.version < 1),
+    "u02" / GbxFloat,
+)
+
+# 090B3 CPlugParticleEmitterModel
+
+body_chunks[0x090B3000] = Struct(
+    "listVersion" / Int32ul,
+    "ParticleEmitterSubModels" / PrefixedArray(Int32ul, GbxNodeRef),
+    # "rest" / GreedyBytes,
+)
+body_chunks[0x090B3001] = Struct(
+    "name" / GbxLookbackString,
+)
+body_chunks[0x090B3002] = Struct(
+    "version" / ExprValidator(Int32ul, obj_ >= 2),  # 4
+    "u01" / Int32sl,
+    StopIf(this.version < 3),
+    "u02" / If(this.version == 3, Bytes(0x18)),
+    "u03" / GbxFloat,
+)
+body_chunks[0x090B3003] = Struct(
+    "version" / Int32ul,  # 0
+    "u01" / ExprValidator(Int32ul, obj_ == 0),  # array of CFastStringInt
+)
+body_chunks[0x090B3004] = Struct(
+    "version" / ExprValidator(Int32ul, obj_ == 6),  # 6
+    "u01" / GbxFloat,
+    "u02" / Int32sl,
+    "u03" / GbxFloat,
+    "u04" / Int32sl,
+    "u05" / GbxFloat,
+    "u06" / GbxFloat,
+    "u07" / Int32sl,
+    "u08" / Int32sl,
+    "u09" / GbxFloat[3],
+    "u10" / Int32sl,
+)
+
+# 090B5 CPlugParticleSplashModel
+
+body_chunks[0x090B5000] = Struct(
+    "version" / Int32ul,  # 5
+    "u01" / Int32sl[5],
+    "u09" / GbxFloat[3],
+    "u02" / If(this.version > 0, Int32sl),
+    "u03" / Int32sl[6],
+    "u10" / GbxFloat,
+    "u11" / Int32sl,
+    "u12" / GbxFloat[2],
+    "u13" / Int32sl[3],
+    "u14" / GbxFloat,
+    StopIf(this.version < 2),
+    "u05" / Int32sl,
+    "u06" / Int32sl,
+    StopIf(this.version < 3),
+    "u07_curve" / NPlugCurve,
+    StopIf(this.version < 4),
+    "u08" / Int32sl[3],
+)
+
+# 090C5 CPlugParticleGpuSpawn
+
+body_chunks[0x090C5000] = Struct(
+    "version" / ExprValidator(Int32ul, obj_ == 1),  # 1
+    "spawn"
+    / Struct(
+        "version" / Int32ul,  # 4
+        "u02" / Int32sl,
+        "u03" / If(this.version > 1, Int32sl),
+        "u04" / Int32sl,
+        "u05" / GbxFloat,
+        "u06" / If(this.version > 2, Int32sl),
+        "u07" / If(this.version > 3, Int32sl),
+        "u08" / If(this.version > 3, GbxFloat[3]),
+        "u09" / Int32sl,
+        "u10" / GbxFloat,
+        "u11" / GbxFloat,
+        "u12" / Int32sl,
+        "u13" / Int32sl,
+        "u14" / Int32ul,  # 0 - 4
+        "u15"
+        / Switch(
+            this.u14,
+            {
+                0: Pass,
+                5: Pass,
+                1: Int32sl[4],
+                2: Int32sl[8],
+                3: GbxFloat[6],  # TransYawPitchRoll
+                4: Int32sl[4],
+            },
+        ),
+    ),
+)
+
+# 090C6 CPlugParticleGpuModel
+
+body_chunks[0x090C6000] = Struct(
+    "version" / ExprValidator(Int32ul, obj_ == 6),  # 6
+    "u01" / GbxFloat[4],
+    StopIf(this.version < 2),
+    "u02" / Int32sl,
+    "u03" / Int32sl,
+    StopIf(this.version < 3),
+    "u04" / GbxFloat,
+    StopIf(this.version < 5),
+    "u05" / Int32sl,
+    StopIf(this.version < 6),
+    "u06" / Int32sl,
+)
+body_chunks[0x090C6001] = Struct(
+    "version" / Int32ul,  # 3
+    "u01" / Int32sl,
+    "u02" / GbxFloat,
+    StopIf(this.version < 1),
+    "u03" / Int32sl,
+    "u04" / Int32sl,
+    StopIf(this.version < 2),
+    "u05" / Int32sl,
+    StopIf(this.version < 3),
+    "u06" / Int32sl,
+)
+body_chunks[0x090C6002] = Struct(
+    "version" / ExprValidator(Int32ul, obj_ >= 7),  # 22
+    "u01" / GbxFloat,
+    "isTextureFid" / GbxBool,
+    "texture" / IfThenElse(this.isTextureFid, GbxString, GbxNodeRef),  # CPlugBitmap
+    "u02" / GbxVec2,
+    "u03" / GbxFloat,
+    "u04" / GbxFloat,
+    "u05" / Int32sl,
+    "u06" / Int32sl,
+    "u07" / GbxFloat,
+    "u08" / Int32sl,
+    "u09" / Int32sl,
+    "u10" / GbxFloat[3],
+    StopIf(this.version <= 1),
+    "u11" / Int32sl,
+    StopIf(this.version <= 4),
+    "u12" / Int32sl,
+    StopIf(this.version <= 5),
+    "u13" / Int32sl,
+    "u14" / Int32sl,
+    StopIf(this.version <= 8),
+    "texture2" / GbxNodeRef,  # CPlugBitmap
+    "u15" / Int32sl[4],
+    "u16" / GbxFloat,
+    StopIf(this.version <= 9),
+    "u17" / GbxFloat,
+    "u18" / Int32sl,
+    StopIf(this.version <= 10),
+    "u19" / Int32sl,
+    "u20" / Int32sl,
+    StopIf(this.version <= 11),
+    "texture3" / GbxNodeRef,  # CPlugBitmap
+    StopIf(this.version <= 12),
+    "u21" / Int32sl,
+    StopIf(this.version <= 13),
+    "u22" / Int32sl,
+    "u23" / GbxFloat,
+    StopIf(this.version <= 14),
+    "u24" / Int32sl,
+    StopIf(this.version <= 15),
+    "IsFogEmitter" / GbxBool,
+    "FogEmissionRate" / GbxFloat,
+    StopIf(this.version <= 16),
+    "u27" / GbxFloat[3],
+    StopIf(this.version <= 17),
+    "texture4" / GbxNodeRef,  # CPlugBitmap
+    StopIf(this.version <= 18),
+    "u28" / Int32sl,
+    StopIf(this.version <= 19),
+    "u29" / GbxFloat[4],
+    StopIf(this.version < 22),
+    "u30" / GbxFloat,
+)
+body_chunks[0x090C6003] = Struct(
+    "version" / Int32ul,  # 2
+    "u01" / GbxFloat,
+    "u02" / GbxFloat,
+    "u03" / GbxFloat,
+)
+
 # 090F9 CPlugLightUserModel
 
 body_chunks[0x090F9000] = Struct(
@@ -2198,6 +2546,25 @@ body_chunks[0x090F9000] = Struct(
     "u12" / GbxFloat,
     StopIf(this.version < 1),
     "u13" / GbxFloat,
+)
+
+# 0912F CPlugDynaModel
+
+body_chunks[0x0912F000] = Struct(
+    "version" / Int32ul,  # 4
+    "LinearMass" / GbxFloat,
+    "MaxDistPerStep" / GbxFloat,
+    "CenterOfMass" / GbxVec3,
+    "InertialMatrix" / GbxMat3x3,
+    "AngularSpeedClamp" / GbxFloat,
+    StopIf(this.version < 1),
+    "Use_TM_Simulation" / GbxBool,
+    StopIf(this.version < 2),
+    "SleepingMethod" / Enum(Byte, No=0, LowLinearVel_AngularVel=1, LowLinearVel=2, Reserved0=3),
+    StopIf(this.version < 3),
+    "EnableSubStepping" / GbxBool,
+    StopIf(this.version < 4),
+    "WaterModel" / GbxNodeRef,
 )
 
 # 09144 CPlugDynaObjectModel
@@ -2242,7 +2609,6 @@ def breakpoint(obj, ctx):
 def newPropSubEntityModel(obj, ctx):
     print(">>> newPropSubEntityModel")
     return obj
-
 
 # 09145 SPlugPrefab
 
