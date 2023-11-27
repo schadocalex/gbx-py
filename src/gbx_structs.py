@@ -281,8 +281,11 @@ class AGbxFileTime(Adapter):
 
     def _decode(self, file_time, context, path):
         delta = datetime.timedelta(microseconds=file_time / 10)
-        date_time = self.EPOCH_START + delta
-        return date_time
+        try:
+            date_time = self.EPOCH_START + delta
+            return date_time
+        except:
+            return file_time
 
     def _encode(self, date_time, context, path):
         time_delta = date_time - self.EPOCH_START
@@ -1977,7 +1980,7 @@ body_chunks[0x0903A004] = Struct(
     "u01" / PrefixedArray(Int32ul, Int32sl),
 )
 body_chunks[0x0903A00A] = Struct(
-    "gpu_fxs"
+    "u01"
     / PrefixedArray(
         Int32ul,
         Struct(
@@ -1985,10 +1988,20 @@ body_chunks[0x0903A00A] = Struct(
             "count1" / Int32sl,
             "count2" / Int32sl,
             "u02" / GbxBool,
-            "u03" / Bytes(4)[this.count1][this.count2],
+            "u03" / GbxFloat[this.count1][this.count2],
         ),
     ),
-    "u01" / Bytes(4),
+    "u02"
+    / PrefixedArray(
+        Int32ul,
+        Struct(
+            "u01" / GbxLookbackString,
+            "count1" / Int32sl,
+            "count2" / Int32sl,
+            "u02" / GbxBool,
+            "u03" / GbxFloat[this.count1][this.count2],
+        ),
+    ),
 )
 body_chunks[0x0903A00C] = Struct(
     "u01"
@@ -1996,7 +2009,7 @@ body_chunks[0x0903A00C] = Struct(
         Int32ul,
         Struct(
             "name" / GbxLookbackString,
-            "b01" / Bytes(4),
+            "u01" / GbxBool,
         ),
     ),
 )
@@ -2010,9 +2023,38 @@ body_chunks[0x0903A013] = Struct(
         Int32ul,
         Struct(
             "name" / GbxLookbackString,
-            "u01" / Bytes(4),
+            "u01" / Int32sl,
             "textureNod" / GbxNodeRef,
-            "u02" / Bytes(8),
+            "u03" / Int32sl,
+            "u04" / Int32sl,
+        ),
+    ),
+)
+body_chunks[0x0903A014] = Struct(
+    "version" / Int32ul,  # 1
+    "u01" / PrefixedArray(Int32ul, Pass),  # TODO
+)
+body_chunks[0x0903A015] = Struct(
+    "version" / Int32ul,  # 2
+    "u01" / Int32sl,
+    "u02" / GbxString,
+    "u03" / GbxString,
+    StopIf(this.version < 2),
+    "u04" / GbxString,
+    "u05" / GbxString,
+)
+body_chunks[0x0903A016] = Struct(
+    "version" / Int32ul,  # 2
+    "u01" / Bytes(8),
+    "u02" / Bytes(8),
+    StopIf(this.version < 1),
+    "u03" / Int32sl,
+    "u04"
+    / If(
+        lambda this: (this.u01[0] & 1) != 0,
+        Struct(  # SPlugVisibleFilter
+            "u01" / Hex(Int16ul),
+            "u02" / Hex(Int16ul),
         ),
     ),
 )
@@ -2127,7 +2169,7 @@ body_chunks[0x0906A001] = Struct(
 
 # 09079 CPlugMaterial
 body_chunks[0x09079001] = Struct(
-    "u01" / GbxNodeRef,  # CPlugMaterialFx
+    "material_fx" / GbxNodeRef,  # CPlugMaterialFx
 )
 body_chunks[0x09079007] = Struct(
     "custom_material" / GbxNodeRef,  # CPlugMaterialCustom
@@ -2144,7 +2186,8 @@ body_chunks[0x09079012] = Struct(
     "u01" / GbxString,
     "u02" / GbxFileTime,
     "u03" / Bytes(4 * 8),
-    "u04" / If(this.version >= 2, Bytes(4)),
+    StopIf(this.version < 2),
+    "u04" / Bytes(4),
 )
 body_chunks[0x09079013] = Struct(
     "u01" / PrefixedArray(Int32ul, GbxString),
@@ -2609,6 +2652,7 @@ def breakpoint(obj, ctx):
 def newPropSubEntityModel(obj, ctx):
     print(">>> newPropSubEntityModel")
     return obj
+
 
 # 09145 SPlugPrefab
 
