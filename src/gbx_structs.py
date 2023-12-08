@@ -309,6 +309,7 @@ GbxCollectionIds = {
     7: "Basic",
     11: "Valley",
     26: "Stadium2020",
+    10003: "PlayerModels2020",
 }
 GbxCollectionIdsFromStr = {v: k for k, v in GbxCollectionIds.items()}
 
@@ -3151,6 +3152,16 @@ body_chunks[0x090BB000] = Struct(
 #     "u01" / Bytes(60),
 # )
 
+
+# 090EA CPlugVehiclePhyModel
+body_chunks[0x090EA003] = Struct("tunings" / GbxNodeRef)
+
+# 090EB CPlugVehicleGearBox
+# body_chucks[0x090EB]
+
+# 090EC CPlugVehicleTunings
+# body_chucks[0x090EC]
+
 # 090F4 CPlugGameSkin
 body_chunks[0x090F4003] = Struct("u01" / GbxString, "u02" / GbxString)
 body_chunks[0x090F4005] = Struct(
@@ -3405,6 +3416,17 @@ body_chunks[0x2E009000] = Struct(
     "version" / Int32ul,  # 2
     "tag" / GbxString,
     "order" / Int32sl,
+)
+
+# 2E01C CGameVehicleModel
+# these are indexes
+body_chunks[0x2E01C000] = Struct(
+    "skin_ix" / GbxNodeRef,
+    "phyModel_ix" / GbxNodeRef,
+    "visModel_ix" / GbxNodeRef,
+    "u01" / Int32ul, # 0
+    "u02" / Int32ul, # 0
+    "u03" / Int32ul, # 0xFFFFFFFF
 )
 
 # 2E020 CGameItemPlacementParam
