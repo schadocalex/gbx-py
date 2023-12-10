@@ -46,11 +46,14 @@ class MyRepeatUntil(Subconstruct):
             predicate = lambda _1, _2, _3: predicate
         obj = ListContainer()
         context._array = obj
+        context._chunks = {}
         for i in itertools.count():
             context._index = i
             e = self.subcon._parsereport(stream, context, path)
             if not discard:
                 obj.append(e)
+                if "chunkId" in e and "chunk" in e:
+                    context._chunks[e.chunkId] = e.chunk
             if predicate(e, obj, context):
                 return obj
 
@@ -62,8 +65,11 @@ class MyRepeatUntil(Subconstruct):
         partiallist = ListContainer()
         retlist = ListContainer()
         context._array = retlist
+        context._chunks = {}
         for i, e in enumerate(obj):
             context._index = i
+            if "chunkId" in e and "chunk" in e:
+                context._chunks[e.chunkId] = e.chunk
             buildret = self.subcon._build(e, stream, context, path)
             if not discard:
                 retlist.append(buildret)
@@ -71,15 +77,11 @@ class MyRepeatUntil(Subconstruct):
             if predicate(e, partiallist, context):
                 break
         else:
-            raise RepeatError(
-                "expected any item to match predicate, when building", path=path
-            )
+            raise RepeatError("expected any item to match predicate, when building", path=path)
         return retlist
 
     def _sizeof(self, context, path):
-        raise SizeofError(
-            "cannot calculate size, amount depends on actual data", path=path
-        )
+        raise SizeofError("cannot calculate size, amount depends on actual data", path=path)
 
     def _emitparse(self, code):
         fname = f"parse_repeatuntil_{code.allocateId()}"

@@ -115,7 +115,7 @@ class Shape:
 
 
 class Mesh:
-    """Visible but NOT collidable mesh"""
+    """Visible but NOT collidable mesh with optionnal collision shape"""
 
     def __init__(self, loc, mesh_filepath, shape_filepath=None):
         self.loc = loc

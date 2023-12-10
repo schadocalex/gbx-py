@@ -1,6 +1,7 @@
 import datetime
 import os
 import sys
+from collections import OrderedDict
 from PySide6.QtWidgets import (
     QApplication,
     QPushButton,
@@ -16,7 +17,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Slot, QSize, Qt
 from PySide6.QtGui import QTextCursor
 
-from src.gbx_structs import GbxPose3D, GbxStruct, GbxStructWithoutBodyParsed
+from src.gbx_structs import GbxPose3D, GbxStruct, GbxStructWithoutBodyParsed, GbxNodeRefAdapter
 from construct import (
     Container,
     ListContainer,
@@ -44,17 +45,36 @@ class QTreeWidgetItem_WithData(QTreeWidgetItem):
 
 
 def tree_widget_item(key, value):
+    if isinstance(value, GbxNodeRefAdapter.NodeRef):
+        if value._index == -1:
+            return QTreeWidgetItem_WithData(
+                Container(type=type(value).__name__, value=value),
+                [key, "NodeRef", "-1"],
+            )
+
+        item = QTreeWidgetItem([key, f"NodeRef"])
+        for child in container_iter(value):
+            item.addChild(tree_widget_item(*child))
+
+        return item
     if isinstance(value, Container):
         item = QTreeWidgetItem([key])
         for child in container_iter(value):
             item.addChild(tree_widget_item(*child))
 
         return item
-    elif isinstance(value, ListContainer):
+    elif isinstance(value, ListContainer) or isinstance(value, list):
         item = QTreeWidgetItem([key, f"Array({len(value)})"])
 
         for i, child in enumerate(value):
             item.addChild(tree_widget_item(str(i), child))
+
+        return item
+    elif isinstance(value, OrderedDict):  # assume it is body for now
+        item = QTreeWidgetItem([key, f"Body({len(value)})"])
+
+        for chunkId, child in value.items():
+            item.addChild(tree_widget_item(str(hex(chunkId)), child))
 
         return item
     elif type(value).__name__ == "bytes":
@@ -120,8 +140,7 @@ class GbxEditorUiWindow(QMainWindow):
 
         self.show()
 
-    def set_data(self, raw_bytes, parsed_data):
-        self.hex_editor.set_bytes(raw_bytes)
+    def set_data(self, parsed_data):
         self._setDataOnTree(parsed_data)
 
     @Slot()

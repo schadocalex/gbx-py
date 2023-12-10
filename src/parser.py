@@ -1,46 +1,76 @@
 import os
 from pathlib import Path
+from functools import partial
+from collections import OrderedDict
 
 from construct import Container, ListContainer
 
 from src.gbx_structs import GbxStruct, GbxStructWithoutBodyParsed
 
 
-def parse_node(file_path):
+def parse_file(file_path, with_nodes=False, recursive=True):
     file_path = os.path.abspath(file_path)
+    file_dir = os.path.dirname(file_path)
 
     if not os.path.exists(file_path):
-        print(f"[NOT FOUND] {file_path}")
-        return (
-            Container(file=f"[NOT FOUND] {file_path}" if not os.path.exists(file_path) else ""),
-            0,
-            b"",
-        )
+        error = f"[FILE NOT FOUND] {file_path}"
+        print(error)
+        return Container(_error=error)
 
     with open(file_path, "rb") as f:
-        raw_bytes = f.read()
-
         gbx_data = {}
         nodes = []
-        data = GbxStruct.parse(raw_bytes, gbx_data=gbx_data, nodes=nodes, filename=file_path)
+        data = GbxStruct.parse(
+            f.read(),
+            gbx_data=gbx_data,
+            nodes=nodes,
+            filename=file_path,
+            load_external_file=partial(load_external_file, file_dir, with_nodes, recursive),
+        )
         data.filepath = file_path
-        data.nodes = ListContainer(nodes)
+        if with_nodes:
+            data.nodes = ListContainer(nodes)
         data.node_offset = 0
-        nb_nodes = len(data.nodes) - 1
+        nb_nodes = len(nodes) - 1
 
-        return data, nb_nodes, raw_bytes
+        return data
 
 
-parse_file = parse_node
+all_file_paths = {}
+
+
+def load_external_file(root_path, with_nodes, recursive, relative_path):
+    file_path = os.path.normpath(root_path + os.path.sep + relative_path)
+
+    if file_path in all_file_paths:
+        print("reuse " + file_path)
+        return all_file_paths[file_path]
+
+    if (
+        not recursive
+        or not file_path.lower().endswith(".gbx")
+        or file_path.lower().endswith(".texture.gbx")
+        or file_path.lower().endswith(".light.gbx")
+        or file_path.lower().endswith(".sound.gbx")
+        or file_path.lower().endswith(".vegettreemodel.gbx")
+        or "vegetation" in file_path.lower()
+    ):
+        return Container()
+    elif file_path.endswith(".Material.Gbx"):
+        material_name = os.path.basename(file_path).split(".")[0]
+        return create_custom_material(material_name)
+    else:
+        try:
+            return parse_file(file_path, with_nodes=with_nodes, recursive=True)
+        except Exception as e:
+            print(e)
+            return Container(_error="Unable to load file: " + file_path, _message=str(e))
 
 
 def construct_all_folders(all_folders, parent_folder_path, current_folder):
     for folder in current_folder.folders:
         all_folders.append(os.path.normpath(parent_folder_path + folder.name) + os.path.sep)
         construct_all_folders(all_folders, all_folders[-1], folder)
-
-
-all_file_paths = {}
 
 
 def parse_node_recursive(file_path: Path, node_offset=0, path=None, flatten_nodes=False):
@@ -97,8 +127,6 @@ def parse_node_recursive(file_path: Path, node_offset=0, path=None, flatten_node
                 continue
             elif external_node.ref.endswith(".Sound.Gbx"):
                 continue
-            # elif external_node.ref.endswith(".PlaceParam.Gbx"):
-            #     continue
             elif external_node.ref.endswith("VegetTreeModel.Gbx"):
                 continue
             elif "Vegetation" in external_node.ref:
@@ -170,11 +198,11 @@ def generate_file(data):
 def create_custom_material(material_name):
     return Container(
         classId=0x090FD000,
-        body=ListContainer(
+        body=OrderedDict(
             [
-                Container(
-                    chunkId=0x090FD000,
-                    chunk=Container(
+                (
+                    0x090FD000,
+                    Container(
                         version=11,
                         isUsingGameMaterial=False,
                         # materialName="TM_" + material_name + "_asset",
@@ -192,22 +220,20 @@ def create_custom_material(material_name):
                         hidingGroup="",
                     ),
                 ),
-                Container(
-                    chunkId=0x090FD001,
-                    chunk=Container(
+                (
+                    0x090FD001,
+                    Container(
                         version=5,
                         u01=-1,
-                        tiling_u=0,
-                        tiling_v=0,
-                        texture_size=1.0,
+                        tilingU=0,
+                        tilingV=0,
+                        textureSize=1.0,
                         u02=0,
-                        is_natural=False,
+                        isNatural=False,
                     ),
                 ),
-                Container(chunkId=0x090FD002, chunk=Container(version=0, u01=0)),
-                Container(
-                    chunkId=0xFACADE01,
-                ),
+                (0x090FD002, Container(version=0, u01=0)),
+                (0xFACADE01, None),
             ]
         ),
     )
