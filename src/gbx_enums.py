@@ -192,7 +192,8 @@ GbxEPlugSurfaceGameplayId = Enum(
     Cruise=17,
     ReactorBoost_Oriented=18,
     ReactorBoost2_Oriented=19,
-    XXX_Null=20,
+    VehicleTransform_CarSnow=20,
+    VehicleTransform_Reset=21,
 )
 GbxEFillDir = Enum(Int32ul, U=0, V=1)
 GbxEFillAlign = Enum(Int32ul, Center=0, Begin=1, End=2)

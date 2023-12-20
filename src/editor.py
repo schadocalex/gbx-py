@@ -74,7 +74,7 @@ def tree_widget_item(key, value):
         item = QTreeWidgetItem([key, f"Body({len(value)})"])
 
         for chunkId, child in value.items():
-            item.addChild(tree_widget_item(str(hex(chunkId)), child))
+            item.addChild(tree_widget_item(chunkId if isinstance(chunkId, str) else str(hex(chunkId)), child))
 
         return item
     elif type(value).__name__ == "bytes":
@@ -185,9 +185,9 @@ class GbxEditorUiWindow(QMainWindow):
         tree.itemDoubleClicked.connect(on_item_double_clicked)
 
 
-def GbxEditorUi(raw_bytes, parsed_data):
+def GbxEditorUi(parsed_data):
     win = GbxEditorUiWindow()
-    win.set_data(raw_bytes, parsed_data)
+    win.set_data(parsed_data)
 
     return win
 

@@ -5,7 +5,17 @@ from collections import OrderedDict
 
 from construct import Container, ListContainer
 
-from src.gbx_structs import GbxStruct, GbxStructWithoutBodyParsed
+from .gbx_structs import GbxStruct, GbxStructWithoutBodyParsed
+
+
+def parse_bytes(raw_bytes):
+    """Use this for in-memory reading"""
+    return GbxStruct.parse(
+        raw_bytes,
+        gbx_data={},
+        nodes=[],
+        load_external_file=lambda _: Container(),
+    )
 
 
 def parse_file(file_path, with_nodes=False, recursive=True):

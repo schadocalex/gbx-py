@@ -5,6 +5,11 @@ class RawMaterial:
     color = None
 
 
+class RawInvisibleMaterial:
+    physicId = None
+    gameplayId = None
+
+
 class RawMesh:
     # vertices attributes
     vertices = None
@@ -27,7 +32,7 @@ class RawMesh:
 class Entity:
     pos = 0, 0, 0
     rot = 0, 0, 0, 1
-    instance_idx = -1
+    model_idx = -1
 
 
 class Entities:
@@ -40,6 +45,21 @@ def label_all_meshes(content, label):
         if isinstance(obj, RawMesh):
             obj.label = label
     return content
+
+
+def remap_materials(content, remap):
+    if content is None:
+        return
+
+    for obj in content:
+        if isinstance(obj, RawMaterial):
+            if obj.link in remap:
+                obj.link = remap[obj.link]
+        elif isinstance(obj, Entities):
+            for model in obj.models.values():
+                remap_materials(model, remap)
+        elif isinstance(obj, RawMesh):
+            remap_materials(obj.materials, remap)
 
 
 def mat_from_CPlugMaterialUserInst(data):
@@ -61,7 +81,19 @@ def extract_content(data, parent=None):
         model_content = extract_content(data.body[0x2E002019].EntityModel, data)
         # TODO data.body[0x2E00201F].waypointType
 
-        return model_edition_content + model_content
+        content = model_edition_content + model_content
+
+        # remap materials
+        if data.body[0x2E002019].MaterialModifier._index >= 0:
+            chunk = data.body[0x2E002019].MaterialModifier.body[0x915D000]
+            remap = {}
+            prefix = chunk.RemapFolder.split("\\")[-2] + "_"
+            for fid in chunk.Remapping.body[0x90F4005].fids:
+                remap[fid.type] = prefix + fid.type
+
+            remap_materials(content, remap)
+
+        return content
 
     # CGameCommonItemEntityModel
     elif data.classId == 0x2E027000:
@@ -97,7 +129,7 @@ def extract_content(data, parent=None):
                 ents.models[ent.model._index] = extract_content(ent.model, data)
 
             new_ent = Entity()
-            new_ent.instance_idx = ent.model._index
+            new_ent.model_idx = ent.model._index
             new_ent.pos = ent.pos
             new_ent.rot = ent.rot
             ents.ents.append(new_ent)
@@ -115,24 +147,31 @@ def extract_content(data, parent=None):
             mesh = RawMesh()
             mesh.faces = []
             mesh.materials = []
+            mats = {}
             mesh.facesMaterials = []
             mesh.label = "_notvisible_"
             mesh.vertices = surf.data.vertices
             for tri in surf.data.triangles:
                 mesh.faces.append((tri.face.x, tri.face.y, tri.face.z))
-                mat = tri.materialId.physicsId + (
-                    ("_" + tri.materialId.gameplayId) if tri.materialId.gameplayId != "No" else ""
-                )
-                if mat in mesh.materials:
-                    index = mesh.materials.index(mat)
-                else:
-                    index = len(mesh.materials)
+
+                mat_id = (tri.materialId.physicsId, tri.materialId.gameplayId)
+                if mat_id not in mats:
+                    mat = RawInvisibleMaterial()
+                    mat.physicsId = tri.materialId.physicsId
+                    mat.gameplayId = tri.materialId.gameplayId
+                    mats[mat_id] = len(mesh.materials)
                     mesh.materials.append(mat)
-                mesh.facesMaterials.append(index)
+
+                mesh.facesMaterials.append(mats[mat_id])
             return [mesh]
         else:
             print("unsupported CPlugSurface: " + surf.type)
             return []
+
+    # NPlugTrigger_SSpecial
+    elif data.classId == 0x09179000:
+        return label_all_meshes(extract_content(data.body.surf, data), "_gate_")
+
     else:
         print("unsupported classId: " + str(data.classId))
         return []
@@ -204,7 +243,7 @@ def extract_CPlugSolid2Model(data, parent=None):
                     mesh.uv1 = vertex_stream.Data[data_idx]
 
             index_buffer = visual.body[0x0906A001].indexBuffer[0x09057001]
-            assert index_buffer.flags == 2  # TODO, find a case
+            assert index_buffer.flags & 0xC == 0  # TODO, find a case
 
             # convert to absolute
             current_face = 0

@@ -5,15 +5,14 @@ from collections import OrderedDict
 
 import os
 import lzo
-import src.mini_lzo
 import zlib
 import zipfile
 import io
 
 from construct import *
-from src.my_construct import MyRepeatUntil
 
-from src.gbx_enums import *
+from .my_construct import MyRepeatUntil
+from .gbx_enums import *
 
 GbxCompressedBody = Struct(
     "uncompressed_size" / Int32ul,
@@ -34,7 +33,7 @@ class CompressedLZ0(Tunnel):
             Container(
                 uncompressed_size=len(raw_bytes),
                 # compressed_body=mini_lzo.compress(raw_bytes),
-                compressed_body=lzo.compress(raw_bytes, 9, False),
+                compressed_body=lzo.compress(raw_bytes, 1, False),  # TODO change to 9 when tmx can handle that?
             )
         )
 
@@ -698,7 +697,7 @@ class GbxNodeRefAdapter(Adapter):
 
     def _encode(self, obj, ctx, path):
         # print(obj)
-        if obj == None:
+        if obj == None or obj._index == -1:
             return Container(index=-1)
         # elif type(obj) == int:
         #     print(f"reuse {obj}")
@@ -737,6 +736,7 @@ GbxMaterial = Struct(
 # Body Chunks
 
 # 0301B CGameCtnCollectorList
+
 body_chunks[0x0301B000] = Struct(
     "collectorStock"
     / PrefixedArray(
@@ -748,7 +748,28 @@ body_chunks[0x0301B000] = Struct(
     ),
 )
 
+# 03029 CGameCtnMediaBlockTriangles
+
+body_chunks[0x03029001] = Struct(
+    "times" / PrefixedArray(Int32ul, GbxFloat),
+    "numKeys" / Int32ul,
+    "numVerts" / Int32ul,
+    "verticesPositions" / Array(this.numKeys, Array(this.numVerts, GbxVec3)),
+    "verticesColors" / PrefixedArray(Int32ul, GbxVec4),
+    "faces" / PrefixedArray(Int32ul, GbxInt3),
+    "u01" / Int32sl,
+    "u02" / Int32sl,
+    "u03" / Int32sl,
+    "u04" / GbxFloat,
+    "u05" / Int32sl,
+    "u06" / Int64sl,
+)
+body_chunks[0x03029002] = Struct(
+    "anchorLocation" / Int32sl,
+)
+
 # 03036 CGameCtnBlockUnitInfo
+
 body_chunks[0x03036000] = Struct(
     "placePylons" / Int32sl,
     "u01" / GbxBool,  # AcceptPylons?
@@ -1066,6 +1087,7 @@ body_chunks[0x0304305F] = Struct(
 
 
 # 0304E CGameCtnBlockInfo
+
 body_chunks[0x0304E00F] = Struct(
     "no_respawn" / GbxBool,
 )
@@ -1164,6 +1186,39 @@ body_chunks[0x0305B008] = Struct(
 )
 body_chunks[0x0305B00D] = Struct(
     "raceValidateGhost" / GbxNodeRef,  # CGameCtnGhost
+)
+
+# 03078 CGameCtnMediaTrack
+
+body_chunks[0x03078001] = Struct(
+    "name" / GbxString,
+    "listVersion" / Int32ul,
+    "blocks" / PrefixedArray(Int32ul, GbxNodeRef),  # CGameCtnMediaBlock
+    "u02" / Int32sl,
+)
+body_chunks[0x03078005] = Struct(
+    "version" / Int32ul,  # 1
+    "isKeepPlaying" / GbxBool,
+    "isReadOnly" / GbxBool,
+    "isCycling" / GbxBool,
+    StopIf(this.version < 1),
+    "u04" / GbxFloat,
+    "u05" / GbxFloat,
+)
+
+# 03079 CGameCtnMediaClip
+
+body_chunks[0x0307900D] = Struct(
+    "version" / Int32ul,  # 1
+    "listVersion" / Int32ul,
+    "tracks" / PrefixedArray(Int32ul, GbxNodeRef),  # CGameCtnMediaTrack
+    "name" / GbxString,
+    "stopWhenLeave" / GbxBool,
+    "u03" / GbxBool,  # can trigger before start?
+    "stopWhenRespawn" / GbxBool,
+    "u05" / GbxString,
+    "u06" / GbxFloat,
+    "localPlayerClipEntIndex" / Int32sl,
 )
 
 # 03101 CGameCtnAnchoredObject
@@ -2178,7 +2233,7 @@ body_chunks[0x09056000] = Struct(
 # 09057 CPlugIndexBuffer
 
 body_chunks[0x09057000] = Struct(
-    "version" / Int32ul,
+    "flags" / Int32ul,
     "indices" / PrefixedArray(Int32ul, Int16ul),
 )
 body_chunks[0x09057001] = Struct(
@@ -2700,7 +2755,7 @@ body_chunks[0x09145000] = Struct(
                 # TODO generic meta param
                 "params"
                 / If(
-                    True or this.model > 0,  # todo check this in ghidra
+                    True or this.model._index > 0,  # todo check this
                     Struct(
                         "chunkId" / Hex(Int32sl),
                         "chunk"
@@ -3753,6 +3808,7 @@ def set_nodes_array(obj, ctx):
 
 
 def get_nodes_array(obj, ctx):
+    # TODO rewrite with new format (search for maximum index?)
     return len(ctx._root._params.nodes)
 
 
