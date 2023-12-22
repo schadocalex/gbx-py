@@ -1132,8 +1132,8 @@ body_chunks[0x0304E02A] = Struct(
     "version" / Int32ul,
     "sound1" / GbxNodeRef,
     "sound2" / GbxNodeRef,
-    "sound1Loc" / If(lambda this: this.version < 3 or this.sound1 > 0, GbxIso4),
-    "sound2Loc" / If(lambda this: this.version < 3 or this.sound2 > 0, GbxIso4),
+    "sound1Loc" / If(lambda this: this.version < 3 or this.sound1._index > 0, GbxIso4),
+    "sound2Loc" / If(lambda this: this.version < 3 or this.sound2._index > 0, GbxIso4),
 )
 body_chunks[0x0304E02B] = Struct(
     "version" / Int32ul,
@@ -1351,7 +1351,7 @@ body_chunks[0x0315B006] = Struct(
     "turbine" / GbxNodeRef,  # CGameTurbineModel
     StopIf(this.version < 7),
     "flockModel" / GbxNodeRef,  # CPlugFlockModel
-    "flockEmmiter" / If(this.flockModel > 0, PrefixedArray(Int32ul, Struct("TODO" / GreedyBytes))),
+    "flockEmmiter" / If(this.flockModel._index > 0, PrefixedArray(Int32ul, Struct("TODO" / GreedyBytes))),
     StopIf(this.version < 8),
     "spawnModel" / GbxNodeRef,  # CGameSpawnModel
     StopIf(this.version < 10),
