@@ -580,8 +580,10 @@ def list_to_ordered_dict(objs, ctx):
                 res[0xFACADE01] = None
             else:
                 if "skippable" in obj:
-                    obj.chunk._skippable = True
-                    obj.chunk.move_to_end("_skippable", last=False)
+                    obj.chunk = Container(
+                        _skippable=True,
+                        **obj.chunk,
+                    )
                 res[obj.chunkId] = obj.chunk
         else:
             res["rest"] = obj.rest
@@ -689,9 +691,10 @@ class GbxNodeRefAdapter(Adapter):
         # print(f"node_ref {obj.index}")
         if obj.internal_node is not None:
             # print(f"parsed {obj.index} {path}")
-            obj.internal_node._index = obj.index
-            obj.internal_node.move_to_end("_index", last=False)
-            ctx._root._params.nodes[obj.index] = obj.internal_node
+            ctx._root._params.nodes[obj.index] = Container(
+                _index=obj.index,
+                **obj.internal_node,
+            )
 
         return self.NodeRef(ctx._root._params.nodes[obj.index])
 
@@ -3830,11 +3833,11 @@ def compute_all_folders(ctx):
 
 
 def load_external_nodes(obj, ctx):
-    ctx._root._params.nodes[obj.nodeIndex] = ctx._root._params.load_external_file(obj._computedRelativePath)
-    ctx._root._params.nodes[obj.nodeIndex]._relativeFilePath = obj._computedRelativePath
-    ctx._root._params.nodes[obj.nodeIndex].move_to_end("_relativeFilePath", last=False)
-    ctx._root._params.nodes[obj.nodeIndex]._index = obj.nodeIndex
-    ctx._root._params.nodes[obj.nodeIndex].move_to_end("_index", last=False)
+    ctx._root._params.nodes[obj.nodeIndex] = Container(
+        _index=obj.nodeIndex,
+        _relativeFilePath=obj._computedRelativePath,
+        **ctx._root._params.load_external_file(obj._computedRelativePath),
+    )
 
     return obj
 
