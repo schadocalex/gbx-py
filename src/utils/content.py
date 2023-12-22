@@ -75,9 +75,9 @@ def mat_from_CPlugMaterialUserInst(data):
 def extract_content(data, parent=None):
     if "_index" in data and data._index == -1:
         return []
-    
+
     if "classId" not in data:
-        raise data
+        raise Exception(data._error if "_error" in data else data)
 
     # CGameItemModel
     if data.classId == 0x2E002000:

@@ -176,7 +176,12 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
     def execute(self, context):
         data = parse_file(self.filepath)
 
-        content = extract_content(data)
+        try:
+            content = extract_content(data)
+        except Exception as e:
+            self.report({"ERROR"}, e.args[0])
+            return {"CANCELLED"}
+
         name = os.path.basename(self.filepath).split(".")[0]
 
         collection = bpy.data.collections.new("_nice_" + name)
