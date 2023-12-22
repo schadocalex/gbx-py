@@ -178,6 +178,18 @@ def extract_content(data, parent=None):
             print("unsupported CPlugSurface: " + surf.type)
             return []
 
+    # CPlugDynaObjectModel
+    elif data.classId == 0x09144000:
+        content = []
+
+        content += label_all_meshes(extract_content(data.body.Mesh, data), "_notcollidable_")
+        if data.body.DynaShape._index > 0:
+            content += label_all_meshes(extract_content(data.body.DynaShape, data), "_dynashape_")
+        if data.body.StaticShape._index > 0:
+            content += label_all_meshes(extract_content(data.body.StaticShape, data), "_staticshape_")
+
+        return content
+
     # NPlugTrigger_SSpecial
     elif data.classId == 0x09179000:
         return label_all_meshes(extract_content(data.body.surf, data), "_gate_")
