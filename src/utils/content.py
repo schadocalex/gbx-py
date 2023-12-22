@@ -75,18 +75,23 @@ def mat_from_CPlugMaterialUserInst(data):
 def extract_content(data, parent=None):
     if "_index" in data and data._index == -1:
         return []
+    
+    if "classId" not in data:
+        raise data
 
     # CGameItemModel
     if data.classId == 0x2E002000:
-        model_edition_content = extract_content(data.body[0x2E002019].EntityModelEdition, data)
-        model_content = extract_content(data.body[0x2E002019].EntityModel, data)
+        chunk = data.body[0x2E002019]
+
+        model_edition_content = extract_content(chunk.EntityModelEdition, data)
+        model_content = extract_content(chunk.EntityModel, data)
         # TODO data.body[0x2E00201F].waypointType
 
         content = model_edition_content + model_content
 
         # remap materials
-        if data.body[0x2E002019].MaterialModifier._index >= 0:
-            chunk = data.body[0x2E002019].MaterialModifier.body[0x915D000]
+        if chunk.MaterialModifier and chunk.MaterialModifier._index >= 0:
+            chunk = chunk.MaterialModifier.body[0x915D000]
             remap = {}
             prefix = chunk.RemapFolder.split("\\")[-2] + "_"
             for fid in chunk.Remapping.body[0x90F4005].fids:
@@ -95,6 +100,10 @@ def extract_content(data, parent=None):
             remap_materials(content, remap)
 
         return content
+
+    # CGameCommonItemEntityModelEdition
+    elif data.classId == 0x2E026000:
+        return extractMeshCrystal(data.body[0x2E026000].meshCrystal)
 
     # CGameCommonItemEntityModel
     elif data.classId == 0x2E027000:
@@ -176,6 +185,48 @@ def extract_content(data, parent=None):
     else:
         print("unsupported classId: " + str(data.classId))
         return []
+
+
+def extractMeshCrystal(mesh_crystal):
+    assert mesh_crystal.classId == 0x09003000
+
+    materials = []
+    for mat in mesh_crystal.body[0x9003003].materials:
+        if mat.materialName != "":
+            materials.append(mat)
+        else:
+            materials.append(mat_from_CPlugMaterialUserInst(mat.materialUserInst))
+
+    content = []
+    for layer in mesh_crystal.body[0x9003005].layers:
+        if layer.type == "Geometry" or layer.type == "Trigger":
+            assert layer.content.crystal.isEmbeddedCrystal == True
+            crystal = layer.content.crystal.embeddedCrystal
+
+            mesh = RawMesh()
+            mesh.vertices = crystal.vertices
+            # TODO add unfaced edges?
+            mesh.uv0 = [crystal.uvsCoords[idx] for idx in crystal.uvsIndicies]
+            mesh.materials = materials
+            mesh.faces = []
+            mesh.facesMaterials = []
+            for face in crystal.faces:
+                mesh.faces.append(face.inds)
+                mesh.facesMaterials.append(face.material_index)
+
+            if layer.type == "Geometry":
+                if not layer.content.isVisible:
+                    mesh.label = "_notvisible_"
+                elif not layer.content.isCollidable:
+                    mesh.label = "_notcollidable_"
+            else:
+                mesh.label = "_trigger_"
+
+            content.append(mesh)
+
+        # TODO spawnLoc
+
+    return content
 
 
 def extract_CPlugSolid2Model(data, parent=None):

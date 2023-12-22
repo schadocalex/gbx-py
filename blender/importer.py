@@ -2,7 +2,7 @@ import os
 import bpy
 import bpy_extras
 import bmesh
-from mathutils import Vector
+from mathutils import Vector, Quaternion
 
 # from src.nice.api import *
 from ..src.parser import parse_file, generate_node
@@ -131,6 +131,7 @@ def import_content_to_blender(root_collection, name, content, options):
                 ent_obj.instance_type = "COLLECTION"
                 ent_obj.instance_collection = models[ent.model_idx]
                 ent_obj.location = ent_pos
+                ent_obj.rotation_mode = "QUATERNION"
                 ent_obj.rotation_quaternion = ent_rot
                 root_collection.objects.link(ent_obj)
 
@@ -156,7 +157,7 @@ def import_content_to_blender(root_collection, name, content, options):
 
 class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
     bl_idname = "view3d.tm_nice_import_item"
-    bl_description = "Support custom items and natives items. Mesh Modeler items and blocks coming."
+    bl_description = "Support custom items and natives items. Blocks are coming."
     bl_label = "Import Item.Gbx"
 
     filter_glob: bpy.props.StringProperty(

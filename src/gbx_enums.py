@@ -222,6 +222,7 @@ GbxEVariantBaseType = Enum(Byte, Inherit=0, No=1, Conductor=2, Generator=3)
 GbxEAutoTerrainPlaceType = Enum(Int32ul, Auto=0, Force=1, DoNotPlace=2, DoNotDestroy=3)
 GbxEDirection = Enum(Int32ul, North=0, East=1, South=2, West=3)
 GbxEAxis = Enum(Byte, X=0, Y=1, Z=2)
+GbxEAxis32 = Enum(Int32ul, X=0, Y=1, Z=2)
 GbxEAnimEase = Enum(
     Byte,
     Constant=0,

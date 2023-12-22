@@ -687,6 +687,8 @@ class GbxNodeRefAdapter(Adapter):
     def _decode(self, obj, ctx, path):
         if obj.index == -1:
             return self.NodeRef(_index=-1)
+        elif obj.index <= 0 or obj.index >= len(ctx._root._params.nodes):
+            return self.NodeRef(_index=-1, _invalid_index=obj.index)
 
         # print(f"node_ref {obj.index}")
         if obj.internal_node is not None:
@@ -1616,6 +1618,13 @@ body_chunks[0x0602201A] = Struct(
 
 # 09003 CPlugCrystal
 
+
+def get_chunk(ctx, chunkId):
+    while "_chunks" not in ctx and "_" in ctx:
+        ctx = ctx._
+    return ctx._chunks[chunkId]
+
+
 GbxCrystal = Struct(
     "version" / Int32ul,  # 37
     "u06" / Int32sl,  # 4
@@ -1644,22 +1653,41 @@ GbxCrystal = Struct(
     "u31" / Int32sl,  # 0
     "embeddedCrystal"
     / Struct(
-        "positions" / PrefixedArray(Int32ul, GbxVec3),
+        "vertices" / PrefixedArray(Int32ul, GbxVec3),
         "edgesCount" / Int32ul,
         "unfacedEdgesCount" / Int32ul,
         "unfacedEdges" / GbxOptimizedIntArray(this.unfacedEdgesCount * 2),
         "facesCount" / Int32ul,
-        "uvs" / PrefixedArray(Int32ul, GbxVec2),
-        "faceIndiciesCount" / Int32ul,
-        "faceIndicies" / GbxOptimizedIntArray(this.faceIndiciesCount),
+        "uvsCoords" / PrefixedArray(Int32ul, GbxVec2),
+        "faceCornersCount" / Int32ul,
+        "uvsIndicies" / GbxOptimizedIntArray(this.faceCornersCount),  # indexed by face corner
         "faces"
         / Array(
             this.facesCount,
             Struct(
-                "vertCount" / Int8ul,
-                "inds" / GbxOptimizedIntArray(this.vertCount + 3, lambda this: len(this._.positions)),
-                "material_index" / GbxOptimizedInt(1),  # TODO
-                "group_index" / GbxOptimizedInt(1),  # TODO
+                "vertCount_minus3" / Int8ul,
+                "inds" / GbxOptimizedIntArray(this.vertCount_minus3 + 3, lambda this: len(this._.vertices)),
+                "material_index"
+                / If(
+                    this._._.version >= 25,
+                    IfThenElse(
+                        this._._.version >= 33,
+                        IfThenElse(
+                            lambda ctx: len(get_chunk(ctx, 0x09003003).materials) == 0,
+                            Int32ul,
+                            GbxOptimizedInt(
+                                lambda ctx: len(get_chunk(ctx, 0x09003003).materials),
+                            ),
+                        ),
+                        Int32sl,
+                    ),
+                ),
+                "group_index"
+                / IfThenElse(
+                    this._._.version >= 33,
+                    GbxOptimizedInt(lambda ctx: len(ctx._._.groups)),
+                    Int32ul,
+                ),
             ),
         ),
         "u22" / Int32sl,
@@ -1672,6 +1700,47 @@ GbxCrystal_Geometry = Struct(
     "isCollidable" / GbxBool,
 )
 GbxCrystal_Trigger = Struct("crystal" / GbxCrystal, "u01" / PrefixedArray(Int32ul, Int32sl))
+GbxCrystal_Scale = Struct("scale" / GbxVec3, "independently" / GbxBool)
+GbxCrystal_SpawnPosition = Struct(
+    "position" / GbxVec3,
+    "yaw" / GbxFloat,
+    "pitch" / GbxFloat,
+    StopIf(this._.maskVersion < 1),
+    "roll" / GbxFloat,
+)
+GbxCrystal_Translation = Struct("translation" / GbxVec3)
+GbxCrystal_Rotation = Struct("rotation" / GbxFloat, "axis" / GbxEAxis32, "independently" / GbxBool)
+GbxCrystal_Mirror = Struct("axis" / GbxEAxis32, "distance" / GbxFloat, "independently" / GbxBool)
+GbxCrystal_Chaos = Struct("minDistance" / GbxFloat, "chaos_u01" / GbxFloat, "maxDistance" / GbxFloat)
+GbxCrystal_Subdivide = Struct("subdivisions" / Int32sl)
+GbxCrystal_Smooth = Struct("intensity" / Int32sl)  # max 4
+
+GbxCrystal_MaskLayer = Struct(
+    "mask"
+    / PrefixedArray(
+        Int32ul,
+        Struct(
+            "GroupIndex" / Int32sl,
+            "LayerId" / GbxLookbackString,
+        ),
+    ),
+    "maskVersion" / Int32ul,
+    "content"
+    / Switch(
+        this._.type,
+        {
+            GbxELayerType.Scale: GbxCrystal_Scale,
+            GbxELayerType.SpawnPosition: GbxCrystal_SpawnPosition,
+            GbxELayerType.Translation: GbxCrystal_Translation,
+            GbxELayerType.Rotation: GbxCrystal_Rotation,
+            GbxELayerType.Mirror: GbxCrystal_Mirror,
+            GbxELayerType.Chaos: GbxCrystal_Chaos,
+            GbxELayerType.Subdivide: GbxCrystal_Subdivide,
+            GbxELayerType.Deformation: GreedyBytes,  # not supported
+        },
+        GreedyBytes,
+    ),
+)
 
 body_chunks[0x09003003] = Struct(
     "version" / Int32ul,
@@ -1705,7 +1774,7 @@ body_chunks[0x09003005] = Struct(
                     GbxELayerType.Trigger: GbxCrystal_Trigger,
                     GbxELayerType.Cubes: GreedyBytes,
                 },
-                GreedyBytes,
+                GbxCrystal_MaskLayer,
             ),
         ),
     ),

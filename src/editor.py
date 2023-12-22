@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Slot, QSize, Qt
 from PySide6.QtGui import QTextCursor
 
-from src.gbx_structs import GbxPose3D, GbxStruct, GbxStructWithoutBodyParsed, GbxNodeRefAdapter
+from .gbx_structs import GbxPose3D, GbxStruct, GbxStructWithoutBodyParsed, GbxNodeRefAdapter
 from construct import (
     Container,
     ListContainer,
@@ -27,8 +27,8 @@ from construct import (
     Subconstruct,
 )
 
-from src.widgets.hex_editor import GbxHexEditor
-from src.widgets.inspector import Inspector
+from .widgets.hex_editor import GbxHexEditor
+from .widgets.inspector import Inspector
 
 
 def container_iter(ctn):
