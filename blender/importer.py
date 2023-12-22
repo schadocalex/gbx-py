@@ -11,6 +11,7 @@ from ..src.utils.content import extract_content, RawMesh, Entities, RawMaterial,
 from ...operators.OT_Settings import TM_OT_Settings_OpenMessageBox
 from ...utils.ItemsImport import _get_material_name, _load_asset_mats
 
+
 def create_raw_mesh(obj_name, raw_mesh):
     # create the mesh data
     mesh_data = bpy.data.meshes.new(f"{obj_name}_data")
@@ -30,10 +31,10 @@ def create_raw_mesh(obj_name, raw_mesh):
         elif isinstance(material, RawInvisibleMaterial):
             material_name = f"TM_invisible_{material.physicsId}"
             if material.gameplayId != "No":
-                material_name += material.gameplayId
+                material_name += "_" + material.gameplayId
 
         all_material_names.append(material_name)
-    
+
     if all_material_names_to_load:
         _load_asset_mats(all_material_names_to_load)
 
@@ -83,21 +84,18 @@ def create_raw_mesh(obj_name, raw_mesh):
 
     # Add uvs
     # TODO check if uv0 is BaseMaterial (depeding on the material)
-    if raw_mesh.uv0 is not None:
+    if raw_mesh.uv0:
         uv0 = mesh_data.uv_layers.new(name="BaseMaterial", do_init=False)
         uv0.active = True
         uv0.active_render = True
         for idx, coord in uv0.uv.items():
-            vt_idx = raw_mesh.faces[idx // 3][idx % 3]
-            pt = raw_mesh.uv0[vt_idx]
+            pt = raw_mesh.uv0[idx]
             coord.vector = Vector((pt.x, pt.y))
-    if raw_mesh.uv1 is not None:
+    if raw_mesh.uv1:
         uv1 = mesh_data.uv_layers.new(name="Lightmap", do_init=False)
         for idx, coord in uv1.uv.items():
-            vt_idx = raw_mesh.faces[idx // 3][idx % 3]
-            if vt_idx < len(raw_mesh.uv1):
-                pt = raw_mesh.uv1[vt_idx]
-                coord.vector = Vector((pt.x, pt.y))
+            pt = raw_mesh.uv1[idx]
+            coord.vector = Vector((pt.x, pt.y))
 
     # update the mesh data (helps with redrawing the mesh in the viewport)
     mesh_data.update()
@@ -135,26 +133,26 @@ def import_content_to_blender(root_collection, name, content, options):
                 ent_obj.location = ent_pos
                 ent_obj.rotation_quaternion = ent_rot
                 root_collection.objects.link(ent_obj)
-            
+
             for idx, model in models.items():
                 if not models_used[idx]:
                     model.name = "_ignore_" + model.name
                     # TODO: layer_collection.exclude = True
                     model.hide_render = True
-            
-        elif isinstance(obj, RawMesh):  # add the mesh object into the collection
 
+        elif isinstance(obj, RawMesh):  # add the mesh object into the collection
             lod_suffix = ""
             if obj.lod > 0 and obj.lod & 1 != 1:
                 lod_suffix = f"_lod{obj.lod}" if obj.lod > 0 else ""
-                
+
                 if options.get("highest_lod_only", True):
                     continue
-            
+
             mesh = create_raw_mesh(f"{child_name}{lod_suffix}", obj)
             root_collection.objects.link(mesh)
         else:
             print("Unknown: " + str(obj))
+
 
 class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
     bl_idname = "view3d.tm_nice_import_item"
@@ -162,13 +160,13 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
     bl_label = "Import Item.Gbx"
 
     filter_glob: bpy.props.StringProperty(
-        default='*.gbx',
-        options={'HIDDEN'},
+        default="*.gbx",
+        options={"HIDDEN"},
     )
 
     highest_lod_only: bpy.props.BoolProperty(
-        name='Highest LOD only',
-        description='Import only the highest LOD. If disable, will import all LODs.',
+        name="Highest LOD only",
+        description="Import only the highest LOD. If disable, will import all LODs.",
         default=True,
     )
 
@@ -183,9 +181,14 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
         collection = bpy.data.collections.new("_nice_" + name)
         bpy.context.scene.collection.children.link(collection)
 
-        import_content_to_blender(collection, "obj", content, {
-            "highest_lod_only": self.highest_lod_only,
-        })
+        import_content_to_blender(
+            collection,
+            "obj",
+            content,
+            {
+                "highest_lod_only": self.highest_lod_only,
+            },
+        )
 
         return {"FINISHED"}
 
@@ -217,7 +220,7 @@ class TM_PT_NICE(bpy.types.Panel):
             "Import Item.Gbx",
             "--> Support custom and native items. Mesh Modeler items, blocks and custom blocks coming.",
             "",
-            "The exporter will be available in next version, sorry."
+            "The exporter will be available in next version, sorry.",
         )
 
     def draw(self, context):

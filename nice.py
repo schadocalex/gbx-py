@@ -8,17 +8,18 @@ from ..operators.OT_Settings import TM_OT_Settings_OpenMessageBox
 MODULES_FOLDER = bpy.utils.user_resource("SCRIPTS", path="modules") + os.path.sep
 PYTHON_BIN = sys.executable
 
+
 def run_pip_command(*cmds, run_module="pip"):
     command = [PYTHON_BIN, "-m", run_module, *cmds]
 
     print(" ".join(command))
-    return subprocess.run(
-        command, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-    )
+    return subprocess.run(command, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
 
 classes = None
 panel_registered = False
 installation_success = False
+
 
 class TM_PT_NICE_installer(bpy.types.Panel):
     bl_label = "NICE dependencies installer"
@@ -76,11 +77,13 @@ def try_register():
 
         for cls in classes:
             bpy.utils.register_class(cls)
-        
+
         return True
     except ModuleNotFoundError as err:
+        print("ModuleNotFoundError")
         print(err)
         return False
+
 
 class TM_OT_NICE_Item_Install_Deps(bpy.types.Operator):
     bl_idname = "view3d.tm_nice_install_deps"
@@ -105,11 +108,12 @@ def NICE_register():
         global panel_registered
         panel_registered = True
 
+
 def NICE_unregister():
     if panel_registered:
         bpy.utils.unregister_class(TM_OT_NICE_Item_Install_Deps)
         bpy.utils.unregister_class(TM_PT_NICE_installer)
-    
+
     if classes is not None:
         for cls in reversed(classes):
             bpy.utils.unregister_class(cls)

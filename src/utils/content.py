@@ -14,15 +14,16 @@ class RawMesh:
     # vertices attributes
     vertices = None
     normals = None
-    uv0 = None
-    uv1 = None
-    uv2 = None
     colors = None
 
     # faces
     faces = None
     materials = None
     facesMaterials = None  # if len(materials) > 0
+
+    # indexed by face corners
+    uv0 = None
+    uv1 = None
 
     # misc
     lod = 0
@@ -216,6 +217,8 @@ def extract_CPlugSolid2Model(data, parent=None):
         continue_meshes = False
         vertex_streams = visual.body[0x0900600F].vertexStreams
         if len(vertex_streams) == 0:
+            # TODO check this case
+
             for i, texCoord in visual.body[0x0900600F].texCoords:
                 for tex in texCoord.tex_coords:
                     if i == 0:
@@ -231,6 +234,8 @@ def extract_CPlugSolid2Model(data, parent=None):
                 mesh.faces = index_buffer.indices
         else:
             assert len(vertex_streams) == 1  # TODO, find a case
+            verts_uv0 = None
+            verts_uv1 = None
             vertex_stream = vertex_streams[0].body[0x09056000]
             for data_idx, data_decl in enumerate(vertex_stream.DataDecl):
                 if data_decl.header.Name == "Position":
@@ -238,9 +243,9 @@ def extract_CPlugSolid2Model(data, parent=None):
                 elif data_decl.header.Name == "Normal":
                     mesh.normals = vertex_stream.Data[data_idx]
                 elif data_decl.header.Name == "TexCoord0":
-                    mesh.uv0 = vertex_stream.Data[data_idx]
+                    verts_uv0 = vertex_stream.Data[data_idx]
                 elif data_decl.header.Name == "TexCoord1":
-                    mesh.uv1 = vertex_stream.Data[data_idx]
+                    verts_uv1 = vertex_stream.Data[data_idx]
 
             index_buffer = visual.body[0x0906A001].indexBuffer[0x09057001]
             assert index_buffer.flags & 0xC == 0  # TODO, find a case
@@ -254,7 +259,17 @@ def extract_CPlugSolid2Model(data, parent=None):
                 y = current_face
                 current_face += index_buffer.indices[i + 2]
                 mesh.faces.append((x, y, current_face))
-            pass
+
+            if verts_uv0 is not None:
+                mesh.uv0 = []
+                for indicies in mesh.faces:
+                    for i in indicies:
+                        mesh.uv0.append(verts_uv0[i])
+            if verts_uv1 is not None:
+                mesh.uv1 = []
+                for indicies in mesh.faces:
+                    for i in indicies:
+                        mesh.uv1.append(verts_uv1[i])
             # TODO check relative/absolute face indexes
 
     return meshes
