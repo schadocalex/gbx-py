@@ -8,3 +8,5 @@ ExportObj
 lm_samples
 missing_files*
 export/
+experiments*
+assets/*.xcf
