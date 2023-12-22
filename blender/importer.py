@@ -230,5 +230,4 @@ class TM_PT_NICE(bpy.types.Panel):
 
         row = scale_box.row()
         row.scale_y = 1.5
-        text = f"Import Item.Gbx"
-        row.operator("view3d.tm_nice_import_item", text=text)
+        row.operator("view3d.tm_nice_import_item", text="Import Item.Gbx")
