@@ -788,7 +788,7 @@ body_chunks[0x03036001] = Struct(
     "u03" / Int32sl,
 )
 body_chunks[0x03036002] = Struct(
-    "u01" / GbxBytesUntilFacade,  # Bytes(12),  # undergound?
+    "u01" / GreedyBytes,  # Bytes(12),  # undergound?
 )
 body_chunks[0x03036004] = Struct(
     "u01" / Int32sl,
@@ -1118,8 +1118,8 @@ body_chunks[0x0304E020] = Struct(
     "u04" / If(this.u03, Struct("u01" / GbxString, "u02" / GbxString)),
 )
 body_chunks[0x0304E023] = Struct(
-    "variant_base_ground" / GbxBodyChunks,
-    "variant_base_air" / GbxBodyChunks,
+    "variantBaseGround" / GbxBodyChunks,
+    "variantBaseAir" / GbxBodyChunks,
 )
 body_chunks[0x0304E026] = Struct("wayPointType" / GbxEWayPointType)
 body_chunks[0x0304E027] = Struct(
@@ -1344,7 +1344,7 @@ body_chunks[0x0315B006] = Struct(
     "screenInteractionTriggerSolid" / GbxNodeRef,
     "waypointTriggerSolid" / GbxNodeRef,
     "u04" / If(this.version >= 11, GbxNodeRef),
-    "u05" / If(this.version >= 11, GbxNodeRef),
+    "waypointTriggerShape" / If(this.version >= 11, GbxNodeRef),
     "u02" / If(this.version < 9, Int32sl),
     StopIf(this.version < 2),
     "gate" / GbxNodeRef,  # CGameGateModel

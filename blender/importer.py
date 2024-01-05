@@ -6,7 +6,7 @@ from mathutils import Vector, Quaternion
 
 # from src.nice.api import *
 from ..src.parser import parse_file, generate_node
-from ..src.utils.content import extract_content, RawMesh, Entities, RawMaterial, RawInvisibleMaterial
+from ..src.utils.content import extract_content, RawMesh, Entities, RawMaterial, RawInvisibleMaterial, BlockVariant
 
 from ...operators.OT_Settings import TM_OT_Settings_OpenMessageBox
 from ...utils.ItemsImport import _get_material_name, _load_asset_mats
@@ -106,15 +106,14 @@ def create_raw_mesh(obj_name, raw_mesh):
     return mesh_obj
 
 
-def import_content_to_blender(root_collection, name, content, options):
+def import_content_to_blender(root_collection, content, options):
     for idx, obj in enumerate(content):
-        child_name = f"{name}_{idx}"
         if isinstance(obj, Entities):
             models = {}
             models_used = {}
             for i, model in obj.models.items():
                 model_collection = bpy.data.collections.new(f"model{i}")
-                import_content_to_blender(model_collection, "obj", model, options)
+                import_content_to_blender(model_collection, model, options)
                 models[i] = model_collection
                 models_used[i] = False
                 root_collection.children.link(model_collection)
@@ -141,7 +140,7 @@ def import_content_to_blender(root_collection, name, content, options):
                     # TODO: layer_collection.exclude = True
                     model.hide_render = True
 
-        elif isinstance(obj, RawMesh):  # add the mesh object into the collection
+        elif isinstance(obj, RawMesh):
             lod_suffix = ""
             if obj.lod > 0 and obj.lod & 1 != 1:
                 lod_suffix = f"_lod{obj.lod}" if obj.lod > 0 else ""
@@ -149,8 +148,18 @@ def import_content_to_blender(root_collection, name, content, options):
                 if options.get("highest_lod_only", True):
                     continue
 
-            mesh = create_raw_mesh(f"{child_name}{lod_suffix}", obj)
+            mesh = create_raw_mesh(f"obj_{idx}{lod_suffix}", obj)
             root_collection.objects.link(mesh)
+
+        elif isinstance(obj, BlockVariant):
+            variant_collection = bpy.data.collections.new(f"_variant_{obj.name}")
+            root_collection.children.link(variant_collection)
+
+            for mobil_name, mobil in obj.meshes.items():
+                mobil_collection = bpy.data.collections.new(mobil_name)
+                import_content_to_blender(mobil_collection, mobil, options)
+                variant_collection.children.link(mobil_collection)
+
         else:
             print("Unknown: " + str(obj))
 
@@ -189,7 +198,6 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
 
         import_content_to_blender(
             collection,
-            "obj",
             content,
             {
                 "highest_lod_only": self.highest_lod_only,

@@ -41,6 +41,12 @@ class Entities:
     ents = None
 
 
+class BlockVariant:
+    name = ""
+    mobils = None
+    blocks_units = None
+
+
 def label_all_meshes(content, label):
     for obj in content:
         if isinstance(obj, RawMesh):
@@ -77,6 +83,9 @@ def extract_content(data, parent=None):
         return []
 
     if "classId" not in data:
+        if "_index" in data and "_relativeFilePath" in data:
+            print(f"missing file, ignoring: {data._relativeFilePath}")
+            return []
         raise Exception(data._error if "_error" in data else data)
 
     # CGameItemModel
@@ -103,7 +112,7 @@ def extract_content(data, parent=None):
 
     # CGameCommonItemEntityModelEdition
     elif data.classId == 0x2E026000:
-        return extractMeshCrystal(data.body[0x2E026000].meshCrystal)
+        return extract_MeshCrystal(data.body[0x2E026000].meshCrystal)
 
     # CGameCommonItemEntityModel
     elif data.classId == 0x2E027000:
@@ -194,12 +203,31 @@ def extract_content(data, parent=None):
     elif data.classId == 0x09179000:
         return label_all_meshes(extract_content(data.body.surf, data), "_gate_")
 
+    # CGameCtnBlockInfoClassic
+    elif data.classId == 0x03051000:
+        content = []
+        content += extract_block_variant(data, data.body[0x0304E023].variantBaseGround, "ground0")
+        # content += extract_block_variant(data, data.body[0x0304E023].variantBaseAir, "air0")
+        # for i, variant_ground in data.body[0x0304E027].additionalVariantsGround:
+        #     content += extract_block_variant(data, variant_ground, f"ground{idx+1}")
+        # for i, variant_air in data.body[0x0304E02C].additionalVariantsAir:
+        #     content += extract_block_variant(data, variant_air, f"air{idx+1}")
+
+        return content
+
+    # CGameCtnBlockInfoMobil
+    elif data.classId == 0x03122000:
+        prefab_fid = data.body[0x03122003].prefab_fid
+        if prefab_fid._index < 0:
+            return []
+        return extract_content(prefab_fid, data)
+
     else:
         print("unsupported classId: " + str(data.classId))
         return []
 
 
-def extractMeshCrystal(mesh_crystal):
+def extract_MeshCrystal(mesh_crystal):
     assert mesh_crystal.classId == 0x09003000
 
     materials = []
@@ -352,3 +380,22 @@ def extract_meshes2(root_data, data, off_pos=None, off_rot=None, extracted_files
     else:
         print("skip " + hex(data.classId))
         return []
+
+
+def extract_block_variant(root_data, variant_body, variant_name):
+    variant = BlockVariant()
+    variant.name = variant_name
+    variant.mobils = {}
+
+    print(variant_name)
+    for mobil_idx, mobil in enumerate(variant_body[0x0315B005].mobils):
+        print("\tmobil" + str(mobil_idx))
+        for sub_mobil_idx, sub_mobil in enumerate(mobil):
+            print("\t\tsub_mobil" + str(sub_mobil_idx))
+            mobil_key = f"mobil{mobil_idx}_submobil{sub_mobil_idx}"
+            variant.mobils[mobil_key] = extract_content(sub_mobil, root_data)
+
+    # TODO waypoint trigger
+    # TODO clips
+
+    return [variant]

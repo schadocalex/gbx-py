@@ -18,7 +18,7 @@ def parse_bytes(raw_bytes):
     )
 
 
-def parse_file(file_path, with_nodes=False, recursive=True):
+def parse_file(file_path, with_nodes=False, recursive=True, log=False):
     file_path = os.path.abspath(file_path)
     file_dir = os.path.dirname(file_path)
 
@@ -26,6 +26,9 @@ def parse_file(file_path, with_nodes=False, recursive=True):
         error = f"[FILE NOT FOUND] {file_path}"
         print(error)
         return Container(_error=error)
+
+    if log:
+        print(file_path)
 
     with open(file_path, "rb") as f:
         gbx_data = {}
@@ -35,7 +38,7 @@ def parse_file(file_path, with_nodes=False, recursive=True):
             gbx_data=gbx_data,
             nodes=nodes,
             filename=file_path,
-            load_external_file=partial(load_external_file, file_dir, with_nodes, recursive),
+            load_external_file=partial(_load_external_file, {}, log, file_dir, with_nodes, recursive),
         )
         data.filepath = file_path
         if with_nodes:
@@ -46,17 +49,18 @@ def parse_file(file_path, with_nodes=False, recursive=True):
         return data
 
 
-all_file_paths = {}
-
-
-def load_external_file(root_path, with_nodes, recursive, relative_path):
+def _load_external_file(files_cache, log, root_path, with_nodes, recursive, relative_path):
     file_path = os.path.normpath(root_path + os.path.sep + relative_path)
 
-    if file_path in all_file_paths:
-        print("reuse " + file_path)
-        return all_file_paths[file_path]
+    if file_path in files_cache:
+        if log:
+            print("reuse " + file_path)
+        return files_cache[file_path]
 
-    if (
+    if file_path.endswith(".Material.Gbx"):
+        material_name = os.path.basename(file_path).split(".")[0]
+        files_cache[file_path] = create_custom_material(material_name)
+    elif (
         not recursive
         or not file_path.lower().endswith(".gbx")
         or file_path.lower().endswith(".texture.gbx")
@@ -65,16 +69,18 @@ def load_external_file(root_path, with_nodes, recursive, relative_path):
         or file_path.lower().endswith(".vegettreemodel.gbx")
         or "vegetation" in file_path.lower()
     ):
-        return Container()
-    elif file_path.endswith(".Material.Gbx"):
-        material_name = os.path.basename(file_path).split(".")[0]
-        return create_custom_material(material_name)
+        files_cache[file_path] = Container()
     else:
+        if log:
+            print("load external: " + file_path)
+
         try:
-            return parse_file(file_path, with_nodes=with_nodes, recursive=True)
+            files_cache[file_path] = parse_file(file_path, with_nodes=with_nodes, recursive=True)
         except Exception as e:
             print(e)
-            return Container(_error="Unable to load file: " + file_path, _message=str(e))
+            files_cache[file_path] = Container(_error="Unable to load file: " + file_path, _message=str(e))
+
+    return files_cache[file_path]
 
 
 def construct_all_folders(all_folders, parent_folder_path, current_folder):
