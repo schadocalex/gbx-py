@@ -65,8 +65,23 @@ def remap_materials(content, remap):
         elif isinstance(obj, Entities):
             for model in obj.models.values():
                 remap_materials(model, remap)
+        elif isinstance(obj, BlockVariant):
+            for mobil in obj.mobils.values():
+                remap_materials(mobil, remap)
         elif isinstance(obj, RawMesh):
             remap_materials(obj.materials, remap)
+
+
+def apply_mat_modifier(content, mat_modifier):
+    assert mat_modifier.classId == 0x0915D000
+
+    chunk = mat_modifier.body[0x915D000]
+    remap = {}
+    prefix = chunk.RemapFolder.split("\\")[-2] + "_"
+    for fid in chunk.Remapping.body[0x90F4005].fids:
+        remap[fid.type] = prefix + fid.type
+
+    remap_materials(content, remap)
 
 
 def mat_from_CPlugMaterialUserInst(data):
@@ -100,13 +115,7 @@ def extract_content(data, parent=None):
 
         # remap materials
         if chunk.MaterialModifier and chunk.MaterialModifier._index >= 0:
-            chunk = chunk.MaterialModifier.body[0x915D000]
-            remap = {}
-            prefix = chunk.RemapFolder.split("\\")[-2] + "_"
-            for fid in chunk.Remapping.body[0x90F4005].fids:
-                remap[fid.type] = prefix + fid.type
-
-            remap_materials(content, remap)
+            apply_mat_modifier(content, chunk.MaterialModifier)
 
         return content
 
@@ -207,11 +216,15 @@ def extract_content(data, parent=None):
     elif data.classId == 0x03051000:
         content = []
         content += extract_block_variant(data, data.body[0x0304E023].variantBaseGround, "ground0")
-        # content += extract_block_variant(data, data.body[0x0304E023].variantBaseAir, "air0")
-        # for i, variant_ground in data.body[0x0304E027].additionalVariantsGround:
-        #     content += extract_block_variant(data, variant_ground, f"ground{idx+1}")
-        # for i, variant_air in data.body[0x0304E02C].additionalVariantsAir:
-        #     content += extract_block_variant(data, variant_air, f"air{idx+1}")
+        content += extract_block_variant(data, data.body[0x0304E023].variantBaseAir, "air0")
+        for idx, variant_ground in enumerate(data.body[0x0304E027].additionalVariantsGround):
+            content += extract_block_variant(data, variant_ground.body, f"ground{idx+1}")
+        for idx, variant_air in enumerate(data.body[0x0304E02C].additionalVariantsAir):
+            content += extract_block_variant(data, variant_air.body, f"air{idx+1}")
+
+        # remap materials
+        if data.body[0x0304E031].materialModifier and data.body[0x0304E031].materialModifier._index >= 0:
+            apply_mat_modifier(content, data.body[0x0304E031].materialModifier)
 
         return content
 
@@ -387,11 +400,11 @@ def extract_block_variant(root_data, variant_body, variant_name):
     variant.name = variant_name
     variant.mobils = {}
 
-    print(variant_name)
+    # print(variant_name)
     for mobil_idx, mobil in enumerate(variant_body[0x0315B005].mobils):
-        print("\tmobil" + str(mobil_idx))
+        # print("\tmobil" + str(mobil_idx))
         for sub_mobil_idx, sub_mobil in enumerate(mobil):
-            print("\t\tsub_mobil" + str(sub_mobil_idx))
+            # print("\t\tsub_mobil" + str(sub_mobil_idx))
             mobil_key = f"mobil{mobil_idx}_submobil{sub_mobil_idx}"
             variant.mobils[mobil_key] = extract_content(sub_mobil, root_data)
 

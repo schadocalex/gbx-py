@@ -107,6 +107,8 @@ def create_raw_mesh(obj_name, raw_mesh):
 
 
 def import_content_to_blender(root_collection, content, options):
+    link_entities = options.get("link_entities", False)  # TODO remove that mode?
+
     for idx, obj in enumerate(content):
         if isinstance(obj, Entities):
             models = {}
@@ -121,32 +123,52 @@ def import_content_to_blender(root_collection, content, options):
             for i, ent in enumerate(obj.ents):
                 ent_pos = (ent.pos.x, -ent.pos.z, ent.pos.y)
                 ent_rot = (ent.rot.w, ent.rot.x, -ent.rot.z, ent.rot.y)
-                if ent_pos == (0, 0, 0) and ent_rot == (1, 0, 0, 0):
+                if link_entities and ent_pos == (0, 0, 0) and ent_rot == (1, 0, 0, 0):
                     # Use the model directly if at origin
                     models_used[ent.model_idx] = True
                     continue
+                ent_pos = Vector(ent_pos)
+                ent_rot = Quaternion(ent_rot)
 
-                ent_obj = bpy.data.objects.new(f"ent{i}", None)
-                ent_obj.instance_type = "COLLECTION"
-                ent_obj.instance_collection = models[ent.model_idx]
-                ent_obj.location = ent_pos
-                ent_obj.rotation_mode = "QUATERNION"
-                ent_obj.rotation_quaternion = ent_rot
-                root_collection.objects.link(ent_obj)
+                model_collection = models[ent.model_idx]
+
+                if link_entities:
+                    ent_obj = bpy.data.objects.new(f"ent{i}", None)
+                    ent_obj.instance_type = "COLLECTION"
+                    ent_obj.instance_collection = model_collection
+                    ent_obj.location = ent_pos
+                    ent_obj.rotation_mode = "QUATERNION"
+                    ent_obj.rotation_quaternion = ent_rot
+                    root_collection.objects.link(ent_obj)
+                else:
+                    for j, (obj_name, obj) in enumerate(model_collection.all_objects.items()):
+                        new_obj = obj.copy()
+                        new_obj.name = f"{obj_name}_e{i}m{ent.model_idx}"
+
+                        # new_obj.data = new_obj.data.copy() # TODO param? avoid meshes to be linked
+
+                        new_obj.location = Vector(ent_pos) + (ent_rot @ new_obj.location)
+                        new_obj.rotation_mode = "QUATERNION"
+                        new_obj.rotation_quaternion = new_obj.rotation_quaternion.cross(ent_rot)
+
+                        root_collection.objects.link(new_obj)
 
             for idx, model in models.items():
-                if not models_used[idx]:
-                    model.name = "_ignore_" + model.name
-                    # TODO: layer_collection.exclude = True
-                    model.hide_render = True
+                if link_entities:  # link instead of duplicate
+                    if not models_used[idx]:
+                        model.name = "_ignore_" + model.name
+                        # TODO: layer_collection.exclude = True
+                        model.hide_render = True
+                else:
+                    # TODO find a way to not add them so we don't have to remove them after the copies?
+                    for obj in model.all_objects.values():
+                        model.objects.unlink(obj)
+                    root_collection.children.unlink(model)
 
         elif isinstance(obj, RawMesh):
-            lod_suffix = ""
-            if obj.lod > 0 and obj.lod & 1 != 1:
-                lod_suffix = f"_lod{obj.lod}" if obj.lod > 0 else ""
-
-                if options.get("highest_lod_only", True):
-                    continue
+            lod_suffix = f"_lod{obj.lod}" if obj.lod > 0 else ""
+            if options.get("highest_lod_only", True) and obj.lod > 0 and obj.lod & 1 != 1:
+                continue
 
             mesh = create_raw_mesh(f"obj_{idx}{lod_suffix}", obj)
             root_collection.objects.link(mesh)
@@ -155,7 +177,7 @@ def import_content_to_blender(root_collection, content, options):
             variant_collection = bpy.data.collections.new(f"_variant_{obj.name}")
             root_collection.children.link(variant_collection)
 
-            for mobil_name, mobil in obj.meshes.items():
+            for mobil_name, mobil in obj.mobils.items():
                 mobil_collection = bpy.data.collections.new(mobil_name)
                 import_content_to_blender(mobil_collection, mobil, options)
                 variant_collection.children.link(mobil_collection)
@@ -165,9 +187,9 @@ def import_content_to_blender(root_collection, content, options):
 
 
 class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
-    bl_idname = "view3d.tm_nice_import_item"
-    bl_description = "Support custom items and natives items. Blocks are coming."
-    bl_label = "Import Item.Gbx"
+    bl_idname = "view3d.tm_nice_import_gbx"
+    bl_description = "Support all types of items and native blocks. Custom blocks are coming."
+    bl_label = "Import Gbx"
 
     filter_glob: bpy.props.StringProperty(
         default="*.gbx",
@@ -231,8 +253,8 @@ class TM_PT_NICE(bpy.types.Panel):
         op.link = ""
         op.title = self.bl_label
         op.infos = TM_OT_Settings_OpenMessageBox.get_text(
-            "Import Item.Gbx",
-            "--> Support custom and native items. Mesh Modeler items, blocks and custom blocks coming.",
+            "Import Gbx",
+            "--> Support all types of items and native blocks. Custom blocks are coming.",
             "",
             "The exporter will be available in next version, sorry.",
         )
@@ -247,4 +269,4 @@ class TM_PT_NICE(bpy.types.Panel):
 
         row = scale_box.row()
         row.scale_y = 1.5
-        row.operator("view3d.tm_nice_import_item", text="Import Item.Gbx")
+        row.operator("view3d.tm_nice_import_gbx", text="Import Gbx")

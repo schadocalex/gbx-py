@@ -1156,7 +1156,9 @@ body_chunks[0x0304E02F] = Struct(
     "u01" / Byte,
 )
 body_chunks[0x0304E031] = Struct(
-    "rest" / GbxBytesUntilFacade,
+    "version" / Int32ul,
+    "baseBlock" / GbxNodeRef,
+    "materialModifier" / GbxNodeRef,
 )
 
 # 03059 CGameCtnBlockSkin
