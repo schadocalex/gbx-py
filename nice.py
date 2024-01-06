@@ -3,6 +3,8 @@ import os
 import subprocess
 
 import bpy
+
+from ..utils.Functions import reload_current_blend_file, timer
 from ..operators.OT_Settings import TM_OT_Settings_OpenMessageBox
 
 MODULES_FOLDER = bpy.utils.user_resource("SCRIPTS", path="modules") + os.path.sep
@@ -22,7 +24,7 @@ installation_success = False
 
 
 class TM_PT_NICE_installer(bpy.types.Panel):
-    bl_label = "NICE dependencies installer"
+    bl_label = "NICE"
     bl_idname = "TM_PT_NICE_installer"
     bl_context = "objectmode"
     # bl_parent_id = "TM_PT_Map_Manipulate"
@@ -54,14 +56,23 @@ class TM_PT_NICE_installer(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
 
+        box = layout.box()
+
         if installation_success:
-            row = layout.row()
-            row.label(text="Installation successful!")
-            row = layout.row()
-            row.label(text="Reload Blender to use NICE.")
+            col = box.column()
+            col.label(text="Installation successful!", icon="CHECKMARK")
+            col.label(text="Reloading blender ...", icon="BLANK1")
+        
         else:
-            row = layout.row()
-            row.label(text="Installation will freeze Blender!")
+            box.label(text="Nadeo Importer Community Edition")
+            col = box.column()
+            col.alert = True
+            col.scale_y = .7
+            col.label(text="Dependencies are missing.")
+            col.alert = False
+            col.label(text="Install below to use NICE.")
+            col.label(text="Save your blender file before installing")
+            col.label(text="(expect freeze & auto restart)")
 
             row = layout.row()
             row.scale_y = 1.5
@@ -97,6 +108,11 @@ class TM_OT_NICE_Item_Install_Deps(bpy.types.Operator):
         # display reload text
         global installation_success
         installation_success = True
+
+        def run(): 
+            reload_current_blend_file()
+                
+        timer(run, 2)
 
         return {"FINISHED"}
 
