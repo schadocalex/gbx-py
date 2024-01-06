@@ -6,7 +6,15 @@ from mathutils import Vector, Quaternion
 
 # from src.nice.api import *
 from ..src.parser import parse_file, generate_node
-from ..src.utils.content import extract_content, RawMesh, Entities, RawMaterial, RawInvisibleMaterial, BlockVariant
+from ..src.utils.content import (
+    extract_content,
+    RawMesh,
+    Entities,
+    RawMaterial,
+    RawInvisibleMaterial,
+    BlockVariant,
+    SpawnLoc,
+)
 
 from ...operators.OT_Settings import TM_OT_Settings_OpenMessageBox
 from ...utils.ItemsImport import _get_material_name, _load_asset_mats
@@ -106,9 +114,22 @@ def create_raw_mesh(obj_name, raw_mesh):
     return mesh_obj
 
 
-def import_content_to_blender(root_collection, content, options):
-    link_entities = options.get("link_entities", False)  # TODO remove that mode?
+def loc_to_blender(loc):
+    return (Vector((loc.pos.x, -loc.pos.z, loc.pos.y)), Quaternion((loc.rot.w, loc.rot.x, -loc.rot.z, loc.rot.y)))
 
+
+def create_and_place_empty(obj, name):
+    pos, rot = loc_to_blender(obj)
+
+    empty_obj = bpy.data.objects.new(name, None)
+    empty_obj.location = pos
+    empty_obj.rotation_mode = "QUATERNION"
+    empty_obj.rotation_quaternion = rot
+
+    return empty_obj
+
+
+def import_content_to_blender(root_collection, content, options):
     for idx, obj in enumerate(content):
         if isinstance(obj, Entities):
             models = {}
@@ -121,54 +142,39 @@ def import_content_to_blender(root_collection, content, options):
                 root_collection.children.link(model_collection)
 
             for i, ent in enumerate(obj.ents):
-                ent_pos = (ent.pos.x, -ent.pos.z, ent.pos.y)
-                ent_rot = (ent.rot.w, ent.rot.x, -ent.rot.z, ent.rot.y)
-                if link_entities and ent_pos == (0, 0, 0) and ent_rot == (1, 0, 0, 0):
-                    # Use the model directly if at origin
-                    models_used[ent.model_idx] = True
-                    continue
-                ent_pos = Vector(ent_pos)
-                ent_rot = Quaternion(ent_rot)
-
-                model_collection = models[ent.model_idx]
-
-                if link_entities:
-                    ent_obj = bpy.data.objects.new(f"ent{i}", None)
-                    ent_obj.instance_type = "COLLECTION"
-                    ent_obj.instance_collection = model_collection
-                    ent_obj.location = ent_pos
-                    ent_obj.rotation_mode = "QUATERNION"
-                    ent_obj.rotation_quaternion = ent_rot
+                if ent.model_idx == -1:
+                    # empty object, TODO add metadata?
+                    ent_obj = create_and_place_empty(ent, f"empty{i}")
                     root_collection.objects.link(ent_obj)
                 else:
+                    model_collection = models[ent.model_idx]
+                    ent_pos, ent_rot = loc_to_blender(ent)
+
                     for j, (obj_name, obj) in enumerate(model_collection.all_objects.items()):
                         new_obj = obj.copy()
                         new_obj.name = f"{obj_name}_e{i}m{ent.model_idx}"
 
                         # new_obj.data = new_obj.data.copy() # TODO param? avoid meshes to be linked
 
-                        new_obj.location = Vector(ent_pos) + (ent_rot @ new_obj.location)
+                        new_obj.location = ent_pos + (ent_rot @ new_obj.location)
                         new_obj.rotation_mode = "QUATERNION"
-                        new_obj.rotation_quaternion = new_obj.rotation_quaternion.cross(ent_rot)
+                        new_obj.rotation_quaternion = ent_rot.cross(new_obj.rotation_quaternion)
 
                         root_collection.objects.link(new_obj)
 
             for idx, model in models.items():
-                if link_entities:  # link instead of duplicate
-                    if not models_used[idx]:
-                        model.name = "_ignore_" + model.name
-                        # TODO: layer_collection.exclude = True
-                        model.hide_render = True
-                else:
-                    # TODO find a way to not add them so we don't have to remove them after the copies?
-                    for obj in model.all_objects.values():
-                        model.objects.unlink(obj)
-                    root_collection.children.unlink(model)
+                # TODO find a way to not add them so we don't have to remove them after the copies?
+                for obj in model.all_objects.values():
+                    model.objects.unlink(obj)
+                root_collection.children.unlink(model)
 
         elif isinstance(obj, RawMesh):
-            lod_suffix = f"_lod{obj.lod}" if obj.lod > 0 else ""
-            if options.get("highest_lod_only", True) and obj.lod > 0 and obj.lod & 1 != 1:
-                continue
+            lod_suffix = ""
+            if options.get("highest_lod_only", True):
+                if obj.lod > 0 and obj.lod & 1 != 1:
+                    continue
+            else:
+                lod_suffix = f"_lod{obj.lod}" if obj.lod > 0 else ""
 
             mesh = create_raw_mesh(f"obj_{idx}{lod_suffix}", obj)
             root_collection.objects.link(mesh)
@@ -182,13 +188,20 @@ def import_content_to_blender(root_collection, content, options):
                 import_content_to_blender(mobil_collection, mobil, options)
                 variant_collection.children.link(mobil_collection)
 
+            if obj.content:
+                import_content_to_blender(variant_collection, obj.content, options)
+
+        elif isinstance(obj, SpawnLoc):
+            ent_obj = create_and_place_empty(obj, f"_socket_spawnloc")
+            root_collection.objects.link(ent_obj)
+
         else:
             print("Unknown: " + str(obj))
 
 
 class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
     bl_idname = "view3d.tm_nice_import_gbx"
-    bl_description = "Support all types of items and native blocks. Custom blocks are coming."
+    bl_description = "Support all types of items and native blocks. Custom blocks and clips are coming."
     bl_label = "Import Gbx"
 
     filter_glob: bpy.props.StringProperty(
@@ -210,7 +223,7 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
         try:
             content = extract_content(data)
         except Exception as e:
-            self.report({"ERROR"}, e.args[0])
+            self.report({"ERROR"}, str(e.args[0]))
             return {"CANCELLED"}
 
         name = os.path.basename(self.filepath).split(".")[0]
@@ -254,7 +267,7 @@ class TM_PT_NICE(bpy.types.Panel):
         op.title = self.bl_label
         op.infos = TM_OT_Settings_OpenMessageBox.get_text(
             "Import Gbx",
-            "--> Support all types of items and native blocks. Custom blocks are coming.",
+            "--> Support all types of items and native blocks. Custom blocks and clips are coming.",
             "",
             "The exporter will be available in next version, sorry.",
         )

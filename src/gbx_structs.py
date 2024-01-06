@@ -1121,7 +1121,7 @@ body_chunks[0x0304E023] = Struct(
     "variantBaseGround" / GbxBodyChunks,
     "variantBaseAir" / GbxBodyChunks,
 )
-body_chunks[0x0304E026] = Struct("wayPointType" / GbxEWayPointType)
+body_chunks[0x0304E026] = Struct("waypointType" / GbxEWayPointType)
 body_chunks[0x0304E027] = Struct(
     "listVersion" / ExprValidator(Int32ul, obj_ == 10),
     "additionalVariantsGround" / PrefixedArray(Int32ul, GbxNodeRef),  # CGameCtnBlockInfoVariantGround
@@ -1159,6 +1159,33 @@ body_chunks[0x0304E031] = Struct(
     "version" / Int32ul,
     "baseBlock" / GbxNodeRef,
     "materialModifier" / GbxNodeRef,
+)
+
+# 03053 CGameCtnBlockInfoClip
+
+
+body_chunks[0x03053002] = Struct(
+    "aSymmetricalClipId" / GbxLookbackString,
+)
+body_chunks[0x03053004] = Struct(
+    "isFullFreeClip" / GbxBool,
+    "isExclusiveFreeClip" / GbxBool,
+)
+body_chunks[0x03053005] = Struct(
+    "clipType" / GbxEClipType,
+)
+body_chunks[0x03053006] = Struct(
+    "version" / Int32ul,
+    "canBeDeletedByFullFreeClip" / GbxBool,
+    StopIf(this.version < 1),
+    "topBottomMultiDir" / GbxEMultiDir,
+    StopIf(this.version < 2),
+    "u01" / Byte,
+    StopIf(this.version < 3),
+    "u02" / Byte,
+)
+body_chunks[0x03053008] = Struct(
+    "rest" / GreedyBytes,
 )
 
 # 03059 CGameCtnBlockSkin
@@ -1380,10 +1407,7 @@ body_chunks[0x0315B008] = Struct(
     / IfThenElse(
         this.version < 2,
         Struct("spawnTrans" / GbxVec3, "spawnYaw" / GbxVec3, "spawnPitch" / GbxVec3),
-        Struct(
-            "spawnTrans" / GbxVec3,
-            "u01" / GbxVec3,  # SpawnYaw, SpawnPitch, SpawnRoll
-        ),
+        GbxPose3D,
     ),
     "name" / GbxString,
 )
@@ -3051,12 +3075,14 @@ body_chunks[0x09178000] = Struct(
 )
 
 # 09179 NPlugTrigger_SSpecial
+
 body_chunks[0x09179000] = Struct(
     "version" / Int32ul,
     "surf" / GbxNodeRef,
 )
 
 # 0917A CPlugSpawnModel
+
 body_chunks[0x0917A000] = Struct(
     "version" / Int32ul,
     "Loc" / GbxIso4,

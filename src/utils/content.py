@@ -1,3 +1,8 @@
+from construct import Container
+
+from .math import quaternion_from_matrix, quaternion_from_euler
+
+
 class RawMaterial:
     link = ""
     physicId = None
@@ -31,8 +36,8 @@ class RawMesh:
 
 
 class Entity:
-    pos = 0, 0, 0
-    rot = 0, 0, 0, 1
+    pos = Container(x=0, y=0, z=0)
+    rot = Container(x=0, y=0, z=0, w=1)
     model_idx = -1
 
 
@@ -44,7 +49,12 @@ class Entities:
 class BlockVariant:
     name = ""
     mobils = None
-    blocks_units = None
+    content = None
+
+
+class SpawnLoc:
+    pos = Container(x=0, y=0, z=0)
+    rot = Container(x=0, y=0, z=0, w=1)
 
 
 def label_all_meshes(content, label):
@@ -54,22 +64,28 @@ def label_all_meshes(content, label):
     return content
 
 
-def remap_materials(content, remap):
+def loop_objects(content):
     if content is None:
         return
 
     for obj in content:
-        if isinstance(obj, RawMaterial):
-            if obj.link in remap:
-                obj.link = remap[obj.link]
-        elif isinstance(obj, Entities):
+        if isinstance(obj, Entities):
             for model in obj.models.values():
-                remap_materials(model, remap)
+                yield from loop_objects(model)
         elif isinstance(obj, BlockVariant):
             for mobil in obj.mobils.values():
-                remap_materials(mobil, remap)
-        elif isinstance(obj, RawMesh):
-            remap_materials(obj.materials, remap)
+                yield from loop_objects(mobil)
+            yield from loop_objects(obj.content)
+        else:
+            yield obj
+
+
+def remap_materials(content, remap):
+    for obj in loop_objects(content):
+        if isinstance(obj, RawMesh):
+            for mat in obj.materials:
+                if isinstance(mat, RawMaterial) and mat.link in remap:
+                    mat.link = remap[mat.link]
 
 
 def apply_mat_modifier(content, mat_modifier):
@@ -93,9 +109,22 @@ def mat_from_CPlugMaterialUserInst(data):
     return mat
 
 
-def extract_content(data, parent=None):
+def iso4_to_spawnloc(mat):
+    res = SpawnLoc()
+    res.pos = Container(x=mat.TX, y=mat.TY, z=mat.TZ)
+    res.rot = quaternion_from_matrix(mat)
+    return res
+
+
+def need_spawn(waypointType):
+    return waypointType in ("Start", "Checkpoint", "StartFinish")
+
+
+def extract_content(data, parent=None, opts=None):
     if "_index" in data and data._index == -1:
         return []
+    if opts is None:
+        opts = {}
 
     if "classId" not in data:
         if "_index" in data and "_relativeFilePath" in data:
@@ -110,6 +139,7 @@ def extract_content(data, parent=None):
         model_edition_content = extract_content(chunk.EntityModelEdition, data)
         model_content = extract_content(chunk.EntityModel, data)
         # TODO data.body[0x2E00201F].waypointType
+        # add the metadata somewhere? Metadata(key="waypoint", value=waypointType)?
 
         content = model_edition_content + model_content
 
@@ -131,9 +161,14 @@ def extract_content(data, parent=None):
 
         trigger_shape_content = label_all_meshes(extract_content(chunk.props.triggerShape, data), "_trigger_")
 
-        # TODO data.body[0x2e027000].props.spawnLoc
+        content = objects_content + trigger_shape_content
 
-        return objects_content + trigger_shape_content
+        if parent is not None and parent.classId == 0x2E002000:
+            waypointType = parent.body[0x2E00201F].waypointType
+            if need_spawn(waypointType):
+                content.append(iso4_to_spawnloc(data.body[0x2E027000].props.spawnLoc))
+
+        return content
 
     # CPlugStaticObjectModel
     elif data.classId == 0x09159000:
@@ -170,31 +205,7 @@ def extract_content(data, parent=None):
 
     # CPlugSurface
     elif data.classId == 0x0900C000:
-        surf = data.body[0x900C003].surf
-        if surf.type == "Mesh":
-            mesh = RawMesh()
-            mesh.faces = []
-            mesh.materials = []
-            mats = {}
-            mesh.facesMaterials = []
-            mesh.label = "_notvisible_"
-            mesh.vertices = surf.data.vertices
-            for tri in surf.data.triangles:
-                mesh.faces.append((tri.face.x, tri.face.y, tri.face.z))
-
-                mat_id = (tri.materialId.physicsId, tri.materialId.gameplayId)
-                if mat_id not in mats:
-                    mat = RawInvisibleMaterial()
-                    mat.physicsId = tri.materialId.physicsId
-                    mat.gameplayId = tri.materialId.gameplayId
-                    mats[mat_id] = len(mesh.materials)
-                    mesh.materials.append(mat)
-
-                mesh.facesMaterials.append(mats[mat_id])
-            return [mesh]
-        else:
-            print("unsupported CPlugSurface: " + surf.type)
-            return []
+        return surf_to_content(data.body[0x900C003].surf)
 
     # CPlugDynaObjectModel
     elif data.classId == 0x09144000:
@@ -207,10 +218,6 @@ def extract_content(data, parent=None):
             content += label_all_meshes(extract_content(data.body.StaticShape, data), "_staticshape_")
 
         return content
-
-    # NPlugTrigger_SSpecial
-    elif data.classId == 0x09179000:
-        return label_all_meshes(extract_content(data.body.surf, data), "_gate_")
 
     # CGameCtnBlockInfoClassic
     elif data.classId == 0x03051000:
@@ -234,6 +241,18 @@ def extract_content(data, parent=None):
         if prefab_fid._index < 0:
             return []
         return extract_content(prefab_fid, data)
+
+    # NPlugTrigger_SWaypoint
+    elif data.classId == 0x09178000:
+        return label_all_meshes(extract_content(data.body.TriggerShape, data), "_trigger_")
+
+    # NPlugTrigger_SSpecial
+    elif data.classId == 0x09179000:
+        return label_all_meshes(extract_content(data.body.surf, data), "_gate_")
+
+    # CPlugSpawnModel
+    elif data.classId == 0x0917A000:
+        return [iso4_to_spawnloc(data.body[0x0917A000].Loc)]
 
     else:
         print("unsupported classId: " + str(data.classId))
@@ -277,6 +296,7 @@ def extract_MeshCrystal(mesh_crystal):
 
             content.append(mesh)
 
+        # TODO trigger
         # TODO spawnLoc
 
     return content
@@ -399,6 +419,7 @@ def extract_block_variant(root_data, variant_body, variant_name):
     variant = BlockVariant()
     variant.name = variant_name
     variant.mobils = {}
+    variant.content = []
 
     # print(variant_name)
     for mobil_idx, mobil in enumerate(variant_body[0x0315B005].mobils):
@@ -408,7 +429,65 @@ def extract_block_variant(root_data, variant_body, variant_name):
             mobil_key = f"mobil{mobil_idx}_submobil{sub_mobil_idx}"
             variant.mobils[mobil_key] = extract_content(sub_mobil, root_data)
 
-    # TODO waypoint trigger
+    # waypoint spawn loc
+    waypoint_type = root_data.body[0x0304E026].waypointType
+    if need_spawn(waypoint_type):
+        assert variant_body[0x0315B008].version >= 2
+
+        spawn = SpawnLoc()
+        variant.content.append(spawn)
+
+        pos3d = variant_body[0x0315B008].spawn
+        spawn.pos.x, spawn.pos.y, spawn.pos.z = pos3d.x, pos3d.y, pos3d.z
+        spawn.rot = quaternion_from_euler(pos3d.roll, pos3d.pitch, pos3d.yaw)
+
+    # trigger
+    trigger_shape = variant_body[0x0315B006].waypointTriggerShape
+    variant.content += label_all_meshes(extract_content(trigger_shape, root_data), "_trigger_")
+
     # TODO clips
 
     return [variant]
+
+
+def surf_to_content(surf):
+    if surf.type == "Mesh":
+        mesh = RawMesh()
+        mesh.faces = []
+        mesh.materials = []
+        mats = {}
+        mesh.facesMaterials = []
+        mesh.label = "_notvisible_"
+        mesh.vertices = surf.data.vertices
+        for tri in surf.data.triangles:
+            mesh.faces.append((tri.face.x, tri.face.y, tri.face.z))
+
+            mat_id = (tri.materialId.physicsId, tri.materialId.gameplayId)
+            if mat_id not in mats:
+                mat = RawInvisibleMaterial()
+                mat.physicsId = tri.materialId.physicsId
+                mat.gameplayId = tri.materialId.gameplayId
+                mats[mat_id] = len(mesh.materials)
+                mesh.materials.append(mat)
+
+            mesh.facesMaterials.append(mats[mat_id])
+        return [mesh]
+    elif surf.type == "Compound":
+        ents = Entities()
+        ents.models = {}
+        ents.ents = []
+
+        for i, surface in enumerate(surf.data.surfaces):
+            ents.models[i] = surf_to_content(surface)
+            loc = iso4_to_spawnloc(surf.data.locs[i])
+
+            new_ent = Entity()
+            new_ent.model_idx = i
+            new_ent.pos = loc.pos
+            new_ent.rot = loc.rot
+            ents.ents.append(new_ent)
+
+        return [ents]
+    else:
+        print("unsupported CPlugSurface: " + surf.type)
+        return []
