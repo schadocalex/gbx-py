@@ -2,7 +2,7 @@ from functools import partial
 import datetime
 import string
 from collections import OrderedDict
-
+import math
 import os
 import lzo
 import zlib
@@ -14,9 +14,11 @@ from construct import *
 from .my_construct import MyRepeatUntil
 from .gbx_enums import *
 
+GbxBytes = Prefixed(Int32ul, GreedyBytes)
+
 GbxCompressedBody = Struct(
     "uncompressed_size" / Int32ul,
-    "compressed_body" / Prefixed(Int32ul, GreedyBytes),
+    "compressed_body" / GbxBytes,
 )
 
 
@@ -47,7 +49,7 @@ class ACompressedZip(Adapter):
         return self.buffer.getvalue()
 
 
-GbxCompressedZip = ACompressedZip(Prefixed(Int32ul, GreedyBytes))
+GbxCompressedZip = ACompressedZip(GbxBytes)
 
 import zlib
 
@@ -88,15 +90,14 @@ def CompressedZLib(subcon):
         "uncompressedSize" / Int32ul,
         "content" / Prefixed(Int32ul, Compressed(subcon, "zlib", level=9)),
         # "content" / Prefixed(Int32ul, CompressedZlib2(subcon)),
-        # "content" / Prefixed(Int32ul, GreedyBytes),
+        # "content" / GbxBytes,
     )
 
 
-def CompressedZLibBytes(subcon):
-    return Struct(
-        "uncompressedSize" / Int32ul,
-        "content" / Prefixed(Int32ul, GreedyBytes),
-    )
+CompressedZLibBytes = Struct(
+    "uncompressedSize" / Int32ul,
+    "content" / GbxBytes,
+)
 
 
 class EndWithFACADE01(Tunnel):
@@ -189,6 +190,10 @@ GbxBytesUntilFacade = Struct(
     ),
     Seek(-4, 1),
 )
+
+
+def GbxArray(subcon):
+    return PrefixedArray(Int32ul, subcon)
 
 
 def tenb_to_float(x):
@@ -303,13 +308,20 @@ GbxFileRef = Struct(
 )
 
 GbxCollectionIds = {
+    -1: "Unassigned",
     0: "Desert Speed",
     1: "Snow Alpine",
     3: "Island",
     4: "Bay",
     7: "Basic",
     11: "Valley",
+    24: "Stadium4",
+    25: "Stadium256",
     26: "Stadium2020",
+    10000: "Vehicles",
+    10001: "Orbital",
+    10002: "Actors",
+    10003: "Common",
 }
 GbxCollectionIdsFromStr = {v: k for k, v in GbxCollectionIds.items()}
 
@@ -451,7 +463,7 @@ GbxMeta = Struct(
     "author" / GbxLookbackString,
 )
 
-GbxEmbeddedFile = Prefixed(Int32ul, GreedyBytes)
+GbxEmbeddedFile = GbxBytes
 
 
 class GbxOptimizedInt(Construct):
@@ -1255,6 +1267,30 @@ body_chunks[0x0307900D] = Struct(
     "localPlayerClipEntIndex" / Int32sl,
 )
 
+# 03084 CGameCtnMediaBlockCameraGame
+
+body_chunks[0x3084007] = Struct(
+    "version" / Int32ul,
+    "start" / GbxFloat,
+    "end" / GbxFloat,
+    "gameCam" / IfThenElse(this.version < 2, GbxLookbackString, GbxEGameCam2),
+    "clipEntId" / Int32sl,
+    "camPosition" / GbxVec3,
+    "camPitchYawRoll" / GbxVec3,
+    "camFov" / GbxFloat,
+    "u01" / GbxFloat,
+    "u02" / GbxFloat,
+    "camNearClipPlane" / GbxFloat,
+    "camFarClipPlane" / GbxFloat,
+    "u03" / GbxBool,
+    "u04" / GbxBool,
+    "u05" / GbxBool,
+    StopIf(this.version < 1),
+    "u06" / GbxFloat,
+    StopIf(this.version < 3),
+    "u07" / Bytes(4),
+)
+
 # 03101 CGameCtnAnchoredObject
 
 body_chunks[0x03101002] = Struct(
@@ -1289,12 +1325,14 @@ body_chunks[0x0311D002] = Struct(
 )
 
 # 03120 CGameCtnAutoTerrain
+
 body_chunks[0x03120001] = Struct(
     "offset" / GbxInt3,
     "genealogy" / GbxNodeRef,  # CGameCtnZoneGenealogy
 )
 
 # 03122 CGameCtnBlockInfoMobil
+
 body_chunks[0x03122002] = Struct(
     "version" / Int32ul,
     "solid_decals"
@@ -1346,6 +1384,7 @@ body_chunks[0x03122004] = Struct(
 )
 
 # 0315B CGameCtnBlockInfoVariant
+
 body_chunks[0x0315B002] = Struct("multi_dir" / GbxEMultiDir)
 body_chunks[0x0315B003] = Struct(
     "version" / Int32ul,
@@ -1463,6 +1502,54 @@ body_chunks[0x0315C001] = Struct(
     "autoTerrainHeightOffset" / Int32sl,
     "autoTerrainPlaceType" / GbxEAutoTerrainPlaceType,
 )
+
+# 0329F CGameCtnMediaBlockEntity
+
+body_chunks[0x0329F000] = Struct(
+    "version" / Int32ul,
+    "recordData" / GbxNodeRef,
+    "start" / If(this.version < 4, GbxFloat),
+    "end" / If(this.version < 4, GbxFloat),
+    "startOffset" / GbxFloat,
+    "noticeRecords" / PrefixedArray(Int32ul, Int32sl),
+    StopIf(this.version < 2),
+    "noDamage" / GbxBool,
+    "u04" / GbxBool,
+    "forceLight" / GbxBool,
+    "forceHue" / GbxBool,
+    "lightTrailColor" / If(this.version < 6, GbxVec3),
+    StopIf(this.version < 3),
+    "u13" / If(this.version >= 11, Int32sl),
+    "playerModel" / GbxMeta,
+    "u09" / GbxVec3,
+    "skinNames" / PrefixedArray(Int32ul, GbxFileRef),
+    "hasBadges" / ExprValidator(GbxBool, obj_ == False),  # TODO
+    StopIf(this.version < 4),
+    "skinOptions" / If(this.version >= 11, GbxString),
+    "keys"
+    / GbxArray(
+        Struct(
+            "time" / GbxFloat,
+            "lights" / GbxCGameCtnMediaBlockKeyELights,
+            StopIf(this._._.version < 6),
+            "u01" / GbxFloat,
+            "u02" / Int32sl,
+            "u03" / Int32sl,
+            "trailIntensity" / GbxFloat,
+            StopIf(this._._.version < 9),
+            "selfIllumIntensity" / GbxFloat,
+        )
+    ),
+    "u10" / If(this.version == 5, GbxFloat),
+    StopIf(this.version < 7),
+    "ghostName" / GbxString,
+    StopIf(this.version < 8),
+    "u12" / Int32sl,
+    StopIf(this.version < 11),
+    "u15" / Int32sl,
+    "u16" / Int32sl,
+)
+body_chunks[0x0329F002] = Struct("skinOptions" / GbxString)
 
 # 04001 GxLight
 
@@ -2925,7 +3012,7 @@ body_chunks[0x09145000] = Struct(
                         ),
                     ),
                 ),
-                "u01" / Prefixed(Int32ul, GreedyBytes),  # string?
+                "u01" / GbxBytes,  # string?
             ),
             GreedyBytes,
         ),
@@ -3338,7 +3425,7 @@ body_chunks[0x090BB000] = Struct(
     "u26" / PrefixedArray(Int32ul, Int32sl[5]),
 )
 # body_chunks[0x090BB002] = Struct(
-#     "img" / Prefixed(Int32ul, GreedyBytes),
+#     "img" / GbxBytes,
 #     "u01" / Bytes(60),
 # )
 
@@ -3457,6 +3544,121 @@ body_chunks[0x09119000] = Struct(
     "u04" / Int32sl,
 )
 
+# 0911F CPlugEntRecordData
+
+
+def GbxCPlugEntRecordDataLoop(subcon):
+    return RepeatUntil(
+        lambda x, lst, ctx: not x.hasNextElem,
+        Struct(
+            "hasNextElem" / GbxBoolByte,
+            StopIf(lambda this: not this.hasNextElem),
+            *subcon.subcons,
+        ),
+    )
+
+
+body_chunks[0x0911F000] = Struct(
+    "version" / ExprValidator(Int32ul, obj_ == 10),
+    "data"
+    / CompressedZLib(
+        Struct(
+            "version" / Computed(this._._.version),
+            "start" / If(this.version >= 1, Int32sl),
+            "end" / If(this.version >= 1, Int32sl),
+            "entRecordDescs"
+            / GbxArray(
+                Struct(  # EntRecordDesc
+                    "classId" / GbxChunkId,
+                    "u01" / Int32sl,
+                    "u02" / Int32sl,
+                    "u03" / Int32sl,
+                    "u04" / GbxBytes,
+                    "u05" / Int32sl,
+                )
+            ),
+            "noticeRecordDescs"
+            / If(
+                this.version >= 2,
+                GbxArray(
+                    Struct(  # NoticeRecordDesc
+                        "u01" / Int32sl,
+                        "u02" / Int32sl,
+                        StopIf(this._._.version < 4),
+                        "classId" / GbxChunkId,
+                    )
+                ),
+            ),
+            "entListNotEmpty" / GbxBoolByte,
+            "entList"
+            / If(
+                this.entListNotEmpty,
+                RepeatUntil(
+                    lambda x, lst, ctx: not x.hasNextElem,
+                    Struct(
+                        "entRecordDescIndex" / Int32sl,
+                        "u01" / Bytes(4),  # flags?
+                        "u02" / Int32sl,
+                        "u03" / Int32sl,
+                        "u04" / If(this._.version >= 6, Int32sl),
+                        "samples1"
+                        / GbxCPlugEntRecordDataLoop(
+                            Struct(
+                                "time" / Int32sl,
+                                "data"
+                                / Prefixed(
+                                    Int32ul,
+                                    Switch(
+                                        lambda this: this._._.entRecordDescs[this._.entRecordDescIndex].classId,
+                                        body_chunks,
+                                        GreedyBytes,
+                                    ),
+                                ),
+                            )
+                        ),
+                        "hasNextElem" / GbxBoolByte,
+                        "samples2"
+                        / If(
+                            this._.version >= 2,
+                            GbxCPlugEntRecordDataLoop(
+                                Struct(
+                                    "type" / Int32sl,
+                                    "time" / Int32sl,
+                                    "data" / GbxBytes,
+                                )
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            StopIf(this.version < 3),
+            "noticeList"
+            / GbxCPlugEntRecordDataLoop(
+                Struct(
+                    "noticeRecordDescIndex" / Int32sl,
+                    "time" / Int32sl,
+                    "data" / GbxBytes,
+                )
+            ),
+            "customModulesDeltaLists"
+            / PrefixedArray(
+                Int32ul,
+                Struct(
+                    "deltas"
+                    / GbxCPlugEntRecordDataLoop(
+                        Struct(
+                            "u01" / Int32sl,
+                            "data" / GbxBytes,
+                            "u02" / If(this._._.version >= 9, GbxBytes),
+                        )
+                    ),
+                    "period" / If(this._._.version >= 10, Int32sl),
+                ),
+            ),
+        )
+    ),
+)
+
 # 09128 CPlugRoadChunk
 
 body_chunks[0x09128000] = Struct(
@@ -3491,7 +3693,86 @@ body_chunks[0x09128000] = Struct(
     "rot" / GbxQuat,
 )
 
+# 0A018 CSceneVehicleVis
+
+GbxNormUInt8 = ExprAdapter(
+    Int8ul,
+    lambda x, ctx: x / 255.0,
+    lambda x, ctx: int(x * 255),
+)
+
+GbxNodesWithoutBody.add(0x0A018000)
+body_chunks[0x0A018000] = Struct(
+    "u01" / Bytes(2),  # 0
+    "sideSpeed"
+    / ExprAdapter(
+        Int16ul,
+        lambda x, ctx: (x / 65535.0 - 0.5) * 2000,
+        lambda x, ctx: int(((x / 2000.0) + 0.5) * 65535),
+    ),
+    "u04" / Bytes(1),  # 4
+    "rpm" / Int8ul,  # 5
+    "FLWheelRotation" / Int8ul,  # 6
+    "FLWheelRotationCount" / Int8ul,
+    "FRWheelRotation" / Int8ul,
+    "FRWheelRotationCount" / Int8ul,
+    "RRWheelRotation" / Int8ul,
+    "RRWheelRotationCount" / Int8ul,
+    "RLWheelRotation" / Int8ul,
+    "RLWheelRotationCount" / Int8ul,
+    "steer"
+    / ExprAdapter(  # 14
+        Int8ul,
+        lambda x, ctx: ((x / 255.0) - 0.5) * 2,
+        lambda x, ctx: int(((x / 2) + 0.5) * 255),
+    ),
+    "gas" / GbxNormUInt8,  # 15
+    "u16" / Bytes(2),  # 16
+    "break" / GbxNormUInt8,  # 18
+    "u19" / Bytes(28),
+    "position" / GbxVec3,  # 47
+    "angle"  # 59
+    / ExprAdapter(
+        Int16ul,
+        lambda x, ctx: x * math.pi / 65535,
+        lambda x, ctx: int(x / math.pi * 65535),
+    ),
+    "axisHeading"  # 61
+    / ExprAdapter(
+        Int16sl,
+        lambda x, ctx: x * math.pi / 32767,
+        lambda x, ctx: int(x / math.pi * 32767),
+    ),
+    "axisPitch"  # 63
+    / ExprAdapter(
+        Int16sl,
+        lambda x, ctx: x * math.pi / 2 / 32767,
+        lambda x, ctx: int(x / math.pi * 2 * 32767),
+    ),
+    "speed"  # 65
+    / ExprAdapter(
+        Int16sl,
+        lambda x, ctx: math.exp(x / 1000.0),
+        lambda x, ctx: int(math.log(x) * 1000) if x != 0 else 0,
+    ),
+    "velocityHeading"  # 67
+    / ExprAdapter(
+        Int8sl,
+        lambda x, ctx: x * math.pi / 127,
+        lambda x, ctx: int(x / math.pi * 127),
+    ),
+    "velocityPitch"  # 68
+    / ExprAdapter(
+        Int8sl,
+        lambda x, ctx: x * math.pi / 2 / 127,
+        lambda x, ctx: int(x / math.pi * 2 * 127),
+    ),
+    "u69" / Bytes(47),  # 69
+    "rest" / GreedyBytes,
+)
+
 # 2E001 CGameCtnCollector
+
 body_chunks[0x2E001009] = Struct(
     "pagePath" / GbxString,
     "hasIconFed" / GbxBool,
@@ -3599,6 +3880,7 @@ body_chunks[0x2E002020] = Struct(
 )
 
 # 2E009 CGameWaypointSpecialProperty
+
 body_chunks[0x2E009000] = Struct(
     "version" / Int32ul,  # 2
     "tag" / GbxString,
@@ -3862,7 +4144,7 @@ header_chunks[0x2E001004] = Struct(
     "data"
     / IfThenElse(
         this.webp,
-        Struct("version" / Int16ul, "image" / Prefixed(Int32ul, GreedyBytes)),
+        Struct("version" / Int16ul, "image" / GbxBytes),
         Array(
             lambda this: this.width * this.height,
             GbxColor,

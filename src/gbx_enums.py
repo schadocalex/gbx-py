@@ -383,3 +383,5 @@ GbxPlugVDclTypeComps = [1, 2, 3, 4, 4, 4, 2, 4, 4, 2, 4, 2, 4, 3, 3, 2, 4]
 GbxEPlugSolidVisCstType = Enum(Int32ul, No=0, Static=1, Dynamic=2, TmCar=3, SmBody=4)
 GbxERotationOrder = Enum(Byte, XYZ=0, XZY=1, YXZ=2, YZX=3, ZXY=4, ZYX=5)
 GbxEClipType = Enum(Int32ul, ClassicClip=0, FreeClipSide=1, FreeClipTop=2, FreeClipBottom=3)
+GbxEGameCam2 = Enum(Int32ul, Default=0, Internal=1, External=2, Helico=3, Free=4, Spectator=5, External_2=6)
+GbxCGameCtnMediaBlockKeyELights = Enum(Int32ul, Auto=0, On=1, Off=2)
