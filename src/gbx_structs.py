@@ -716,9 +716,6 @@ class GbxNodeRefAdapter(Adapter):
         # print(obj)
         if obj == None or obj._index == -1:
             return Container(index=-1)
-        # elif type(obj) == int:
-        #     print(f"reuse {obj}")
-        #     return obj
 
         # print(f"node ref {obj} + {get_noderef_offset(ctx)} => {obj + get_noderef_offset(ctx)}")
         index = obj._index
@@ -4185,13 +4182,47 @@ header_chunks[0x03043005] = Struct("xml" / GbxString)
 
 
 def set_nodes_array(obj, ctx):
-    ctx._root._params.nodes += [None] * obj
+    ctx._root._params.nodes = [None] * obj
     return obj
 
 
-def get_nodes_array(obj, ctx):
-    # TODO rewrite with new format (search for maximum index?)
-    return len(ctx._root._params.nodes)
+def loop_noderefs(data):
+    if isinstance(data, GbxNodeRefAdapter.NodeRef):
+        yield data
+        if "body" in data:
+            yield from loop_noderefs(data.body)
+    elif isinstance(data, Container):
+        for key, child in data.items():
+            if key != "_io":
+                yield from loop_noderefs(child)
+    elif isinstance(data, ListContainer) or isinstance(data, list):
+        for child in data:
+            yield from loop_noderefs(child)
+    elif isinstance(data, OrderedDict):
+        for child in data.values():
+            yield from loop_noderefs(child)
+
+
+def get_nodes_count(obj, ctx):
+    if "nodes" in ctx._root._params and ctx._root._params.nodes is not None:
+        return len(ctx._root._params.nodes)
+    else:
+        nodes_array = []
+        for node in loop_noderefs(ctx.body):
+            if node._index == -1:
+                continue
+            elif node._index > 10000:
+                print("Found node ref with index > 10000, ignoring.")
+                node._index = -1
+            elif node._index >= len(nodes_array):
+                nodes_array += [None] * (node._index - len(nodes_array) + 1)
+                nodes_array[node._index] = node
+            elif nodes_array[node._index] != node:
+                print(f"[WARN] Node ref {index} object is different than the first one. First one will be used.")
+            else:
+                nodes_array[node._index] = node
+        ctx._root._params.nodes = nodes_array
+        return len(nodes_array)
 
 
 def construct_all_folders(all_folders, parent_folder_path, current_folder):
@@ -4297,7 +4328,7 @@ def create_gbx_struct(gbx_body):
                 ),
             ),
         ),
-        "numNodes" / ExprAdapter(Int32ul, set_nodes_array, get_nodes_array),
+        "numNodes" / ExprAdapter(Int32ul, set_nodes_array, get_nodes_count),
         "referenceTable"
         / Struct(
             "numExternalNodes" / Int32ul,
