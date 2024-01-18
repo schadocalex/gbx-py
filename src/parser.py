@@ -83,7 +83,7 @@ def _load_external_file(files_cache, log, root_path, with_nodes, recursive, rela
     return files_cache[file_path]
 
 
-def generate_file(data, remove_external=True):
+def generate_file(data, remove_external=True, reindex_nodes=False):
     # force compression
     data.header.body_compression = "compressed"
 
@@ -94,7 +94,7 @@ def generate_file(data, remove_external=True):
         data.referenceTable.externalNodes = []
 
     nodes = data.nodes if "nodes" in data else None
-    new_bytes = GbxStruct.build(data, gbx_data={}, nodes=nodes)
+    new_bytes = GbxStruct.build(data, gbx_data={}, nodes=nodes, reindex_nodes=reindex_nodes)
 
     return new_bytes
 

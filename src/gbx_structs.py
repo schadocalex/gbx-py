@@ -607,7 +607,7 @@ def ordered_dict_to_list(body, ctx):
     for key, val in body.items():
         if key == "rest":
             res.append(Container(rest=val))
-        if key == 0xFACADE01:
+        elif key == 0xFACADE01:
             res.append(Container(chunkId=0xFACADE01))
         elif "_skippable" in val and val._skippable:
             res.append(Container(chunkId=key, skippable=b"PIKS", chunk=val))
@@ -636,7 +636,7 @@ GbxBodyChunks = ExprAdapter(
             ),
             Struct(
                 "chunkId" / GbxChunkId,
-                "skippable" / ExprValidator(Const(b"PIKS"), obj_ == b"PIKS"),
+                "skippable" / Const(b"PIKS"),
                 "chunk" / Prefixed(Int32ul, GbxBodyChunk(GreedyBytes)),
             ),
             Struct(
@@ -694,7 +694,8 @@ def get_noderef_offset(ctx):
 
 class GbxNodeRefAdapter(Adapter):
     class NodeRef(Container):
-        pass
+        def __hash__(self):
+            return str(self)
 
     def _decode(self, obj, ctx, path):
         if obj.index == -1:
@@ -4207,20 +4208,32 @@ def get_nodes_count(obj, ctx):
     if "nodes" in ctx._root._params and ctx._root._params.nodes is not None:
         return len(ctx._root._params.nodes)
     else:
-        nodes_array = []
+        nodes_array = [None]
         for node in loop_noderefs(ctx.body):
             if node._index == -1:
                 continue
             elif node._index > 10000:
                 print("Found node ref with index > 10000, ignoring.")
                 node._index = -1
-            elif node._index >= len(nodes_array):
-                nodes_array += [None] * (node._index - len(nodes_array) + 1)
-                nodes_array[node._index] = node
-            elif nodes_array[node._index] != node:
-                print(f"[WARN] Node ref {index} object is different than the first one. First one will be used.")
             else:
-                nodes_array[node._index] = node
+                if ctx._root._params.get("reindex_nodes", False):
+                    # TODO debug this
+                    if node not in nodes_array:
+                        node._index = len(nodes_array)
+                        nodes_array.append(node)
+                    else:
+                        print("reuse" + str(node._index))
+                else:
+                    if node._index >= len(nodes_array):
+                        nodes_array += [None] * (node._index - len(nodes_array) + 1)
+                        nodes_array[node._index] = node
+                    elif nodes_array[node._index] != node:
+                        print(
+                            f"[WARN] Node ref {node._index} object is different than the first one. First one will be used."
+                        )
+                    else:
+                        nodes_array[node._index] = node
+
         ctx._root._params.nodes = nodes_array
         return len(nodes_array)
 
