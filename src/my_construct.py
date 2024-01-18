@@ -44,7 +44,7 @@ class MyRepeatUntil(Subconstruct):
         discard = self.discard
         if not callable(predicate):
             predicate = lambda _1, _2, _3: predicate
-        obj = ListContainer()
+        obj = []
         context._array = obj
         context._chunks = {}
         for i in itertools.count():
@@ -62,7 +62,7 @@ class MyRepeatUntil(Subconstruct):
         discard = self.discard
         if not callable(predicate):
             predicate = lambda _1, _2, _3: predicate
-        partiallist = ListContainer()
+        partiallist = []
         retlist = ListContainer()
         context._array = retlist
         context._chunks = {}

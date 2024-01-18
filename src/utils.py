@@ -1,11 +1,11 @@
 import datetime
 
-from construct import Container, ListContainer
+from construct import Container
 
 
 def update_surf(node, physicsId=None, gameplayId=None, materialIndex=None, gameplayMainDir=None):
     # remove native materials from surf
-    node.body[0].chunk.materials = ListContainer([])
+    node.body[0].chunk.materials = []
 
     for idx, materialId in enumerate(node.body[0].chunk.materialsIds):
         if materialIndex is None or materialIndex == idx:
@@ -91,18 +91,17 @@ def animate(
                 subVersion=3,
                 TransAnimFunc=Container(
                     TimeIsDuration=True,
-                    SubFuncs=ListContainer([Container(ease=fn[0], reverse=fn[1], duration=fn[2]) for fn in transFn]),
+                    SubFuncs=[Container(ease=fn[0], reverse=fn[1], duration=fn[2]) for fn in transFn],
                 ),
                 RotAnimFunc=Container(
                     TimeIsDuration=True,
-                    SubFuncs=ListContainer([Container(ease=fn[0], reverse=fn[1], duration=fn[2]) for fn in rotFn]),
+                    SubFuncs=[Container(ease=fn[0], reverse=fn[1], duration=fn[2]) for fn in rotFn],
                 ),
                 ShaderTcType="No",
                 ShaderTcVersion=0,
-                ShaderTcAnimFunc=ListContainer(
-                    []
-                    # [Container(duration=1000, u01=0), Container(duration=1000, u01=1)]
-                ),
+                ShaderTcAnimFunc=[]
+                # [Container(duration=1000, u01=0), Container(duration=1000, u01=1)]
+                ,
                 ShaderTcData_TransSub=None,
                 # Container(
                 #     NbSubTexture=5,
@@ -128,41 +127,39 @@ def animate(
             url="",
             u01=b"\x00\x00\x00\x00",
             u02=b"\x00\x00\x00\x00",
-            Ents=ListContainer(
-                [
-                    Container(
-                        model=dyna_node_index,
-                        rot=Container(x=0, y=0, z=0, w=1),
-                        pos=Container(x=0, y=0, z=0),
-                        dynaParams=Container(
-                            chunkId=0x2F0B6000,
-                            TextureId=2,
-                            u01=1,
-                            CastStaticShadow=False,
-                            IsKinematic=True,
-                            u04=-1,
-                            u05=-1,
-                            u06=-1,
-                        ),
-                        LodGroupId=-1,
-                        name="",
+            Ents=[
+                Container(
+                    model=dyna_node_index,
+                    rot=Container(x=0, y=0, z=0, w=1),
+                    pos=Container(x=0, y=0, z=0),
+                    dynaParams=Container(
+                        chunkId=0x2F0B6000,
+                        TextureId=2,
+                        u01=1,
+                        CastStaticShadow=False,
+                        IsKinematic=True,
+                        u04=-1,
+                        u05=-1,
+                        u06=-1,
                     ),
-                    Container(
-                        model=kinematic_node_index,
-                        rot=Container(x=0, y=0, z=0, w=1),
-                        pos=Container(x=0, y=0, z=0),
-                        constraintParams=Container(
-                            chunkId=0x2F0C8000,
-                            Ent1=1,
-                            Ent2=-1,
-                            Pos1=Container(x=0, y=0, z=0),
-                            Pos2=Container(x=0, y=0, z=0),
-                        ),
-                        LodGroupId=-1,
-                        name="",
+                    LodGroupId=-1,
+                    name="",
+                ),
+                Container(
+                    model=kinematic_node_index,
+                    rot=Container(x=0, y=0, z=0, w=1),
+                    pos=Container(x=0, y=0, z=0),
+                    constraintParams=Container(
+                        chunkId=0x2F0C8000,
+                        Ent1=1,
+                        Ent2=-1,
+                        Pos1=Container(x=0, y=0, z=0),
+                        Pos2=Container(x=0, y=0, z=0),
                     ),
-                ]
-            ),
+                    LodGroupId=-1,
+                    name="",
+                ),
+            ],
         ),
     )
 

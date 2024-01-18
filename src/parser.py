@@ -3,7 +3,7 @@ from pathlib import Path
 from functools import partial
 from collections import OrderedDict
 
-from construct import Container, ListContainer
+from construct import Container
 
 from .gbx_structs import GbxStruct, GbxStructWithoutBodyParsed
 
@@ -42,7 +42,7 @@ def parse_file(file_path, with_nodes=False, recursive=True, log=False):
         )
         data.filepath = file_path
         if with_nodes:
-            data.nodes = ListContainer(nodes)
+            data.nodes = nodes
         data.node_offset = 0
         nb_nodes = len(nodes) - 1
 
