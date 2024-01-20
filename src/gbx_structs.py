@@ -612,17 +612,22 @@ def list_to_ordered_dict(objs, ctx):
     return res
 
 
+class DisplayedHex(int):
+    def __str__(self):
+        return f"0x{self:08X}"
+
+
 def ordered_dict_to_list(body, ctx):
     res = []
     for key, val in body.items():
         if key == "rest":
             res.append(Container(rest=val))
         elif key == 0xFACADE01:
-            res.append(Container(chunkId=0xFACADE01))
+            res.append(Container(chunkId=DisplayedHex(0xFACADE01)))
         elif "_skippable" in val and val._skippable:
-            res.append(Container(chunkId=key, skippable=b"PIKS", chunk=val))
+            res.append(Container(chunkId=DisplayedHex(key), skippable=b"PIKS", chunk=val))
         else:
-            res.append(Container(chunkId=key, chunk=val))
+            res.append(Container(chunkId=DisplayedHex(key), chunk=val))
     return res
 
 
