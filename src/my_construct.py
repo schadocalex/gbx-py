@@ -129,15 +129,23 @@ class DebugStruct(Struct):
     # TODO do the same for parsing
 
     def _build(self, obj, stream, context, path):
+        original_gbx_data = dict(context._root._params.gbx_data)
+        original_nodes = list(context._root._params.nodes)
         try:
             return super()._build(obj, stream, context, path)
         except Exception:
             # there's an error, try to reduce the struct until no more error
             subcons = list(self.subcons)
             while subcons:
+                # remove last subcon
                 subcon_in_error = subcons.pop()
                 if not subcons:
                     raise ExplicitError("No substructure match found")
+
+                # Put the original context
+                context._root._params.gbx_data = dict(original_gbx_data)
+                context._root._params.nodes = list(original_nodes)
+
                 try:
                     Struct(*subcons)._build(obj, stream, context, path)
                     raise ExplicitError(f"Debug successful, subcon in error is: {subcon_in_error}")
