@@ -711,9 +711,9 @@ class NodeRef(Container):
 class GbxNodeRefAdapter(Adapter):
     def _decode(self, obj, ctx, path):
         if obj.index == -1:
-            return self.NodeRef(_index=-1)
+            return NodeRef(_index=-1)
         elif obj.index <= 0 or obj.index >= len(ctx._root._params.nodes):
-            return self.NodeRef(_index=-1, _invalid_index=obj.index)
+            return NodeRef(_index=-1, _invalid_index=obj.index)
 
         # print(f"node_ref {obj.index}")
         if obj.internal_node is not None:
@@ -723,7 +723,7 @@ class GbxNodeRefAdapter(Adapter):
                 **obj.internal_node,
             )
 
-        return self.NodeRef(ctx._root._params.nodes[obj.index])
+        return NodeRef(ctx._root._params.nodes[obj.index])
 
     def _encode(self, obj, ctx, path):
         # print(obj)
@@ -3352,7 +3352,21 @@ body_chunks[0x090BB000] = Struct(
 #     "u01" / Bytes(60),
 # )
 
+# 090EA CPlugVehiclePhyModel
+
+body_chunks[0x090EA002] = Struct("refBuffer" / GbxNodeRef)  # CMwRefBuffer
+body_chunks[0x090EA003] = Struct("tunings" / GbxNodeRef)  # CPlugVehiclePhyTunings
+body_chunks[0x090EA008] = Struct(
+    "version" / Int32ul,
+    "phyShape" / GbxNodeRef,  # CPlugVehicleCarPhyShape
+    StopIf(this.version < 1),
+    "occupantSlots" / GbxArray(GbxNodeRef),  # OccupantSlot,
+    StopIf(this.version < 6),
+    "u01" / GbxArray(GbxVec3),
+)
+
 # 090F4 CPlugGameSkin
+
 body_chunks[0x090F4003] = Struct("u01" / GbxString, "u02" / GbxString)
 body_chunks[0x090F4005] = Struct(
     "version" / Int8ul,
@@ -4078,7 +4092,7 @@ header_chunks[0x03043005] = Struct("xml" / GbxString)
 
 
 def set_nodes_array(obj, ctx):
-    ctx._root._params.nodes = [None] * obj
+    ctx._root._params.nodes += [None] * obj
     return obj
 
 
@@ -4094,7 +4108,7 @@ def loop_noderefs(data):
     elif isinstance(data, ListContainer) or isinstance(data, list):
         for child in data:
             yield from loop_noderefs(child)
-    elif isinstance(data, OrderedDict):
+    elif isinstance(data, OrderedDict) or isinstance(data, dict):
         for child in data.values():
             yield from loop_noderefs(child)
 
