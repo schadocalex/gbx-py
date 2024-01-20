@@ -1,6 +1,6 @@
 import itertools
 
-from construct import Subconstruct, ListContainer, evaluate
+from construct import Subconstruct, ListContainer, evaluate, ExplicitError, Construct, Struct
 
 
 class MyRepeatUntil(Subconstruct):
@@ -119,3 +119,29 @@ class MyRepeatUntil(Subconstruct):
             repeat="until",
             repeat_until=repr(self.predicate).replace("obj_", "_"),
         )
+
+
+class DebugStruct(Struct):
+    r"""
+    Debug a Struct with the "no subconstruct match" error
+    """
+
+    # TODO do the same for parsing
+
+    def _build(self, obj, stream, context, path):
+        try:
+            return super()._build(obj, stream, context, path)
+        except Exception:
+            # there's an error, try to reduce the struct until no more error
+            subcons = list(self.subcons)
+            while subcons:
+                subcon_in_error = subcons.pop()
+                if not subcons:
+                    raise ExplicitError("No substructure match found")
+                try:
+                    Struct(*subcons)._build(obj, stream, context, path)
+                    raise ExplicitError(f"Debug successful, subcon in error is: {subcon_in_error}")
+                except ExplicitError:
+                    raise
+                except Exception as e:
+                    continue

@@ -11,7 +11,7 @@ import io
 
 from construct import *
 
-from .my_construct import MyRepeatUntil
+from .my_construct import MyRepeatUntil, DebugStruct
 from .gbx_enums import *
 
 GbxBytes = Prefixed(Int32ul, GreedyBytes)
@@ -4124,25 +4124,24 @@ def get_nodes_count(obj, ctx):
             elif node._index > 10000:
                 print("Found node ref with index > 10000, ignoring.")
                 node._index = -1
-            else:
-                if ctx._root._params.get("reindex_nodes", False):
-                    if node not in nodes_array:
-                        # print(f"old {node._index} new {len(nodes_array)}")
-                        node._index = len(nodes_array)
-                        nodes_array.append(node)
-                    else:
-                        print("reuse" + str(node._index))
+            elif ctx._root._params.get("reindex_nodes", False):
+                if node not in nodes_array:
+                    # print(f"old {node._index} new {len(nodes_array)}")
+                    node._index = len(nodes_array)
+                    nodes_array.append(node)
                 else:
-                    # TODO manage when _index=0 autoindexing?
-                    if node._index >= len(nodes_array):
-                        nodes_array += [None] * (node._index - len(nodes_array) + 1)
-                        nodes_array[node._index] = node
-                    elif nodes_array[node._index] != node:
-                        print(
-                            f"[WARN] Node ref {node._index} object is different than the first one. First one will be used."
-                        )
-                    else:
-                        nodes_array[node._index] = node
+                    print("reuse" + str(node._index))
+            else:
+                # TODO manage when _index=0 autoindexing?
+                if node._index >= len(nodes_array):
+                    nodes_array += [None] * (node._index - len(nodes_array) + 1)
+                    nodes_array[node._index] = node
+                elif nodes_array[node._index] != node:
+                    print(
+                        f"[WARN] Node ref {node._index} object is different than the first one. First one will be used."
+                    )
+                else:
+                    nodes_array[node._index] = node
 
         ctx._root._params.nodes = nodes_array
         return len(nodes_array)
