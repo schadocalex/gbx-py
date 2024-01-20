@@ -3,26 +3,27 @@ import datetime
 from construct import Container
 
 
-def update_surf(node, physicsId=None, gameplayId=None, materialIndex=None, gameplayMainDir=None):
+def update_surf(node, physics_id=None, gameplay_id=None, material_index=None, gameplay_main_dir=None):
+    chunk = node.body[0x0900C003]
     # remove native materials from surf
-    node.body[0].chunk.materials = []
+    chunk.materials = []
 
-    for idx, materialId in enumerate(node.body[0].chunk.materialsIds):
-        if materialIndex is None or materialIndex == idx:
-            if physicsId is not None:
-                materialId.physicsId = physicsId
-            if gameplayId is not None:
-                materialId.gameplayId = gameplayId
+    for idx, materialId in enumerate(chunk.materialsIds):
+        if material_index is None or material_index == idx:
+            if physics_id is not None:
+                materialId.physicsId = physics_id
+            if gameplay_id is not None:
+                materialId.gameplayId = gameplay_id
 
-        for tri in node.body[0].chunk.surf.data.triangles:
-            if materialIndex is None or materialIndex == tri.materialIndex:
-                if physicsId is not None:
-                    tri.materialId.physicsId = physicsId
-                if gameplayId is not None:
-                    tri.materialId.gameplayId = gameplayId
+        for tri in chunk.surf.data.triangles:
+            if material_index is None or material_index == tri.materialIndex:
+                if physics_id is not None:
+                    tri.materialId.physicsId = physics_id
+                if gameplay_id is not None:
+                    tri.materialId.gameplayId = gameplay_id
 
-    if gameplayMainDir is not None:
-        node.body[0].chunk.surf.u01 = gameplayMainDir
+    if gameplay_main_dir is not None:
+        chunk.surf.GameplayMainDir = gameplay_main_dir
 
 
 def update_all_surf(data, *surfParams, **surfParamsKw):

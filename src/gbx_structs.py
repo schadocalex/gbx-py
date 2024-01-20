@@ -192,28 +192,20 @@ GbxBytesUntilFacade = Struct(
 )
 
 
-class AGbxArray(Adapter):
-    def _decode(self, obj, ctx, path):
-        return list(obj)
-
-    def _encode(self, obj, ctx, path):
-        return ListContainer(obj)
-
-
 def GbxArrayOf(subcon):
-    return AGbxArray(PrefixedArray(Int32ul, subcon))
+    return PrefixedArray(Int32ul, subcon)
 
 
 def GbxArray(*subcons):
-    return AGbxArray(PrefixedArray(Int32ul, Struct(*subcons)))
+    return PrefixedArray(Int32ul, Struct(*subcons))
 
 
 def GbxArray16(*subcons):
-    return AGbxArray(PrefixedArray(Int16ul, Struct(*subcons)))
+    return PrefixedArray(Int16ul, Struct(*subcons))
 
 
 def GbxArray8(*subcons):
-    return AGbxArray(PrefixedArray(Int8ul, Struct(*subcons)))
+    return PrefixedArray(Int8ul, Struct(*subcons))
 
 
 def tenb_to_float(x):
@@ -575,10 +567,8 @@ GbxNodesWithoutBody = set(
     [
         0x0912F000,
         0x09144000,
-        0x09145000,
         0x09159000,
         0x09178000,
-        0x09179000,
         0x0917B000,
         0x09187000,
         0x2F074000,
@@ -712,11 +702,13 @@ def get_noderef_offset(ctx):
     return 0
 
 
-class GbxNodeRefAdapter(Adapter):
-    class NodeRef(Container):
-        def __hash__(self):
-            return str(self)
+class NodeRef(Container):
+    def __init__(self, *args, **kwargs):
+        self._index = -1
+        super().__init__(*args, **kwargs)
 
+
+class GbxNodeRefAdapter(Adapter):
     def _decode(self, obj, ctx, path):
         if obj.index == -1:
             return self.NodeRef(_index=-1)
@@ -2102,8 +2094,7 @@ GbxSurf = Struct(
         GbxSurfTypeToStruct,
         GbxBytesUntilFacade,
     ),
-    "u01" / GbxVec3,
-    # / If(this._.surfVersion >= 2, GbxVec3),  #  mainDir? like for boost its dir?
+    "GameplayMainDir" / GbxVec3,  # If(this._.surfVersion >= 2
 )
 GbxSurfTypeToStruct[GbxESurfType.Sphere] = Struct(
     "u01" / GbxFloat,
@@ -2885,6 +2876,7 @@ def newPropSubEntityModel(obj, ctx):
 
 # 09145 SPlugPrefab
 
+GbxNodesWithoutBody.add(0x09145000)
 body_chunks[0x09145000] = Struct(
     "version" / Int32ul,
     "updatedTime" / GbxFileTime,
@@ -3117,6 +3109,7 @@ body_chunks[0x09178000] = Struct(
 
 # 09179 NPlugTrigger_SSpecial
 
+GbxNodesWithoutBody.add(0x09179000)
 body_chunks[0x09179000] = Struct(
     "version" / Int32ul,
     "surf" / GbxNodeRef,
@@ -3712,9 +3705,9 @@ body_chunks[0x2E001011] = Struct(
 )
 body_chunks[0x2E001012] = Struct(
     "version" / Int32ul,  # 0
-    "u01" / Int32sl,  # 0x8c
-    "u02" / Int32sl,  # 0x12
-    "u03" / Int32sl,  # 0x94
+    "u01" / Int32sl,
+    "u02" / Int32sl,
+    "u03" / Int32sl,
 )
 
 # 2E002 CGameItemModel
@@ -3732,8 +3725,6 @@ body_chunks[0x2E002012] = Struct(
 body_chunks[0x2E002015] = Struct("itemType" / GbxEItemType)
 body_chunks[0x2E002019] = Struct(
     "version" / Int32ul,
-    # "phy_model_custom" # TODO
-    # "vis_model_custom" # TODO
     StopIf(this.version < 3),
     "defaultWeaponName" / GbxLookbackString,
     StopIf(this.version < 4),
@@ -4092,7 +4083,7 @@ def set_nodes_array(obj, ctx):
 
 
 def loop_noderefs(data):
-    if isinstance(data, GbxNodeRefAdapter.NodeRef):
+    if isinstance(data, NodeRef):
         yield data
         if "body" in data:
             yield from loop_noderefs(data.body)
@@ -4121,13 +4112,14 @@ def get_nodes_count(obj, ctx):
                 node._index = -1
             else:
                 if ctx._root._params.get("reindex_nodes", False):
-                    # TODO debug this
                     if node not in nodes_array:
+                        # print(f"old {node._index} new {len(nodes_array)}")
                         node._index = len(nodes_array)
                         nodes_array.append(node)
                     else:
                         print("reuse" + str(node._index))
                 else:
+                    # TODO manage when _index=0 autoindexing?
                     if node._index >= len(nodes_array):
                         nodes_array += [None] * (node._index - len(nodes_array) + 1)
                         nodes_array[node._index] = node
@@ -4206,6 +4198,7 @@ def create_gbx_struct(gbx_body):
                                 "size"
                                 / Rebuild(
                                     BitsInteger(31),
+                                    # TODO clean this
                                     lambda this: len(
                                         header_chunks[this._.id].build(
                                             this._._._.data[this._index],
@@ -4217,7 +4210,7 @@ def create_gbx_struct(gbx_body):
                                         )
                                     )
                                     if this._.id in header_chunks
-                                    else this.size,
+                                    else len(this._._._.data[this._index]),
                                 ),
                             )
                         ),

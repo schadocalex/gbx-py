@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Slot, QSize, Qt
 from PySide6.QtGui import QTextCursor
 
-from .gbx_structs import GbxPose3D, GbxStruct, GbxStructWithoutBodyParsed, GbxNodeRefAdapter
+from .gbx_structs import GbxPose3D, GbxStruct, GbxStructWithoutBodyParsed, NodeRef
 from construct import (
     Container,
     ListContainer,
@@ -45,7 +45,7 @@ class QTreeWidgetItem_WithData(QTreeWidgetItem):
 
 
 def tree_widget_item(key, value):
-    if isinstance(value, GbxNodeRefAdapter.NodeRef):
+    if isinstance(value, NodeRef):
         if value._index == -1:
             return QTreeWidgetItem_WithData(
                 Container(type=type(value).__name__, value=value),

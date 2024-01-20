@@ -1,8 +1,9 @@
 from collections import namedtuple
 
-from src.nice.utils import *
-from src.parser import generate_file
-import src.utils as utils
+from .utils import *
+from ..parser import generate_file
+from ..utils.misc import update_surf
+from ..gbx_structs import NodeRef
 
 EGameplayProps = namedtuple("EGameplayProps", ["label", "nice_id", "as_gate"])
 
@@ -26,6 +27,8 @@ EGameplay = {
     "Cruise": EGameplayProps("Cruise", "Cruise", True),
     "ReactorBoost": EGameplayProps("ReactorBoost", "ReactorBoost_Oriented", True),
     "ReactorBoost2": EGameplayProps("ReactorBoost2", "ReactorBoost2_Oriented", True),
+    "VehicleCarSnow": EGameplayProps("VehicleCarSnow", "VehicleTransform_CarSnow", True),
+    "VehicleReset": EGameplayProps("VehicleReset", "VehicleTransform_Reset", True),
 }
 
 EWaypoint = {
@@ -77,21 +80,25 @@ class DynaObject:
 class Gate:
     """Invisible shape without collision that has a gameplay id"""
 
-    def __init__(self, loc, shape_filepath, gameplayId="Turbo"):
+    def __init__(self, loc, shape_filepath, gameplay_id="Turbo"):
         self.loc = loc
         self.shape_filepath = shape_filepath
-        self.gameplayId = EGameplay[gameplayId].nice_id
+        self.gameplay_id = EGameplay[gameplay_id].nice_id
 
-    def get_entities(self, nodes, files_refidx):
-        gate_index = len(nodes)
-        gate = new_struct(0x09179000, Ctn(version=1, surf=-1))
-        nodes.append(gate)
-        gate.body.surf = get_refidx(nodes, files_refidx, self.shape_filepath, extract_shape)
+    def get_entities(self, files_parsed):
+        gate = new_struct(
+            0x09179000,
+            Ctn(
+                version=1,
+                surf=get_noderef(nodes, files_parsed, self.shape_filepath, extract_shape),
+            ),
+        )
+
         utils.update_surf(
-            nodes[gate.body.surf],
-            physicsId="Concrete",
-            gameplayId=self.gameplayId,
-            gameplayMainDir=None,  # TODO
+            gate.body.surf,
+            physics_id="Concrete",
+            gameplay_id=self.gameplay_id,
+            gameplay_main_dir=None,  # TODO
         )
 
         return [
@@ -108,48 +115,27 @@ class Gate:
 class Shape:
     """Invisible shape with collision that has physics and gameplay ids"""
 
-    def __init__(self, shape_filepath, physicsId="Concrete", gameplayId="None"):
+    def __init__(self, shape_filepath, physics_id="Concrete", gameplay_id="None"):
         self.shape_filepath = shape_filepath
-        self.physicsId = EPhysics[gameplayId]
-        self.gameplayId = EGameplay[gameplayId].nice_id
+        self.physics_id = EPhysics[physics_id]
+        self.gameplay_id = EGameplay[gameplay_id].nice_id
 
 
-class Mesh:
+def new_ent_mesh(loc, mesh, shape=None):
     """Visible but NOT collidable mesh with optionnal collision shape"""
 
-    def __init__(self, loc, mesh_filepath, shape_filepath=None):
-        self.loc = loc
-        self.mesh_filepath = mesh_filepath
-        self.shape_filepath = shape_filepath
-
-    def get_entities(self, nodes, files_refidx):
-        refidx = len(nodes)
-        static_object = new_struct(
+    return new_ent(
+        loc,
+        new_struct(
             0x09159000,
             Ctn(
                 version=3,
-                Mesh=-1,
+                Mesh=mesh,
                 isMeshCollidable=False,
-                Shape=-1,
+                Shape=shape if shape is not None else NodeRef(),
             ),
-        )
-        nodes.append(static_object)
-
-        static_object.body.Mesh = get_refidx(nodes, files_refidx, self.mesh_filepath, extract_file, 0x090BB000)
-        if self.shape_filepath is not None:
-            static_object.body.Shape = get_refidx(nodes, files_refidx, self.shape_filepath, extract_shape)
-        else:
-            static_object.body.Shape = -1
-
-        return [
-            Ctn(
-                model=refidx,
-                rot=self.loc.as_quat(),
-                pos=self.loc.as_pos(),
-                params=Ctn(chunkId=-1, chunk=None),
-                u01=b"",
-            )
-        ]
+        ),
+    )
 
 
 class Waypoint:
@@ -168,45 +154,18 @@ class Spawn(Loc):
     pass
 
 
-class AdvancedItem:
-    def __init__(self, author="", name="", waypoint_type="None", icon_filepath=None, entities=None):
-        self.author = author
-        self.name = name
-        self.waypoint_type = EWaypoint[waypoint_type]
-        self.icon_filepath = icon_filepath
-        self.entities = entities
+def new_advanced_item(author, name, entities=None, waypoint_type="None", icon_filepath=None):
+    assert isinstance(entities, list)
 
-    def generate(self):
-        nodes = [None, None]
-        files_refidx = {}
-        entities = []
-        for entity in self.entities:
-            entities += entity.get_entities(nodes, files_refidx)
-
-        nodes[1] = new_composed_model(entities)
-
-        placement_refidx = new_placement_nodes(nodes)
-
-        data = new_file(
-            self.author,
-            self.name,
-            self.icon_filepath,
-            new_item_body(
-                self.author,
-                self.name,
-                self.waypoint_type,
-                1,
-                placement_refidx,
-            ),
-            List(nodes),
-        )
-
-        # import sys
-        # from PySide6.QtWidgets import QApplication
-        # from src.editor import GbxEditorUi
-
-        # app = QApplication.instance() or QApplication(sys.argv)
-        # win = GbxEditorUi(b"", data)
-        # app.exec()
-
-        return generate_file(data)
+    return new_file(
+        author,
+        name,
+        icon_filepath,
+        new_item_body(
+            author,
+            name,
+            waypoint_type,
+            new_entities(entities),
+            new_placement_node(),
+        ),
+    )
