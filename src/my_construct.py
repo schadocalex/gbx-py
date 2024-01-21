@@ -1,6 +1,19 @@
 import itertools
 
-from construct import Subconstruct, ListContainer, evaluate, ExplicitError, Construct, Struct
+from construct import (
+    Subconstruct,
+    ListContainer,
+    evaluate,
+    Construct,
+    Struct,
+    StreamError,
+    RepeatError,
+    ExplicitError,
+    SelectError,
+    stream_tell,
+    stream_seek,
+    stream_write,
+)
 
 
 class MyRepeatUntil(Subconstruct):
@@ -121,6 +134,23 @@ class MyRepeatUntil(Subconstruct):
         )
 
 
+def save_context(ctx):
+    nodes = ctx._root._params.nodes
+    return {
+        "nodes": list(nodes) if nodes is not None else None,
+        "lookbackstring_table": dict(ctx._root._params.gbx_data.get("lookbackstring_table", {})),
+        "lookbackstring_index": ctx._root._params.gbx_data.get("lookbackstring_index", 0),
+        "lookbackstring_version": ctx._root._params.gbx_data.get("lookbackstring_version", False),
+    }
+
+
+def load_context(ctx, old_ctx):
+    ctx._root._params.nodes = list(old_ctx["nodes"]) if old_ctx["nodes"] is not None else None
+    ctx._root._params.gbx_data["lookbackstring_table"] = dict(old_ctx["lookbackstring_table"])
+    ctx._root._params.gbx_data["lookbackstring_index"] = old_ctx["lookbackstring_index"]
+    ctx._root._params.gbx_data["lookbackstring_version"] = old_ctx["lookbackstring_version"]
+
+
 class DebugStruct(Struct):
     r"""
     Debug a Struct with the "no subconstruct match" error
@@ -129,11 +159,14 @@ class DebugStruct(Struct):
     # TODO do the same for parsing
 
     def _build(self, obj, stream, context, path):
-        original_gbx_data = dict(context._root._params.gbx_data)
-        original_nodes = list(context._root._params.nodes)
+        old_ctx = save_context(context)
+
         try:
             return super()._build(obj, stream, context, path)
-        except Exception:
+        except ExplicitError:
+            raise
+        except Exception as e:
+            print(e)
             # there's an error, try to reduce the struct until no more error
             subcons = list(self.subcons)
             while subcons:
@@ -142,14 +175,80 @@ class DebugStruct(Struct):
                 if not subcons:
                     raise ExplicitError("No substructure match found")
 
-                # Put the original context
-                context._root._params.gbx_data = dict(original_gbx_data)
-                context._root._params.nodes = list(original_nodes)
+                # Reload context
+                load_context(context, old_ctx)
 
                 try:
                     Struct(*subcons)._build(obj, stream, context, path)
                     raise ExplicitError(f"Debug successful, subcon in error is: {subcon_in_error}")
                 except ExplicitError:
                     raise
-                except Exception as e:
+                except Exception:
                     continue
+
+
+class MySelect(Construct):
+    r"""
+    Same as Select but keep the same context for each iteration
+
+    Selects the first matching subconstruct.
+
+    Parses and builds by literally trying each subcon in sequence until one of them parses or builds without exception. Stream gets reverted back to original position after each failed attempt, but not if parsing succeeds. Size is not defined.
+
+    :param \*subcons: Construct instances, list of members, some can be anonymous
+    :param \*\*subconskw: Construct instances, list of members (requires Python 3.6)
+
+    :raises StreamError: requested reading negative amount, could not read enough bytes, requested writing different amount than actual data, or could not write all bytes
+    :raises StreamError: stream is not seekable and tellable
+    :raises SelectError: neither subcon succeded when parsing or building
+
+    Example::
+
+        >>> d = Select(Int32ub, CString("utf8"))
+        >>> d.build(1)
+        b'\x00\x00\x00\x01'
+        >>> d.build(u"Афон")
+        b'\xd0\x90\xd1\x84\xd0\xbe\xd0\xbd\x00'
+
+        Alternative syntax, but requires Python 3.6 or any PyPy:
+        >>> Select(num=Int32ub, text=CString("utf8"))
+    """
+
+    def __init__(self, *subcons, **subconskw):
+        super().__init__()
+        self.subcons = list(subcons) + list(k / v for k, v in subconskw.items())
+        self.flagbuildnone = any(sc.flagbuildnone for sc in self.subcons)
+
+    def _parse(self, stream, context, path):
+        old_ctx = save_context(context)
+        for i, sc in enumerate(self.subcons):
+            if i > 0:
+                load_context(context, old_ctx)
+
+            fallback = stream_tell(stream, path)
+            try:
+                obj = sc._parsereport(stream, context, path)
+            except ExplicitError:
+                raise
+            except Exception:
+                stream_seek(stream, fallback, 0, path)
+            else:
+                return obj
+        raise SelectError("no subconstruct matched", path=path)
+
+    def _build(self, obj, stream, context, path):
+        old_ctx = save_context(context)
+        for i, sc in enumerate(self.subcons):
+            if i > 0:
+                load_context(context, old_ctx)
+
+            try:
+                data = sc.build(obj, **context)
+            except ExplicitError:
+                raise
+            except Exception:
+                pass
+            else:
+                stream_write(stream, data, len(data), path)
+                return obj
+        raise SelectError("no subconstruct matched: %s" % (obj,), path=path)

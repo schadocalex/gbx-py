@@ -11,7 +11,7 @@ import io
 
 from construct import *
 
-from .my_construct import MyRepeatUntil, DebugStruct
+from .my_construct import MyRepeatUntil, MySelect, DebugStruct, save_context, load_context
 from .gbx_enums import *
 
 GbxBytes = Prefixed(Int32ul, GreedyBytes)
@@ -432,9 +432,7 @@ class GbxLookbackStringContext(Construct):
         self.subcon = subcon
 
     def _parse(self, stream, context, path):
-        old_table = context._root._params.gbx_data.pop("lookbackstring_table", None)
-        old_index = context._root._params.gbx_data.pop("lookbackstring_index", None)
-        old_version = context._root._params.gbx_data.pop("lookbackstring_version", None)
+        old_ctx = save_context(context)
 
         context._root._params.gbx_data["lookbackstring_table"] = {}
         context._root._params.gbx_data["lookbackstring_index"] = 0
@@ -442,16 +440,12 @@ class GbxLookbackStringContext(Construct):
 
         res = self.subcon._parse(stream, context, path)
 
-        context._root._params.gbx_data["lookbackstring_table"] = old_table
-        context._root._params.gbx_data["lookbackstring_index"] = old_index
-        context._root._params.gbx_data["lookbackstring_version"] = old_version
+        load_context(context, old_ctx)
 
         return res
 
     def _build(self, obj, stream, context, path):
-        old_table = context._root._params.gbx_data.pop("lookbackstring_table", None)
-        old_index = context._root._params.gbx_data.pop("lookbackstring_index", None)
-        old_version = context._root._params.gbx_data.pop("lookbackstring_version", None)
+        old_ctx = save_context(context)
 
         context._root._params.gbx_data["lookbackstring_table"] = {}
         context._root._params.gbx_data["lookbackstring_index"] = 0
@@ -459,9 +453,7 @@ class GbxLookbackStringContext(Construct):
 
         res = self.subcon._build(obj, stream, context, path)
 
-        context._root._params.gbx_data["lookbackstring_table"] = old_table
-        context._root._params.gbx_data["lookbackstring_index"] = old_index
-        context._root._params.gbx_data["lookbackstring_version"] = old_version
+        load_context(context, old_ctx)
 
         return res
 
@@ -632,7 +624,7 @@ def ordered_dict_to_list(body, ctx):
 
 
 def GbxBodyChunk(default_unknown):
-    return Select(
+    return MySelect(
         Switch(
             this.chunkId,
             body_chunks,
@@ -645,7 +637,7 @@ def GbxBodyChunk(default_unknown):
 GbxBodyChunks = ExprAdapter(
     MyRepeatUntil(
         lambda obj, lst, ctx: obj is None or "rest" in obj or obj.chunkId == 0xFACADE01,
-        Select(
+        MySelect(
             Struct(
                 "chunkId" / ExprValidator(GbxChunkId, obj_ == 0xFACADE01),
             ),
@@ -699,14 +691,6 @@ def need_node_body(this):
         print(f"Unknown node ref index: {this.index}")
 
 
-def get_noderef_offset(ctx):
-    while "_" in ctx:
-        ctx = ctx._
-        if "node_offset" in ctx:
-            return ctx.node_offset
-    return 0
-
-
 class NodeRef(Container):
     def __init__(self, *args, **kwargs):
         self._index = -1
@@ -735,16 +719,12 @@ class GbxNodeRefAdapter(Adapter):
         if obj == None or obj._index == -1:
             return Container(index=-1)
 
-        # print(f"node ref {obj} + {get_noderef_offset(ctx)} => {obj + get_noderef_offset(ctx)}")
-        index = obj._index
-        index += get_noderef_offset(ctx)
-
         internal_node = None
-        if ctx._root._params.nodes[index] is not None:
-            internal_node = ctx._root._params.nodes[index]
-            ctx._root._params.nodes[index] = None
+        if ctx._root._params.nodes[obj._index] is not None:
+            internal_node = ctx._root._params.nodes[obj._index]
+            ctx._root._params.nodes[obj._index] = None
 
-        return Container(index=index, internal_node=internal_node)
+        return Container(index=obj._index, internal_node=internal_node)
 
 
 GbxNodeRef = GbxNodeRefAdapter(
@@ -867,7 +847,7 @@ GbxBlockInstance = Struct(
     "dir" / GbxECardinalDir,
     "coords" / GbxInt3Byte,
     "flags"
-    / Select(
+    / MySelect(
         ExprValidator(Int32sl, obj_ == -1),
         ByteSwapped(
             BitStruct(
@@ -914,7 +894,7 @@ GbxBlockInstance = Struct(
     # coord -= (1, 0, 1); if version >= 6
     # coord -= (0, 1, 0); if free block
     # "unassigned1BlockParams"
-    # / Select(
+    # / MySelect(
     #     Struct(
     #         ExprValidator(Peek(Int32ul), lambda obj, ctx: obj & 0xC0000000 > 0),
     #         "name" / ExprValidator(GbxLookbackString, obj_ == "Unassigned1"),
@@ -2892,7 +2872,7 @@ body_chunks[0x09145000] = Struct(
     "Ents"
     / Array(
         this.EntsCount,
-        Select(
+        MySelect(
             Struct(
                 "model" / GbxNodeRef,
                 "rot" / GbxQuat,
@@ -3352,6 +3332,7 @@ body_chunks[0x090BB000] = Struct(
     "cst_0" / If(this.version == 33, ExprValidator(Int32ul, obj_ == 0)),
     "u26" / GbxArrayOf(Int32sl[5]),
 )
+
 # body_chunks[0x090BB002] = Struct(
 #     "img" / GbxBytes,
 #     "u01" / Bytes(60),
@@ -4179,11 +4160,6 @@ def load_external_nodes(obj, ctx):
     return obj
 
 
-def reset_lookbackstring(obj, ctx):
-    ctx._root._params.gbx_data.pop("lookbackstring", None)
-    return obj
-
-
 def create_gbx_struct(gbx_body):
     return Struct(
         Const(b"GBX"),
@@ -4193,7 +4169,7 @@ def create_gbx_struct(gbx_body):
         "status" / Enum(Byte, Release=ord("R"), EarlyAccess=ord("E")),
         "classId" / GbxChunkId,
         "header"
-        / Select(
+        / MySelect(
             Struct("size" / ExprValidator(Int32ul, obj_ == 0)),
             Struct(
                 "corrupted_size" / ExprAdapter(Int32ul, lambda obj, ctx: obj, lambda obj, ctx: 0),
@@ -4237,7 +4213,7 @@ def create_gbx_struct(gbx_body):
                     / Array(
                         lambda this: len(this.entries),
                         GbxLookbackStringContext(
-                            Select(
+                            MySelect(
                                 Switch(
                                     lambda this: this.entries[this._index].id,
                                     header_chunks,
