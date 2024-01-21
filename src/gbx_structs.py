@@ -643,7 +643,7 @@ GbxBodyChunks = ExprAdapter(
             ),
             Struct(
                 "chunkId" / GbxChunkId,
-                "skippable" / Const(b"PIKS"),
+                "skippable" / ExprValidator(Const(b"PIKS"), obj_ == b"PIKS"),
                 "chunk" / Prefixed(Int32ul, GbxBodyChunk(GreedyBytes)),
             ),
             Struct(
