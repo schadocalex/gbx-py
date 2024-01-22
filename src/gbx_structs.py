@@ -2879,39 +2879,49 @@ body_chunks[0x09145000] = Struct(
                 "pos" / GbxVec3,
                 # TODO generic meta param
                 "params"
-                / If(
-                    True or this.model._index > 0,  # todo check this
-                    Struct(
-                        "chunkId" / Hex(Int32sl),
-                        "chunk"
-                        / Switch(
-                            this.chunkId,
-                            {
-                                -1: Pass,
-                                # NPlugDynaObjectModel_SInstanceParams
-                                0x2F0B6000: Struct(
-                                    "version" / Int32sl,  # 2
-                                    "PeriodSc" / GbxFloat,
-                                    "TextureId" / Int32sl,
-                                    "IsKinematic" / GbxBool,
-                                    StopIf(this.version < 1),
-                                    "PeriodScMax" / GbxFloat,
-                                    "Phase01" / GbxFloat,
-                                    "Phase01Max" / GbxFloat,
-                                    StopIf(this.version < 2),
-                                    "CastStaticShadow"
-                                    / GbxBool,  # "!! Attention reserve a de rares objets dont l\'animation conserve a peu pres la shadow (tube qui tourne sur lui meme /ex), cette shadow (vue au loin) ne sera pas animee !!"
+                / Struct(
+                    "chunkId" / Hex(Int32sl),
+                    StopIf(this.chunkId == -1),
+                    "chunk"
+                    / Switch(
+                        this.chunkId,
+                        {
+                            # NPlugDynaObjectModel_SInstanceParams
+                            0x2F0B6000: Struct(
+                                "version" / Int32sl,  # 2
+                                "PeriodSc" / GbxFloat,
+                                "TextureId" / Int32sl,
+                                "IsKinematic" / GbxBool,
+                                StopIf(this.version < 1),
+                                "PeriodScMax" / GbxFloat,
+                                "Phase01" / GbxFloat,
+                                "Phase01Max" / GbxFloat,
+                                StopIf(this.version < 2),
+                                "CastStaticShadow"
+                                / GbxBool,  # "!! Attention reserve a de rares objets dont l\'animation conserve a peu pres la shadow (tube qui tourne sur lui meme /ex), cette shadow (vue au loin) ne sera pas animee !!"
+                            ),
+                            # NPlugDyna_SPrefabConstraintParams
+                            0x2F0C8000: Struct(
+                                "version" / Int32ul,  # 0
+                                "Ent1" / Int32sl,
+                                "Ent2" / Int32sl,
+                                "Pos1" / GbxVec3,
+                                "Pos2" / GbxVec3,
+                            ),
+                            # NPlugItemPlacement_SPlacement
+                            0x2F0A9000: Struct(
+                                "version" / Int32ul,
+                                "iLayout" / Int32sl,
+                                "Options"
+                                / GbxArray(  # NPlugItemPlacement_SPlacementOption 0x30166000
+                                    "RequiredTags" / GbxDictString,
                                 ),
-                                # NPlugDyna_SPrefabConstraintParams
-                                0x2F0C8000: Struct(
-                                    "version" / Int32ul,  # 0
-                                    "Ent1" / Int32sl,
-                                    "Ent2" / Int32sl,
-                                    "Pos1" / GbxVec3,
-                                    "Pos2" / GbxVec3,
-                                ),
-                                # NPlugItemPlacement_SPlacement
-                                0x2F0A9000: Struct(
+                            ),
+                            # NPlugItemPlacement_SPlacementGroup
+                            0x2F0D8000: Struct(
+                                "version" / Int32ul,
+                                "Placements"
+                                / GbxArray(
                                     "version" / Int32ul,
                                     "iLayout" / Int32sl,
                                     "Options"
@@ -2919,31 +2929,18 @@ body_chunks[0x09145000] = Struct(
                                         "RequiredTags" / GbxDictString,
                                     ),
                                 ),
-                                # NPlugItemPlacement_SPlacementGroup
-                                0x2F0D8000: Struct(
-                                    "version" / Int32ul,
-                                    "Placements"
-                                    / GbxArray(
-                                        "version" / Int32ul,
-                                        "iLayout" / Int32sl,
-                                        "Options"
-                                        / GbxArray(  # NPlugItemPlacement_SPlacementOption 0x30166000
-                                            "RequiredTags" / GbxDictString,
-                                        ),
-                                    ),
-                                    "u01" / GbxArrayOf(Int16sl),
-                                    "u02" / GbxArrayOf(GbxLoc),
-                                ),
-                                # NPlugStaticObjectModel_SInstanceParams
-                                0x2F0D9000: Struct(
-                                    "version" / Int32ul,  # 0
-                                    "Phase01" / GbxFloat,
-                                ),
-                            },
-                        ),
+                                "u01" / GbxArrayOf(Int16sl),
+                                "u02" / GbxArrayOf(GbxLoc),
+                            ),
+                            # NPlugStaticObjectModel_SInstanceParams
+                            0x2F0D9000: Struct(
+                                "version" / Int32ul,  # 0
+                                "Phase01" / GbxFloat,
+                            ),
+                        },
                     ),
                 ),
-                "u01" / GbxBytes,  # string?
+                "u01" / GbxBytes,
             ),
             GreedyBytes,
         ),
@@ -3333,10 +3330,23 @@ body_chunks[0x090BB000] = Struct(
     "u26" / GbxArrayOf(Int32sl[5]),
 )
 
-# body_chunks[0x090BB002] = Struct(
-#     "img" / GbxBytes,
-#     "u01" / Bytes(60),
-# )
+body_chunks[0x090BB002] = Struct(
+    "img" / GbxBytes,
+    "u01"
+    / GbxArray(
+        "u01" / Int32sl,
+        "u02" / Int32sl,
+        "u03" / Int32sl,
+        "u04" / GbxQuat,
+        "u05" / GbxFloat,
+        "u06" / GbxFloat,
+        "u07" / GbxFloat,
+        "u08" / GbxFloat,
+        "u09" / GbxFloat,
+        "u10" / GbxFloat,
+        "u11" / GbxFloat,
+    ),
+)
 
 # 090EA CPlugVehiclePhyModel
 
