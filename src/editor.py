@@ -106,8 +106,10 @@ class GbxEditorUiWindow(QMainWindow):
         # widgets
 
         self.inspector = Inspector()
+        self.inspector.hide()
 
         self.hex_editor = GbxHexEditor(self._on_select)
+        self.hex_editor.hide()
 
         self.tree = QTreeWidget()
 
@@ -159,6 +161,8 @@ class GbxEditorUiWindow(QMainWindow):
     def _on_item_select(self, new_bytes):
         self.hex_editor.set_bytes(new_bytes)
         self.inspector.inspect(new_bytes, [])
+        self.hex_editor.show()
+        self.inspector.show()
 
     def _setDataOnTree(self, data):
         tree = self.tree

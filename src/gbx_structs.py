@@ -625,6 +625,7 @@ def ordered_dict_to_list(body, ctx):
 
 def GbxBodyChunk(default_unknown):
     return MySelect(
+        # TODO allow to write _chunkParseFailed if not the case?
         Switch(
             this.chunkId,
             body_chunks,
@@ -2101,15 +2102,16 @@ GbxSurfTypeToStruct[GbxESurfType.Compound] = Struct(
     "locs" / Array(len_(this.surfaces), GbxIso4),
     "boneIndexes" / GbxArrayOf(Int16ul),
 )
-GbxSurfConvexPolyhedron = Struct(
+GbxSurfTypeToStruct[GbxESurfType.ConvexPolyhedron] = Struct(
     "version" / Int32ul,
-    "u01" / Int32sl,  # if != 0, other code
+    "u01" / ExprValidator(GbxBool, obj_ == False),  # if True, other code
     "AABB" / GbxBox,  # 0x88
     "vertices" / GbxArrayOf(GbxVec3),
-    # "u01" / GbxArrayOf(          Int32sl),
-    # "u02" / GbxArrayOf(          Int32sl[2]),
-    "u05" / Int16sl,
+    "faces" / GbxArrayOf(Int32sl),
+    "u02" / GbxArrayOf(Int32sl[2]),  # edges?
+    "u03" / Int16sl,
 )
+
 body_chunks[0x0900C003] = Struct(
     "version" / Int32ul,  # 4
     "surfVersion" / If(this.version >= 2, Int32ul),
@@ -2120,9 +2122,14 @@ body_chunks[0x0900C003] = Struct(
         "material" / If(this.hasMaterial, GbxNodeRef),
         "materialId" / If(lambda this: not this.hasMaterial, GbxPlugSurfaceMaterialId),
     ),
-    "u01" / If(lambda this: len(this.materials) > 0, Int32sl),  # TODO check condition
-    "materialsIds" / GbxArrayOf(GbxPlugSurfaceMaterialId),
-    "skel" / If(this.version >= 1, GbxNodeRef),
+    "surfaceIds" / If(this.version < 3, GbxArrayOf(GbxEPlugSurfacePhysicsId)),
+    "materialsIds"
+    / If(
+        lambda this: (this.version == 3 and len(this.materials) == 0) or this.version > 3,
+        GbxArrayOf(GbxPlugSurfaceMaterialId),
+    ),
+    StopIf(this.version < 1),
+    "skel" / GbxNodeRef,
 )
 
 # 0901D CPlugLight
@@ -2817,36 +2824,39 @@ body_chunks[0x0912F000] = Struct(
 
 # 09144 CPlugDynaObjectModel
 
-body_chunks[0x09144000] = Struct(
-    "version" / Int32ul,
+body_chunks[0x09144000] = DebugStruct(
+    "version" / ExprValidator(Int32ul, obj_ >= 3),
     "IsStatic" / GbxBool,  # si c'est un dyna mais qui reste tjs statique
-    "DynamizeOnSpawn" / GbxBool,
+    "DynamizeOnSpawn" / If(this.version > 10, GbxBool),
     "Mesh" / GbxNodeRef,
     "DynaShape" / GbxNodeRef,  # Boite de collision apres destruction, ne supporte pas mesh quelconque
     "StaticShape" / GbxNodeRef,  # Boite de collision avant destruction
-    "DestructibleModel"
-    / Struct(
-        "BreakSpeedKmh" / If(this._.version > 1, GbxFloat),
-        "Mass" / If(this._.version > 2, GbxFloat),
-        "LightAliveDurationSc_Min" / If(this._.version > 4, GbxFloat),
-        "LightAliveDurationSc_Max" / If(this._.version > 4, GbxFloat),
-    ),
-    # If version > 3
+    StopIf(this.version <= 1),
+    "BreakSpeedKmh" / GbxFloat,
+    StopIf(this.version <= 2),
+    "Mass" / GbxFloat,
+    "LightAliveDurationSc_Min" / If(this.version > 4, GbxFloat),
+    "LightAliveDurationSc_Max" / If(this.version > 4, GbxFloat),
+    StopIf(this.version <= 3),
     "u01" / Int32sl,
     "u02" / Int32sl,
     "u03" / Byte,
     "u04" / Byte,
     "u05" / Int32sl,
     "u06" / Int32sl,
-    # If version > 5
+    StopIf(this.version <= 5),
     "u07" / Byte,
     "u08" / Int32sl,
     "u09" / Int32sl,
-    "LocAnim" / If(this.version > 6, GbxNodeRef),
-    "u10" / If(this.version > 7, Int32sl),
-    "LocAnimIsPhysical"
-    / If(this.version > 9, GbxBool),  # LocAnim purement visuel ou pas. evitons les calculs physiques si pas necessaire
-    "WaterModel" / GbxNodeRef,
+    StopIf(this.version <= 6),
+    "LocAnim" / GbxNodeRef,  # CPlugAnimLocSimple
+    StopIf(this.version <= 7),
+    "u10" / Int32sl,
+    StopIf(this.version < 10),
+    "LocAnimIsPhysical" / GbxBool,  # LocAnim purement visuel ou pas. evitons les calculs physiques si pas necessaire
+    "u11" / If(this.version == 12, Int32sl),
+    StopIf(this.version <= 12),
+    "WaterModel" / GbxNodeRef,  # CPlugDynaWaterModel
 )
 
 
@@ -2872,44 +2882,56 @@ body_chunks[0x09145000] = Struct(
     "Ents"
     / Array(
         this.EntsCount,
-        MySelect(
-            Struct(
-                "model" / GbxNodeRef,
-                "rot" / GbxQuat,
-                "pos" / GbxVec3,
-                # TODO generic meta param
-                "params"
-                / Struct(
-                    "chunkId" / Hex(Int32sl),
-                    StopIf(this.chunkId == -1),
-                    "chunk"
-                    / Switch(
-                        this.chunkId,
-                        {
-                            # NPlugDynaObjectModel_SInstanceParams
-                            0x2F0B6000: Struct(
-                                "version" / Int32sl,  # 2
-                                "PeriodSc" / GbxFloat,
-                                "TextureId" / Int32sl,
-                                "IsKinematic" / GbxBool,
-                                StopIf(this.version < 1),
-                                "PeriodScMax" / GbxFloat,
-                                "Phase01" / GbxFloat,
-                                "Phase01Max" / GbxFloat,
-                                StopIf(this.version < 2),
-                                "CastStaticShadow"
-                                / GbxBool,  # "!! Attention reserve a de rares objets dont l\'animation conserve a peu pres la shadow (tube qui tourne sur lui meme /ex), cette shadow (vue au loin) ne sera pas animee !!"
+        Struct(
+            "model" / GbxNodeRef,
+            "rot" / GbxQuat,
+            "pos" / GbxVec3,
+            # TODO generic meta param
+            "params"
+            / Struct(
+                "chunkId" / Hex(Int32sl),
+                StopIf(this.chunkId == -1),
+                "chunk"
+                / Switch(
+                    this.chunkId,
+                    {
+                        # NPlugDynaObjectModel_SInstanceParams
+                        # TODO recheck entirely this params order
+                        0x2F0B6000: Struct(
+                            "version" / Int32sl,  # 2
+                            "PeriodSc" / GbxFloat,
+                            "TextureId" / Int32sl,
+                            "IsKinematic" / GbxBool,
+                            StopIf(this.version < 1),
+                            "PeriodScMax" / GbxFloat,
+                            "Phase01" / GbxFloat,
+                            "Phase01Max" / GbxFloat,
+                            StopIf(this.version < 2),
+                            "CastStaticShadow"
+                            / Int32sl,  # "!! Attention reserve a de rares objets dont l\'animation conserve a peu pres la shadow (tube qui tourne sur lui meme /ex), cette shadow (vue au loin) ne sera pas animee !!"
+                        ),
+                        # NPlugDyna_SPrefabConstraintParams
+                        0x2F0C8000: Struct(
+                            "version" / Int32ul,  # 0
+                            "Ent1" / Int32sl,
+                            "Ent2" / Int32sl,
+                            "Pos1" / GbxVec3,
+                            "Pos2" / GbxVec3,
+                        ),
+                        # NPlugItemPlacement_SPlacement
+                        0x2F0A9000: Struct(
+                            "version" / Int32ul,
+                            "iLayout" / Int32sl,
+                            "Options"
+                            / GbxArray(  # NPlugItemPlacement_SPlacementOption 0x30166000
+                                "RequiredTags" / GbxDictString,
                             ),
-                            # NPlugDyna_SPrefabConstraintParams
-                            0x2F0C8000: Struct(
-                                "version" / Int32ul,  # 0
-                                "Ent1" / Int32sl,
-                                "Ent2" / Int32sl,
-                                "Pos1" / GbxVec3,
-                                "Pos2" / GbxVec3,
-                            ),
-                            # NPlugItemPlacement_SPlacement
-                            0x2F0A9000: Struct(
+                        ),
+                        # NPlugItemPlacement_SPlacementGroup
+                        0x2F0D8000: Struct(
+                            "version" / Int32ul,
+                            "Placements"
+                            / GbxArray(
                                 "version" / Int32ul,
                                 "iLayout" / Int32sl,
                                 "Options"
@@ -2917,32 +2939,18 @@ body_chunks[0x09145000] = Struct(
                                     "RequiredTags" / GbxDictString,
                                 ),
                             ),
-                            # NPlugItemPlacement_SPlacementGroup
-                            0x2F0D8000: Struct(
-                                "version" / Int32ul,
-                                "Placements"
-                                / GbxArray(
-                                    "version" / Int32ul,
-                                    "iLayout" / Int32sl,
-                                    "Options"
-                                    / GbxArray(  # NPlugItemPlacement_SPlacementOption 0x30166000
-                                        "RequiredTags" / GbxDictString,
-                                    ),
-                                ),
-                                "u01" / GbxArrayOf(Int16sl),
-                                "u02" / GbxArrayOf(GbxLoc),
-                            ),
-                            # NPlugStaticObjectModel_SInstanceParams
-                            0x2F0D9000: Struct(
-                                "version" / Int32ul,  # 0
-                                "Phase01" / GbxFloat,
-                            ),
-                        },
-                    ),
+                            "u01" / GbxArrayOf(Int16sl),
+                            "u02" / GbxArrayOf(GbxLoc),
+                        ),
+                        # NPlugStaticObjectModel_SInstanceParams
+                        0x2F0D9000: Struct(
+                            "version" / Int32ul,  # 0
+                            "Phase01" / GbxFloat,
+                        ),
+                    },
                 ),
-                "u01" / GbxBytes,
             ),
-            GreedyBytes,
+            "u01" / GbxBytes,
         ),
     ),
 )
@@ -3790,6 +3798,12 @@ body_chunks[0x2E002020] = Struct(
     "iconFid" / GbxString,
     "u01" / Byte,
 )
+body_chunks[0x2E002021] = Struct(
+    "u01" / Bytes(8),
+)
+body_chunks[0x2E002023] = Struct(
+    "u01" / Bytes(9),
+)
 
 # 2E009 CGameWaypointSpecialProperty
 
@@ -4054,6 +4068,7 @@ header_chunks[0x2E001004] = Struct(
         ),
     ),
 )
+header_chunks[0x2E001006] = GbxFileTime
 
 header_chunks[0x090F4005] = body_chunks[0x090F4005]
 header_chunks[0x03043003] = Struct(
