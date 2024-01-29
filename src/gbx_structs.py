@@ -1699,6 +1699,48 @@ body_chunks[0x0602201A] = Struct(
     "rest" / GreedyBytes,
 )
 
+# 09002 CPlugShader
+
+body_chunks[0x09002007] = Struct(
+    "u01" / GbxNodeRef,
+    "u02" / GbxArrayOf(GbxNodeRef),  # CPlugShaderPass
+    "u03" / GbxNodeRef,
+)
+body_chunks[0x09002018] = Struct("u01" / Int32sl)
+body_chunks[0x0900201B] = Struct(
+    "version" / Int32ul,
+    "u01" / GbxFloat,
+    "u02" / GbxFloat,
+)
+body_chunks[0x0900201C] = Struct(
+    "version" / Int32ul,
+    "u01" / GbxNodeRef,
+    "u02" / GbxNodeRef,
+)
+body_chunks[0x0900201D] = Struct("u01" / Int32sl)
+body_chunks[0x0900201E] = Struct(
+    "version" / Int32ul,
+    "u01" / Int32sl,
+)
+body_chunks[0x0900201F] = Struct(
+    "version" / Int32ul,
+    "u01"
+    / GbxArray(
+        "u01" / GbxNodeRef,
+        StopIf(this.u01._index != -1),
+        "u02" / GbxBool,
+        "u03" / If(this.u02, GbxNodeRef),
+    ),
+)
+body_chunks[0x09002020] = Struct(
+    "version" / Int32ul,
+    "u01" / Int32sl,
+    "u05" / Int32sl,
+    "u02" / GbxFloat,
+    "u03" / GbxNodeRef,
+    "u04" / Int16sl,
+)
+
 # 09003 CPlugCrystal
 
 
@@ -1871,6 +1913,11 @@ body_chunks[0x09003007] = Struct(
     "u02" / GbxArrayOf(Int32sl),
 )
 
+# 09004 CPlugShaderGeneric
+
+body_chunks[0x09004003] = Struct("u01" / GbxFloat[22])
+
+
 # 09005 CPlugSolid
 
 GbxPlugSolidUvGroup = Struct(
@@ -1986,20 +2033,17 @@ body_chunks[0x0900600B] = Struct("splits " / GbxArray("u01" / Int32sl, "u02" / I
 
 
 body_chunks[0x0900600D] = Struct(
-    "ChunkFlags"  # only on bits 0x7001af
+    "ChunkFlags"
     / ByteSwapped(
         BitStruct(
-            Padding(9),
-            "bit22" / Flag,
-            "bit21" / Flag,  # vert_u04 stored as Dec4N?
-            "bit20" / Flag,
-            Padding(11),
-            "bit8" / Flag,
-            "bit7" / Flag,
-            Padding(1),
-            "HasVertexNormals" / Flag,
-            "isIndexationStaticBit" / Flag,
-            "isGeometryStaticBit" / Flag,
+            Padding(22),
+            "bit22" / Flag,  # 9, in memory bit22
+            "compressFloat4Color" / Flag,  # 8, in memory bit21
+            "compressFloat3InLocal3D" / Flag,  # 7, in memory bit20
+            "UseVertexColor" / Flag,  # 6, in memory bit8
+            "UseVertexNormal" / Flag,  # 5, in memory bit7
+            "bit5" / Flag,  # 4, in memory bit5
+            "bit3" / Flag,  # 3
             "SkinIndexCount" / BitsInteger(3),  # max 4
         )
     ),
@@ -2051,7 +2095,7 @@ body_chunks[0x0900600D] = Struct(
             "boneIndices" / GbxArrayOf(Int32sl),
         ),
     ),
-    "u01" / GbxBox,
+    "BoundingBox" / GbxBox,
 )
 body_chunks[0x0900600E] = Struct(
     *body_chunks[0x0900600D].subcons,
@@ -2150,6 +2194,27 @@ body_chunks[0x0901D004] = Struct(
     "rest" / GbxBytesUntilFacade,
 )
 
+# 09026 CPlugShaderApply
+
+body_chunks[0x09026002] = Struct(
+    "bitmapAddresses" / GbxArrayOf(GbxNodeRef),  # CPlugBitmapAddress
+)
+body_chunks[0x09026004] = Struct("u01" / Hex(Int32sl))
+body_chunks[0x0902600A] = Struct(
+    "u01" / Int32sl,
+    "u02" / Int32sl,
+    "u03" / Int32sl,
+)
+body_chunks[0x0902600C] = Struct(
+    "listVersion" / Int32ul,
+    "u01" / GbxArrayOf(GbxNodeRef),  # CPlugBitmapAddress?
+)
+body_chunks[0x09026010] = Struct("u01" / Byte)
+body_chunks[0x09026011] = Struct(
+    "version" / Int32ul,
+    "u01" / GbxNodeRef,
+)
+
 # 0902C CPlugVisual3D
 
 
@@ -2159,15 +2224,20 @@ def get_chunk_900600F(ctx):
 
 body_chunks[0x0902C002] = Struct("u01" / GbxNodeRef)
 body_chunks[0x0902C004] = Struct(
-    "flags" / Computed(lambda ctx: get_chunk_900600F(ctx).ChunkFlags),
-    "readNormals" / Computed(lambda this: not this.flags.bit22 or this.flags.HasVertexNormals),
-    "u02" / Computed(lambda this: not this.flags.bit22 or this.flags.bit8),
-    "u03" / Computed(lambda this: this.flags.bit20),  # or CPlugVisualSprite
+    "_flags" / Computed(lambda ctx: get_chunk_900600F(ctx).ChunkFlags),
+    "_computedIsVisualSprite" / Computed(lambda ctx: ctx._._.classId == 0x9010000),
+    # TODO conditions on 0x9010000
     "vertices"
     / IfThenElse(
-        # TODO verify
-        this.u01 and not this.u03 and not this.flags.bit21 and this.u02,
-        Bytes(0x28)[lambda ctx: get_chunk_900600F(ctx).VertexCount],
+        lambda this: not this._flags.bit22 and not this._flags.compressFloat4Color and this._flags.UseVertexColor,
+        Array(
+            lambda ctx: get_chunk_900600F(ctx).VertexCount,
+            Struct(
+                "position" / GbxVec3,
+                "normal" / GbxVec3,
+                "color" / GbxVec4,
+            ),
+        ),
         If(
             lambda ctx: len(get_chunk_900600F(ctx).vertexStreams) == 0,
             Array(
@@ -2176,29 +2246,24 @@ body_chunks[0x0902C004] = Struct(
                     "position" / GbxVec3,
                     "normal"
                     / If(
-                        lambda this: this._.readNormals,
+                        lambda this: not this._._flags.bit22,
                         IfThenElse(
-                            this._.u03,
+                            lambda this: this._._flags.compressFloat3InLocal3D and not this._._computedIsVisualSprite,
                             GbxDec3N,
                             GbxVec3,
                         ),
                     ),
-                    "u01"
-                    / IfThenElse(
-                        this._.u02,
-                        IfThenElse(
-                            this._.flags.bit21,
-                            GbxUDec4N,
-                            GbxVec4,
-                        ),
-                        Computed(Container(x=1.0, y=1.0, z=1.0, w=1.0)),
+                    "color"
+                    / If(
+                        lambda this: not this._._flags.bit22 or this._._flags.UseVertexColor,
+                        IfThenElse(lambda this: this._._flags.compressFloat4Color, GbxUDec4N, GbxVec4),
                     ),
                 ),
             ),
         ),
     ),
-    "tangentsU" / GbxArrayOf(IfThenElse(this._.flags.bit20, GbxDec3N, GbxVec3)),
-    "tangentsV" / GbxArrayOf(IfThenElse(this._.flags.bit20, GbxDec3N, GbxVec3)),
+    "tangentsU" / GbxArrayOf(IfThenElse(this._._flags.compressFloat3InLocal3D, GbxDec3N, GbxVec3)),
+    "tangentsV" / GbxArrayOf(IfThenElse(this._._flags.compressFloat3InLocal3D, GbxDec3N, GbxVec3)),
 )
 
 # 0903A CPlugMaterialCustom
@@ -2293,7 +2358,7 @@ body_chunks[0x0904F016] = Struct(
 )
 body_chunks[0x0904F01A] = Struct(
     "flags" / Int32ul,
-    "translation" / If(lambda this: (this.flags & 4) != 0, GbxIso4),
+    "loc" / If(lambda this: (this.flags & 4) != 0, GbxIso4),
 )
 
 # 09051 CPlugTreeGenerator
