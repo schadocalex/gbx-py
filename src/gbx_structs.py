@@ -2166,10 +2166,14 @@ body_chunks[0x0900C003] = Struct(
         "material" / If(this.hasMaterial, GbxNodeRef),
         "materialId" / If(lambda this: not this.hasMaterial, GbxPlugSurfaceMaterialId),
     ),
-    "surfaceIds" / If(this.version < 3, GbxArrayOf(GbxEPlugSurfacePhysicsId)),
+    "surfaceIds"
+    / If(
+        lambda this: (this.version == 3 and len(this.materials) == 0) or (this.version != 3),
+        GbxArrayOf(GbxEPlugSurfacePhysicsId),
+    ),
     "materialsIds"
     / If(
-        lambda this: (this.version == 3 and len(this.materials) == 0) or this.version > 3,
+        lambda this: (this.version >= 3 and len(this.surfaceIds) == 0),
         GbxArrayOf(GbxPlugSurfaceMaterialId),
     ),
     StopIf(this.version < 1),
