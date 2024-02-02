@@ -329,6 +329,7 @@ GbxELightMapCacheEAllocMode = Enum(Int32ul, _64_2=0, _64_2PUseFree=1, BestSizePU
 GbxELightMapCacheECompressMode = Enum(Int32ul, Ldr_DXT1=0, sRGB_Hyper_DXT1=1, Hyper_sRGB_DXT1=2, Scale_sRGB_DXT1=3)
 GbxELightMapCacheEBump = Enum(Int32ul, TxTyTz=0, TxTyTz_Intens=1, No=2, HBasis_Color=3, HBasis_Intens=4)
 GbxELightMapCacheEPlugGpuPlatform = Enum(Int32ul, _00=0, D3D11=1, pf3=2, pf4=3, pf5=4, pf6=5)
+GbxEPlugResHLSemantic = Enum(BitsInteger(4), No=0, U01=1, U02=2, U03=3, U04=4, U05=5)
 GbxEPlugVDcl = Enum(
     BitsInteger(9),
     Position=0,

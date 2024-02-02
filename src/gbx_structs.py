@@ -2374,9 +2374,21 @@ body_chunks[0x09051000] = Struct(
 # 09056 CPlugVertexStream
 
 body_chunks[0x09056000] = Struct(
-    "version" / Int32ul,
+    "version" / Int32ul,  # 1
     "numVertices" / Int32sl,
-    "u01" / Int32sl,
+    "flags"
+    / ByteSwapped(
+        BitStruct(
+            "u17" / BitsInteger(15),
+            "CompressTexCoords" / BitsInteger(8),
+            "HighLevelSemantic" / GbxEPlugResHLSemantic,
+            "u04" / Flag,
+            "u03" / Flag,
+            "NeedAlloc" / Flag,
+            "IsDirtyVision" / Flag,
+            "IsStatic" / Flag,
+        )
+    ),
     "baseVertexStream" / GbxNodeRef,
     StopIf(lambda this: this.numVertices == 0 or this.baseVertexStream._index != -1),
     "DataDecl"
@@ -2402,11 +2414,13 @@ body_chunks[0x09056000] = Struct(
     / Array(
         lambda this: len(this.DataDecl),
         Switch(
-            lambda this: "Dec3N"
-            if this.DataDecl[this._index].header.Space == "Local3D"
-            and this.DataDecl[this._index].header.Type == "Float3"
-            and this.compressFloat3InLocal3D
-            else this.DataDecl[this._index].header.Type,
+            lambda this: (
+                "Dec3N"
+                if this.DataDecl[this._index].header.Space == "Local3D"
+                and this.DataDecl[this._index].header.Type == "Float3"
+                and this.compressFloat3InLocal3D
+                else this.DataDecl[this._index].header.Type
+            ),
             {
                 "Float1": Float32l[this.numVertices],
                 "Float2": GbxVec2[this.numVertices],
@@ -4287,18 +4301,20 @@ def create_gbx_struct(gbx_body):
                                 / Rebuild(
                                     BitsInteger(31),
                                     # TODO clean this
-                                    lambda this: len(
-                                        header_chunks[this._.id].build(
-                                            this._._._.data[this._index],
-                                            gbx_data={
-                                                "lookbackstring_table": {},
-                                                "lookbackstring_index": 0,
-                                                "lookbackstring_version": False,
-                                            },
+                                    lambda this: (
+                                        len(
+                                            header_chunks[this._.id].build(
+                                                this._._._.data[this._index],
+                                                gbx_data={
+                                                    "lookbackstring_table": {},
+                                                    "lookbackstring_index": 0,
+                                                    "lookbackstring_version": False,
+                                                },
+                                            )
                                         )
-                                    )
-                                    if this._.id in header_chunks
-                                    else len(this._._._.data[this._index]),
+                                        if this._.id in header_chunks
+                                        else len(this._._._.data[this._index])
+                                    ),
                                 ),
                             )
                         ),
