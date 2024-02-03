@@ -2133,7 +2133,7 @@ GbxSurf = Struct(
     "GameplayMainDir" / GbxVec3,  # If(this._.surfVersion >= 2
 )
 GbxSurfTypeToStruct[GbxESurfType.Sphere] = Struct(
-    "u01" / GbxFloat,
+    "size" / GbxFloat,
     "u02" / Int16sl,
 )
 GbxSurfTypeToStruct[GbxESurfType.Ellipsoid] = Struct(
