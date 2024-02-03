@@ -5,7 +5,7 @@ import bmesh
 from mathutils import Vector, Quaternion
 
 # from src.nice.api import *
-from ..src.parser import parse_file, generate_node
+from ..src.parser import parse_file, generate_file
 from ..src.utils.content import (
     extract_content,
     RawMesh,
@@ -14,6 +14,8 @@ from ..src.utils.content import (
     RawInvisibleMaterial,
     BlockVariant,
     SpawnLoc,
+    Loc,
+    MeshTree
 )
 
 from ...operators.OT_Settings import TM_OT_Settings_OpenMessageBox
@@ -30,16 +32,17 @@ def create_raw_mesh(obj_name, raw_mesh):
     # materials
     all_material_names = []
     all_material_names_to_load = []
-    for material in raw_mesh.materials:
-        if isinstance(material, RawMaterial):
-            material_name = material.link
-            material_name, _link = _get_material_name(material_name)
-            if material_name + "_asset" not in bpy.data.materials:
-                all_material_names_to_load.append(material_name)
-        elif isinstance(material, RawInvisibleMaterial):
-            material_name = f"TM_invisible_{material.physicsId}"
-            if material.gameplayId != "No":
-                material_name += "_" + material.gameplayId
+    if raw_mesh.materials:
+        for material in raw_mesh.materials:
+            if isinstance(material, RawMaterial):
+                material_name = material.link
+                material_name, _link = _get_material_name(material_name)
+                if material_name + "_asset" not in bpy.data.materials:
+                    all_material_names_to_load.append(material_name)
+            elif isinstance(material, RawInvisibleMaterial):
+                material_name = f"TM_invisible_{material.physicsId}"
+                if material.gameplayId != "No":
+                    material_name += "_" + material.gameplayId
 
         all_material_names.append(material_name)
 
@@ -72,7 +75,7 @@ def create_raw_mesh(obj_name, raw_mesh):
     for i, vert_indices in enumerate(raw_mesh.faces):
         try:
             face = bm.faces.new([bm.verts[vidx] for vidx in vert_indices])
-        except:
+        except ValueError:
             # faces can share the same vertices in solids
             # we need to duplicate vertices, as blender doesn't allow it
             new_vidx = len(raw_mesh.vertices)
@@ -82,7 +85,8 @@ def create_raw_mesh(obj_name, raw_mesh):
                 bm.verts.new((coord.x, -coord.z, coord.y))
             bm.verts.ensure_lookup_table()
             raw_mesh.faces[i] = (new_vidx, new_vidx + 1, new_vidx + 2)
-            raw_mesh.facesMaterials.append(raw_mesh.facesMaterials[i])
+            if raw_mesh.facesMaterials:
+                raw_mesh.facesMaterials.append(raw_mesh.facesMaterials[i])
             face = bm.faces.new([bm.verts[new_vidx], bm.verts[new_vidx + 1], bm.verts[new_vidx + 2]])
 
         face.material_index = raw_mesh.facesMaterials[i] if raw_mesh.facesMaterials is not None else 0
@@ -130,6 +134,8 @@ def create_and_place_empty(obj, name):
 
 
 def import_content_to_blender(root_collection, content, options):
+    res = []
+
     for idx, obj in enumerate(content):
         if isinstance(obj, Entities):
             models = {}
@@ -146,6 +152,7 @@ def import_content_to_blender(root_collection, content, options):
                     # empty object, TODO add metadata?
                     ent_obj = create_and_place_empty(ent, f"empty{i}")
                     root_collection.objects.link(ent_obj)
+                    res.append(ent_obj)
                 else:
                     model_collection = models[ent.model_idx]
                     ent_pos, ent_rot = loc_to_blender(ent)
@@ -161,12 +168,32 @@ def import_content_to_blender(root_collection, content, options):
                         new_obj.rotation_quaternion = ent_rot.cross(new_obj.rotation_quaternion)
 
                         root_collection.objects.link(new_obj)
+                        res.append(new_obj)
 
             for idx, model in models.items():
                 # TODO find a way to not add them so we don't have to remove them after the copies?
                 for obj in model.all_objects.values():
                     model.objects.unlink(obj)
                 root_collection.children.unlink(model)
+        
+        elif isinstance(obj, MeshTree):
+            obj_pos, obj_rot = loc_to_blender(obj.loc)
+
+            for child in obj.children:
+                for new_obj in import_content_to_blender(root_collection, child, options):
+                    res.append(new_obj)
+                    new_obj.location = obj_pos + (obj_rot @ new_obj.location)
+                    new_obj.rotation_mode = "QUATERNION"
+                    new_obj.rotation_quaternion = obj_rot.cross(new_obj.rotation_quaternion)
+
+            if obj.mesh:
+                assert len(obj.mesh) == 1
+                mesh = create_raw_mesh(obj.name, obj.mesh[0])
+                mesh.location = obj_pos
+                mesh.rotation_mode = "QUATERNION"
+                mesh.rotation_quaternion = obj_rot
+                root_collection.objects.link(mesh)
+                res.append(mesh)
 
         elif isinstance(obj, RawMesh):
             lod_suffix = ""
@@ -177,7 +204,9 @@ def import_content_to_blender(root_collection, content, options):
                 lod_suffix = f"_lod{obj.lod}" if obj.lod > 0 else ""
 
             mesh = create_raw_mesh(f"obj_{idx}{lod_suffix}", obj)
+
             root_collection.objects.link(mesh)
+            res.append(mesh)
 
         elif isinstance(obj, BlockVariant):
             variant_collection = bpy.data.collections.new(f"_variant_{obj.name}")
@@ -185,18 +214,21 @@ def import_content_to_blender(root_collection, content, options):
 
             for mobil_name, mobil in obj.mobils.items():
                 mobil_collection = bpy.data.collections.new(mobil_name)
-                import_content_to_blender(mobil_collection, mobil, options)
+                res += import_content_to_blender(mobil_collection, mobil, options)
                 variant_collection.children.link(mobil_collection)
 
             if obj.content:
-                import_content_to_blender(variant_collection, obj.content, options)
+                res += import_content_to_blender(variant_collection, obj.content, options)
 
         elif isinstance(obj, SpawnLoc):
             ent_obj = create_and_place_empty(obj, f"_socket_spawnloc")
             root_collection.objects.link(ent_obj)
 
+            res.append(ent_obj)
         else:
             print("Unknown: " + str(obj))
+        
+    return res
 
 
 class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):

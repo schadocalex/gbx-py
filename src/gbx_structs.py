@@ -1706,6 +1706,12 @@ body_chunks[0x09002007] = Struct(
     "u02" / GbxArrayOf(GbxNodeRef),  # CPlugShaderPass
     "u03" / GbxNodeRef,
 )
+body_chunks[0x09002016] = Struct(
+    "u01" / Int64sl,
+    "u02" / GbxFloat,
+    "u03" / GbxNodeRef,
+    "u04" / Int16sl,
+)
 body_chunks[0x09002018] = Struct("u01" / Int32sl)
 body_chunks[0x0900201B] = Struct(
     "version" / Int32ul,

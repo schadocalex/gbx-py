@@ -52,9 +52,21 @@ class BlockVariant:
     content = None
 
 
-class SpawnLoc:
+class Loc:
     pos = Container(x=0, y=0, z=0)
     rot = Container(x=0, y=0, z=0, w=1)
+
+
+class SpawnLoc(Loc):
+    pos = Container(x=0, y=0, z=0)
+    rot = Container(x=0, y=0, z=0, w=1)
+
+
+class MeshTree:
+    name = ""
+    mesh = None
+    loc = None
+    children = None
 
 
 def label_all_meshes(content, label):
@@ -109,11 +121,14 @@ def mat_from_CPlugMaterialUserInst(data):
     return mat
 
 
+def iso4_to_loc(loc, mat):
+    loc.pos = Container(x=mat.TX, y=mat.TY, z=mat.TZ)
+    loc.rot = quaternion_from_matrix(mat)
+    return loc
+
+
 def iso4_to_spawnloc(mat):
-    res = SpawnLoc()
-    res.pos = Container(x=mat.TX, y=mat.TY, z=mat.TZ)
-    res.rot = quaternion_from_matrix(mat)
-    return res
+    return iso4_to_loc(SpawnLoc(), mat)
 
 
 def need_spawn(waypointType):
@@ -166,7 +181,7 @@ def extract_content(data, parent=None, opts=None):
         if parent is not None and parent.classId == 0x2E002000:
             waypointType = parent.body[0x2E00201F].waypointType
             if need_spawn(waypointType):
-                content.append(iso4_to_spawnloc(data.body[0x2E027000].props.spawnLoc))
+                content.append(iso4_to_spawnloc(SpawnLoc(), data.body[0x2E027000].props.spawnLoc))
 
         return content
 
@@ -254,6 +269,24 @@ def extract_content(data, parent=None, opts=None):
     elif data.classId == 0x0917A000:
         return [iso4_to_spawnloc(data.body[0x0917A000].Loc)]
 
+    # CPlugSolid
+    elif data.classId == 0x09005000:
+        return extract_content(data.body[0x09005011].tree)
+
+    # CPlugTree
+    elif data.classId == 0x0904F000:
+        tree = MeshTree()
+        tree.name = data.body[0x0904F00D].name
+        tree.mesh = extract_content(data.body[0x0904F016].visual, data)
+        tree.loc = iso4_to_loc(Loc(), data.body[0x0904F01A].loc)
+        tree.children = [extract_content(child, data) for child in data.body[0x0904F006].children]
+
+        return [tree]
+
+    # CPlugVisualIndexedTriangles
+    elif data.classId == 0x0901E000:
+        return [extract_mesh_CPlugVisualIndexedTriangles(data)]
+
     else:
         print("unsupported classId: " + str(data.classId))
         return []
@@ -302,24 +335,95 @@ def extract_MeshCrystal(mesh_crystal):
     return content
 
 
+def convert_verts_data_to_face_corners_data(verts_data, faces):
+    face_corners_data = []
+    for indicies in faces:
+        for i in indicies:
+            face_corners_data.append(verts_data[i])
+    return face_corners_data
+
+
+def extract_mesh_CPlugVisualIndexedTriangles(data):
+    mesh = RawMesh()
+    mesh.vertices = []
+    mesh.normals = []
+    mesh.colors = []
+    mesh.faces = []
+    mesh.uv0 = []
+    mesh.uv1 = []
+
+    vertex_streams = data.body[0x0900600F].vertexStreams
+    if len(vertex_streams) == 0:
+        # vertices
+        for v in data.body[0x0902C004].vertices:
+            mesh.vertices.append(v.position)
+            mesh.normals.append(v.normal)
+            mesh.colors.append(v.color)
+
+        # faces
+        index_buffer = data.body[0x0906A001].indexBuffer[0x09057000]
+        assert index_buffer.flags == 2  # TODO, find a case
+        for i in range(0, len(index_buffer.indices), 3):
+            mesh.faces.append((index_buffer.indices[i], index_buffer.indices[i + 1], index_buffer.indices[i + 2]))
+
+        # uvs
+        for i, texCoord in enumerate(data.body[0x0900600F].texCoords):
+            assert i < 2  # TODO find a case
+            uvs_array = []
+            for tex in texCoord.tex_coords:
+                uvs_array.append(tex.uv)
+            mesh_uvs = convert_verts_data_to_face_corners_data(uvs_array, mesh.faces)
+            if i == 0:
+                mesh.uv0 = mesh_uvs
+            elif i == 1:
+                mesh.uv1 = mesh_uvs
+    else:
+        assert len(vertex_streams) == 1  # TODO, find a case
+        verts_uv0 = None
+        verts_uv1 = None
+        vertex_stream = vertex_streams[0].body[0x09056000]
+        for data_idx, data_decl in enumerate(vertex_stream.DataDecl):
+            if data_decl.header.Name == "Position":
+                mesh.vertices = vertex_stream.Data[data_idx]
+            elif data_decl.header.Name == "Normal":
+                mesh.normals = vertex_stream.Data[data_idx]
+            elif data_decl.header.Name == "TexCoord0":
+                verts_uv0 = vertex_stream.Data[data_idx]
+            elif data_decl.header.Name == "TexCoord1":
+                verts_uv1 = vertex_stream.Data[data_idx]
+
+        index_buffer = data.body[0x0906A001].indexBuffer[0x09057001]
+        assert index_buffer.flags & 0xC == 0  # TODO, find a case
+
+        # convert to absolute
+        current_face = 0
+        for i in range(0, len(index_buffer.indices), 3):
+            current_face += index_buffer.indices[i]
+            x = current_face
+            current_face += index_buffer.indices[i + 1]
+            y = current_face
+            current_face += index_buffer.indices[i + 2]
+            mesh.faces.append((x, y, current_face))
+
+        if verts_uv0 is not None:
+            mesh.uv0 = convert_verts_data_to_face_corners_data(verts_uv0, mesh.faces)
+        if verts_uv1 is not None:
+            mesh.uv1 = convert_verts_data_to_face_corners_data(verts_uv1, mesh.faces)
+        # TODO check relative/absolute face indexes
+
+    return mesh
+
+
 def extract_CPlugSolid2Model(data, parent=None):
     assert data.classId == 0x090BB000
 
     obj_chunk = data.body[0x090BB000]
 
-    meshes = []
+    visuals = []
     for i, geom in enumerate(obj_chunk.shadedGeoms):
-        mesh = RawMesh()
-        mesh.materials = []
-        mesh.uv0 = []
-        mesh.uv1 = []
-        mesh.vertices = []
-        mesh.normals = []
-        mesh.faces = []
-        mesh.lod = geom.lod
-        meshes.append(mesh)
-
-        visual = obj_chunk.visuals[geom.visualIndex]
+        visual = extract_mesh_CPlugVisualIndexedTriangles(obj_chunk.visuals[geom.visualIndex])
+        visual.materials = []
+        visual.lod = geom.lod
 
         # Material
 
@@ -336,67 +440,11 @@ def extract_CPlugSolid2Model(data, parent=None):
 
             assert type(mat_class) != str
             mat = mat_from_CPlugMaterialUserInst(mat_class)
-        mesh.materials.append(mat)
+        visual.materials.append(mat)
 
-        continue_meshes = False
-        vertex_streams = visual.body[0x0900600F].vertexStreams
-        if len(vertex_streams) == 0:
-            # TODO check this case
+        visuals.append(visual)
 
-            for i, texCoord in visual.body[0x0900600F].texCoords:
-                for tex in texCoord.tex_coords:
-                    if i == 0:
-                        mesh.uv0.append(tex.uv)
-                    elif i == 1:
-                        mesh.uv1.append(tex.uv)
-            for v in visual.body[0x0902C004].vertices:
-                mesh.vertices.append(v.position)
-                mesh.normals.append(v.normal)
-            if chunk.chunkId == 0x0906A001:
-                index_buffer = visual.body[0x0906A001].indexBuffer[0x09057001]
-                assert index_buffer.flags == 2  # TODO, find a case
-                mesh.faces = index_buffer.indices
-        else:
-            assert len(vertex_streams) == 1  # TODO, find a case
-            verts_uv0 = None
-            verts_uv1 = None
-            vertex_stream = vertex_streams[0].body[0x09056000]
-            for data_idx, data_decl in enumerate(vertex_stream.DataDecl):
-                if data_decl.header.Name == "Position":
-                    mesh.vertices = vertex_stream.Data[data_idx]
-                elif data_decl.header.Name == "Normal":
-                    mesh.normals = vertex_stream.Data[data_idx]
-                elif data_decl.header.Name == "TexCoord0":
-                    verts_uv0 = vertex_stream.Data[data_idx]
-                elif data_decl.header.Name == "TexCoord1":
-                    verts_uv1 = vertex_stream.Data[data_idx]
-
-            index_buffer = visual.body[0x0906A001].indexBuffer[0x09057001]
-            assert index_buffer.flags & 0xC == 0  # TODO, find a case
-
-            # convert to absolute
-            current_face = 0
-            for i in range(0, len(index_buffer.indices), 3):
-                current_face += index_buffer.indices[i]
-                x = current_face
-                current_face += index_buffer.indices[i + 1]
-                y = current_face
-                current_face += index_buffer.indices[i + 2]
-                mesh.faces.append((x, y, current_face))
-
-            if verts_uv0 is not None:
-                mesh.uv0 = []
-                for indicies in mesh.faces:
-                    for i in indicies:
-                        mesh.uv0.append(verts_uv0[i])
-            if verts_uv1 is not None:
-                mesh.uv1 = []
-                for indicies in mesh.faces:
-                    for i in indicies:
-                        mesh.uv1.append(verts_uv1[i])
-            # TODO check relative/absolute face indexes
-
-    return meshes
+    return visuals
 
 
 def extract_meshes2(root_data, data, off_pos=None, off_rot=None, extracted_files=None):
