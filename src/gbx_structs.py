@@ -2136,6 +2136,10 @@ GbxSurfTypeToStruct[GbxESurfType.Sphere] = Struct(
     "u01" / GbxFloat,
     "u02" / Int16sl,
 )
+GbxSurfTypeToStruct[GbxESurfType.Ellipsoid] = Struct(
+    "size" / GbxVec3,
+    "u02" / Int16sl,
+)
 GbxSurfTypeToStruct[GbxESurfType.Mesh] = Struct(
     "version" / ExprValidator(Int32ul, obj_ == 7),
     "vertices" / GbxArrayOf(GbxVec3),
