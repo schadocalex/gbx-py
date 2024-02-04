@@ -247,35 +247,43 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
         default=True,
     )
 
-    # TODO remove nonvisible boolean?
+    files: bpy.props.CollectionProperty(
+        type=bpy.types.OperatorFileListElement,
+        options={'HIDDEN', 'SKIP_SAVE'},
+    )
+
+    # TODO "remove nonvisible" boolean?
 
     def execute(self, context):
-        data = parse_file(self.filepath)
+        dirname = os.path.dirname(self.filepath) + os.path.sep
+        for file in self.files:
+            filepath = dirname + file.name
+            data = parse_file(filepath)
 
-        try:
-            content = extract_content(data)
-        except Exception as e:
-            self.report({"ERROR"}, str(e.args[0]))
-            return {"CANCELLED"}
+            try:
+                content = extract_content(data)
+            except Exception as e:
+                self.report({"ERROR"}, str(e.args[0]))
+                return {"CANCELLED"}
 
-        name = os.path.basename(self.filepath).split(".")[0]
+            name = os.path.basename(filepath).split(".")[0]
 
-        collection = bpy.data.collections.new("_nice_" + name)
-        bpy.context.scene.collection.children.link(collection)
+            collection = bpy.data.collections.new("_nice_" + name)
+            bpy.context.scene.collection.children.link(collection)
 
-        import_content_to_blender(
-            collection,
-            content,
-            {
-                "highest_lod_only": self.highest_lod_only,
-            },
-        )
+            import_content_to_blender(
+                collection,
+                content,
+                {
+                    "highest_lod_only": self.highest_lod_only,
+                },
+            )
 
         return {"FINISHED"}
 
 
 class TM_PT_NICE(bpy.types.Panel):
-    bl_label = "NICE v0.1"
+    bl_label = "NICE v0.2"
     bl_idname = "TM_PT_NICE"
     bl_context = "objectmode"
     # bl_parent_id = "TM_PT_Map_Manipulate"
