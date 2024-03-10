@@ -2178,12 +2178,12 @@ body_chunks[0x0900C003] = Struct(
     ),
     "surfaceIds"
     / If(
-        lambda this: (this.version == 3 and len(this.materials) == 0) or (this.version != 3),
+        lambda this: (this.version == 3 and len(this.materials) == 0) or (this.version < 3),
         GbxArrayOf(GbxEPlugSurfacePhysicsId),
     ),
     "materialsIds"
     / If(
-        lambda this: (this.version >= 3 and len(this.surfaceIds) == 0),
+        lambda this: (this.version >= 3 and (this.surfaceIds is None or len(this.surfaceIds) == 0)),
         GbxArrayOf(GbxPlugSurfaceMaterialId),
     ),
     StopIf(this.version < 1),
@@ -3942,7 +3942,7 @@ body_chunks[0x2E020004] = Struct(
     "version" / Int32ul,  # 0
     "magnetLocs" / GbxArrayOf(GbxPose3D),
 )
-body_chunks[0x2E020005] = Struct("item_placement" / GbxLookbackStringContext(GbxNodeRef))
+body_chunks[0x2E020005] = Struct("item_placement" / GbxNodeRef)  # GbxLookbackStringContext without version?
 
 # 2E025 CGameBlockItem
 
