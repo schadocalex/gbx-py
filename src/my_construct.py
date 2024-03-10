@@ -156,7 +156,40 @@ class DebugStruct(Struct):
     Debug a Struct with the "no subconstruct match" error
     """
 
-    # TODO do the same for parsing
+    def _parse(self, stream, context, path):
+        old_ctx = save_context(context)
+        fallback = stream_tell(stream, path)
+
+        try:
+            return super()._parse(stream, context, path)
+        except ExplicitError:
+            raise
+        except Exception as e:
+            print(e)
+
+            # there's an error, try to reduce the struct until no more error
+            subcons = list(self.subcons)
+            obj = None
+            while subcons:
+                # remove last subcon
+                subcon_in_error = subcons.pop()
+                if not subcons:
+                    raise ExplicitError("No substructure match found")
+
+                # Reload context
+                load_context(context, old_ctx)
+                stream_seek(stream, fallback, 0, path)
+
+                try:
+                    obj = Struct(*subcons)._parse(stream, context, path)
+                    print(f"Debug successful, subcon in error is: {subcon_in_error}")
+                    return obj
+                except ExplicitError:
+                    raise
+                except Exception:
+                    continue
+
+        return obj
 
     def _build(self, obj, stream, context, path):
         old_ctx = save_context(context)
