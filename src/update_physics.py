@@ -20,6 +20,10 @@ def get_all_models(data):
                 yield from get_all_models(ent.model)
     elif data.classId == 0x09159000:
         yield data
+    elif data.classId == 0x09144000:
+        yield data
+    elif data.classId == 0x2F0CA000:
+        pass
     else:
         print("Unknown classId: " + str(data.classId))
 
@@ -51,20 +55,33 @@ def main():
             win.set_data(data)
 
         for model in get_all_models(data):
-            if model.body.isMeshCollidable:
-                # here we manage collidables meshes
-                for custom_mat in model.body.Mesh.body[0x90BB000].customMaterials:
-                    mat = custom_mat.materialUserInst.body[0x90FD000]
-                    if mat.surfacePhysicId == "TechSuperMagnetic":  # and mat.materialName == "m0"
-                        mat.surfacePhysicId = "TechMagneticAccel"
+            # Meshes
 
-            elif model.body.Shape._index > 0:
-                # here we manage collidables shapes
-                update_surf(model.body.Shape, "Ice", "RoadIce")
+            for custom_mat in model.body.Mesh.body[0x90BB000].customMaterials:
+                mat = custom_mat.materialUserInst.body[0x90FD000]
+                if mat.surfacePhysicId == "Ice":  # and mat.materialName == "m0"
+                    mat.surfacePhysicId = "RoadIce"
+                if mat.link == "Stadium\Media\Modifier\PlatformIce\PlatformTech":
+                    mat.link = "MyNewMaterial"
+
+            # collidables shapes
+
+            if model.classId == 0x09159000:
+                # Static object
+
+                if model.body.Shape._index > 0:
+                    update_surf(model.body.Shape, "Ice", "RoadIce")
+
+            elif model.classId == 0x09144000:
+                # Dyna object
+
+                update_surf(model.body.DynaShape, "Ice", "RoadIce")
+                # assume StaticShape is the same model
 
         # Generate the new file and overwrite it
-        with open(file, "wb") as f:
-            f.write(generate_file(data))
+        if not GUI:
+            with open(file, "wb") as f:
+                f.write(generate_file(data))
 
         if GUI:
             win2.set_data(data)
