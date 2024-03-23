@@ -379,12 +379,13 @@ def decode_lookbackstring(obj, ctx):
         # new string
         gbx_data["lookbackstring_index"] += 1
         gbx_data["lookbackstring_table"][gbx_data["lookbackstring_index"]] = obj.string
+        # print(str(gbx_data["lookbackstring_index"]) + " " + obj.string)
         return obj.string
     elif idx in gbx_data["lookbackstring_table"]:
         # known string
         return gbx_data["lookbackstring_table"][idx]
     else:
-        s = f"<INVALID IDX: {hex(idx)}>"
+        s = f"<INVALID IDX: {hex(obj.index)}>"
         print(s)
         return s
 
@@ -1162,7 +1163,6 @@ body_chunks[0x0304E031] = Struct(
 
 # 03053 CGameCtnBlockInfoClip
 
-
 body_chunks[0x03053002] = Struct(
     "aSymmetricalClipId" / GbxLookbackString,
 )
@@ -1217,6 +1217,17 @@ body_chunks[0x0305B008] = Struct(
     "timeLimit" / Int32sl,  # TODO GbxTimeNullable
     "authorScore" / Int32sl,
 )
+
+body_chunks[0x0305B00A] = Struct(
+    "tip" / GbxString,
+    "bronzeTime" / Int32sl,
+    "silverTime" / Int32sl,
+    "goldTime" / Int32sl,
+    "authorTime" / Int32sl,
+    "timeLimit" / Int32sl,
+    "authorScore" / Int32sl,
+)
+
 body_chunks[0x0305B00D] = Struct(
     "raceValidateGhost" / GbxNodeRef,  # CGameCtnGhost
 )
@@ -1276,6 +1287,14 @@ body_chunks[0x3084007] = Struct(
     "u06" / GbxFloat,
     StopIf(this.version < 3),
     "u07" / Bytes(4),
+)
+
+# 03092 CGameCtnGhost
+
+body_chunks[0x3092000] = Struct(
+    "version" / Int32ul,
+    "playerModel" / GbxMeta,
+    "rest" / GreedyBytes,
 )
 
 # 03101 CGameCtnAnchoredObject
@@ -2178,7 +2197,9 @@ body_chunks[0x0900C003] = Struct(
     ),
     "surfaceIds"
     / If(
-        lambda this: (this.version == 3 and len(this.materials) == 0) or (this.version < 3),
+        lambda this: (this.version < 3)
+        or (this.version == 3 and len(this.materials) == 0)
+        or (this.version > 3 and len(this.materials) > 0),
         GbxArrayOf(GbxEPlugSurfacePhysicsId),
     ),
     "materialsIds"
@@ -2917,7 +2938,7 @@ body_chunks[0x0912F000] = Struct(
 
 # 09144 CPlugDynaObjectModel
 
-body_chunks[0x09144000] = DebugStruct(
+body_chunks[0x09144000] = Struct(
     "version" / ExprValidator(Int32ul, obj_ >= 3),
     "IsStatic" / GbxBool,  # si c'est un dyna mais qui reste tjs statique
     "DynamizeOnSpawn" / If(this.version > 10, GbxBool),
