@@ -7,10 +7,17 @@ from PySide6.QtWidgets import QApplication, QFileDialog
 from .parser import parse_file, generate_file
 from .editor import GbxEditorUi, GbxEditorUiWindow
 
-CHECK_GUI = True
+# glob with the /**/ recursive wildcard. Can be absolute path f.e. in the Document folder
 GLOB = r"./items/**/*.Item.Gbx"
 
+# Set to True to debug what is Before and After (with a GUI)
+# Set this to False to run the batch update, make a copy in case something's wrong
+CHECK_GUI = True
 
+
+# Change this function to change the file data.
+# It is recommended to look in the GUI to analyze the data.
+# You might put a breakpoint here too
 def update(data):
     chunk = data.body[0x2E00201C].defaultPlacement.body[0x2E020000]
     chunk.gridSnap_VStep = 2.0
