@@ -1,8 +1,8 @@
 from src.gui import main
 
-# import src.update_physics
+# import src.batch_update
 
 if __name__ == "__main__":
 
     main()
-    # src.update_physics.main()
+    # src.batch_update.main()

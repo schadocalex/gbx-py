@@ -319,25 +319,6 @@ GbxFileRef = Struct(
     "locatorUrl" / GbxString,
 )
 
-GbxCollectionIds = {
-    -1: "Unassigned",
-    0: "Desert Speed",
-    1: "Snow Alpine",
-    3: "Island",
-    4: "Bay",
-    7: "Basic",
-    11: "Valley",
-    24: "Stadium4",
-    25: "Stadium256",
-    26: "Stadium2020",
-    10000: "Vehicles",
-    10001: "Orbital",
-    10002: "Actors",
-    10003: "Common",
-}
-GbxCollectionIdsFromStr = {v: k for k, v in GbxCollectionIds.items()}
-
-
 GbxFolders = Struct(
     "name" / GbxString,
     "folders" / LazyBound(lambda: GbxArrayOf(GbxFolders)),
@@ -1776,7 +1757,7 @@ def get_chunk(ctx, chunkId):
 
 
 GbxCrystal = Struct(
-    "version" / Int32ul,  # 37
+    "version" / Int32ul,  # 32-37
     "u06" / Int32sl,  # 4
     "u07" / Int32sl,  # 3
     "u08" / Int32sl,  # 4
@@ -1788,32 +1769,45 @@ GbxCrystal = Struct(
     "u14" / Int32sl,  # 0 - SAnchorInfo array?
     "groups"
     / GbxArray(
-        "u01" / Int32sl,
-        "u02" / Byte,  # bool?
+        "u01" / If(this._._.version >= 31, Int32sl),
+        "u02" / IfThenElse(this._._.version >= 36, Byte, Int32sl),  # bool?
         "u03" / Int32sl,  # -1, nodref?
         "name" / GbxString,
         "u04" / Int32sl,  # -1, nodref?
         "u05" / GbxArrayOf(Int32sl),
     ),
-    "isEmbeddedCrystal" / GbxBoolByte,
-    "u30" / Int32sl,  # 0
-    "u31" / Int32sl,  # 0
+    "isEmbeddedCrystal" / IfThenElse(this.version >= 34, GbxBoolByte, GbxBool),
+    "u30" / If(this.version >= 33, Int32sl),  # 0
+    "u31" / If(this.version >= 33, Int32sl),  # 0
     "embeddedCrystal"
     / Struct(
         "vertices" / GbxArrayOf(GbxVec3),
         "edgesCount" / Int32ul,
-        "unfacedEdgesCount" / Int32ul,
-        "unfacedEdges" / GbxOptimizedIntArray(this.unfacedEdgesCount * 2),
+        "unfacedEdgesCount" / If(this._.version >= 35, Int32ul),
+        "unfacedEdges" / If(this._.version >= 35, GbxOptimizedIntArray(this.unfacedEdgesCount * 2)),
+        "edges" / If(this._.version < 35, Array(this.edgesCount, GbxInt2)),
         "facesCount" / Int32ul,
-        "uvsCoords" / GbxArrayOf(GbxVec2),
-        "faceCornersCount" / Int32ul,
-        "uvsIndicies" / GbxOptimizedIntArray(this.faceCornersCount),  # indexed by face corner
+        "uvsCoords" / If(this._.version >= 37, GbxArrayOf(GbxVec2)),
+        "faceCornersCount" / If(this._.version >= 37, Int32ul),
+        "uvsIndicies"
+        / If(this._.version >= 37, GbxOptimizedIntArray(this.faceCornersCount)),  # indexed by face corner
         "faces"
         / Array(
             this.facesCount,
             Struct(
-                "vertCount_minus3" / Int8ul,
-                "inds" / GbxOptimizedIntArray(this.vertCount_minus3 + 3, lambda this: len(this._.vertices)),
+                "vertCount"
+                / IfThenElse(
+                    lambda this: this._._.version >= 35,
+                    ExprAdapter(Int8ul, lambda x, ctx: x + 3, lambda x, ctx: x - 3),
+                    Int32ul,
+                ),
+                "inds"
+                / IfThenElse(
+                    this._._.version >= 34,
+                    GbxOptimizedIntArray(this.vertCount, lambda this: len(this._.vertices)),
+                    Array(this.vertCount, Int32sl),
+                ),
+                "uv" / If(this._._.version < 37, Array(this.vertCount, GbxVec2)),
                 "material_index"
                 / If(
                     this._._.version >= 25,
@@ -1838,6 +1832,19 @@ GbxCrystal = Struct(
             ),
         ),
         "u22" / Int32sl,
+        "u30"
+        / If(
+            this._.version < 36,
+            Struct(
+                "numFaces" / Int32sl,
+                "numEdges" / Int32sl,
+                "numVerts" / Int32sl,
+                "faces" / Array(this.numFaces, Int32sl),
+                "edges" / Array(this.numEdges, Int32sl),
+                "verts" / Array(this.numVerts, Int32sl),
+                "u17" / Int32sl,
+            ),
+        ),
     ),
 )
 GbxCrystal_Geometry = Struct(
@@ -3854,6 +3861,7 @@ body_chunks[0x2E002012] = Struct(
     "orbitalRadiusBase" / GbxFloat,
     "orbitalPreviewAngle" / GbxFloat,
 )
+body_chunks[0x2E002013] = Struct("u01" / GbxNodeRef)
 body_chunks[0x2E002015] = Struct("itemType" / GbxEItemType)
 body_chunks[0x2E002019] = Struct(
     "version" / Int32ul,
@@ -3885,16 +3893,19 @@ body_chunks[0x2E00201C] = Struct(
 body_chunks[0x2E00201E] = Struct(
     "version" / ExprValidator(Int32ul, obj_ >= 3),
     "archetypeRef" / GbxString,
-    "u01" / If(lambda this: len(this.archetypeRef) == 0, Int32sl),
     StopIf(this.version < 5),
-    "u02" / GbxString,
+    "u01" / If(lambda this: len(this.archetypeRef) == 0, GbxNodeRef),  # CGameItemModel
     StopIf(this.version < 6),
+    "u02" / GbxString,  # SkinDirNameCustom
+    StopIf(this.version < 7),
     "baseItem" / GbxNodeRef,
 )
 body_chunks[0x2E00201F] = Struct(
-    "version" / ExprValidator(Int32ul, obj_ >= 10),  # 12
+    "version" / ExprValidator(Int32ul, obj_ >= 8),  # 8 - 12
     "waypointType" / GbxEWayPointType,
+    StopIf(this.version < 6),
     "disableLightmap" / GbxBool,
+    StopIf(this.version < 10),
     "u01" / Int32sl,
     StopIf(this.version < 11),
     "u08" / GbxBoolByte,  # if True, put EntityModel.StaticObject.u14 to 0 if was -1

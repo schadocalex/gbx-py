@@ -25,6 +25,8 @@ def update_surf(node, physics_id=None, gameplay_id=None, material_index=None, ga
     if gameplay_main_dir is not None:
         chunk.surf.GameplayMainDir = gameplay_main_dir
 
+    return node
+
 
 def update_all_surf(data, *surfParams, **surfParamsKw):
     for node in data.nodes:
