@@ -18,13 +18,10 @@ def update(data):
 
 
 def main():
-
     # loop over all items
     for file in glob(GLOB, recursive=True):
         print(file)
         data = parse_file(file)
-
-        update(data)
 
         if CHECK_GUI:
             app = QApplication.instance() or QApplication(sys.argv)
@@ -33,10 +30,14 @@ def main():
             win2 = GbxEditorUiWindow()
             win2.setWindowTitle("After")
             win.set_data(data)
+
+        update(data)
+
+        if CHECK_GUI:
             win2.set_data(data)
             app.exec()
 
-            # only show GUI for the first item
+            # only show GUI for the first file
             return
         else:
             # Generate the new file and overwrite it
