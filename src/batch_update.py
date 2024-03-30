@@ -16,7 +16,7 @@ CHECK_GUI = True
 
 
 # Change this function to change the file data.
-# It is recommended to look in the GUI to analyze the data.
+# It is recommended to look at the GUI to analyze the data.
 # You might put a breakpoint here too
 def update(data):
     chunk = data.body[0x2E00201C].defaultPlacement.body[0x2E020000]
