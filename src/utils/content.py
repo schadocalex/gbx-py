@@ -159,7 +159,7 @@ def extract_content(data, parent=None, opts=None):
         content = model_edition_content + model_content
 
         # remap materials
-        if chunk.MaterialModifier and chunk.MaterialModifier._index >= 0:
+        if chunk.MaterialModifier._index >= 0:
             apply_mat_modifier(content, chunk.MaterialModifier)
 
         return content
@@ -181,7 +181,7 @@ def extract_content(data, parent=None, opts=None):
         if parent is not None and parent.classId == 0x2E002000:
             waypointType = parent.body[0x2E00201F].waypointType
             if need_spawn(waypointType):
-                content.append(iso4_to_spawnloc(SpawnLoc(), data.body[0x2E027000].props.spawnLoc))
+                content.append(iso4_to_spawnloc(data.body[0x2E027000].props.spawnLoc))
 
         return content
 
@@ -245,7 +245,7 @@ def extract_content(data, parent=None, opts=None):
             content += extract_block_variant(data, variant_air.body, f"air{idx+1}")
 
         # remap materials
-        if data.body[0x0304E031].materialModifier and data.body[0x0304E031].materialModifier._index >= 0:
+        if data.body[0x0304E031].materialModifier._index >= 0:
             apply_mat_modifier(content, data.body[0x0304E031].materialModifier)
 
         return content
@@ -286,6 +286,15 @@ def extract_content(data, parent=None, opts=None):
     # CPlugVisualIndexedTriangles
     elif data.classId == 0x0901E000:
         return [extract_mesh_CPlugVisualIndexedTriangles(data)]
+
+    # NPlugItem_SVariantList
+    elif data.classId == 0x2F0BC000:
+        variant = BlockVariant()  # TODO generic variant
+        variant.name = "variants"
+        variant.mobils = {}
+        for i, child in enumerate(data.body.variants):
+            variant.mobils["variant" + str(i)] = extract_content(child.EntityModel)
+        return [variant]
 
     else:
         print("unsupported classId: " + str(data.classId))

@@ -3869,16 +3869,11 @@ body_chunks[0x2E002019] = Struct(
     "defaultCam" / GbxEDefaultCam,
     StopIf(this.version < 8),
     "EntityModelEdition" / GbxNodeRef,
-    "EntityModel" / GbxNodeRef,
+    "EntityModel" / If(this.EntityModelEdition._index == -1, GbxNodeRef),
     StopIf(this.version < 13),
     "vfxFile" / GbxNodeRef,
     StopIf(this.version < 15),
-    "MaterialModifier"
-    / If(
-        lambda this: this.EntityModel._index >= 0
-        or (this.EntityModel._index == -1 and this.EntityModelEdition._index == -1),
-        GbxNodeRef,
-    ),
+    "MaterialModifier" / GbxNodeRef,
 )
 
 body_chunks[0x2E00201A] = Struct("u01" / GbxNodeRef)
