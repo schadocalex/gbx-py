@@ -3937,7 +3937,18 @@ body_chunks[0x2E009000] = Struct(
 
 body_chunks[0x2E020000] = Struct(
     "version" / Int32ul,
-    "flags" / Int16ul,
+    "flags"
+    / ByteSwapped(  # little endian 16 bit
+        BitStruct(
+            "rest" / Hex(BitsInteger(10)),
+            "GhostMode" / Flag,
+            "SwitchPivotManually" / Flag,
+            "AutoRotation" / Flag,
+            "NotOnObject" / Flag,
+            "YawOnly" / Flag,
+            "u01" / Flag,
+        )
+    ),
     "cubeCenter" / GbxVec3,
     "cubeSize" / Float32l,
     "gridSnap_HStep" / Float32l,

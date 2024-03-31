@@ -34,7 +34,7 @@ def main():
     app = QApplication.instance() or QApplication(sys.argv)
 
     win = GbxEditorUiWindow(
-        lambda file: on_new_file(win, file),
+        on_new_file,
         default_directory=r"C:\Users\schad\Documents\Trackmania\Items",
     )
 
