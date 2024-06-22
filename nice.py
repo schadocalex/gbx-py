@@ -62,12 +62,12 @@ class TM_PT_NICE_installer(bpy.types.Panel):
             col = box.column()
             col.label(text="Installation successful!", icon="CHECKMARK")
             col.label(text="Reloading blender ...", icon="BLANK1")
-
+        
         else:
             box.label(text="Nadeo Importer Community Edition")
             col = box.column()
             col.alert = True
-            col.scale_y = 0.7
+            col.scale_y = .7
             col.label(text="Dependencies are missing.")
             col.alert = False
             col.label(text="Install below to use NICE.")
@@ -109,9 +109,9 @@ class TM_OT_NICE_Item_Install_Deps(bpy.types.Operator):
         global installation_success
         installation_success = True
 
-        def run():
+        def run(): 
             reload_current_blend_file()
-
+                
         timer(run, 2)
 
         return {"FINISHED"}
