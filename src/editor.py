@@ -153,7 +153,7 @@ class GbxEditorUiWindow(QMainWindow):
     def on_file_selected(self) -> None:
         for path in self.dialog.selectedFiles():
             self.dialog.setDirectory(os.path.dirname(path))
-            self.callback_file(path)
+            self.callback_file(self, path)
 
     def _on_select(self, raw_bytes, selection):
         self.inspector.inspect(raw_bytes, selection)
