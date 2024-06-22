@@ -155,6 +155,12 @@ GbxPose3D = Struct(
     "roll" / GbxFloat,
 )
 GbxLoc = Struct("pos" / GbxVec3, "rot" / GbxQuat)
+GbxRect = Struct(
+    "x1" / GbxFloat,
+    "y1" / GbxFloat,
+    "x2" / GbxFloat,
+    "y2" / GbxFloat,
+)
 GbxBox = Struct(
     "x1" / GbxFloat,
     "y1" / GbxFloat,
@@ -190,6 +196,24 @@ GbxBytesUntilFacade = Struct(
     ),
     Seek(-4, 1),
 )
+
+
+def GbxBytesUntil(classId):
+    N = len(classId)
+    return Struct(
+        "bytes_until_"
+        + classId
+        / IfThenElse(
+            lambda this: this._building,
+            GreedyBytes,
+            ExprAdapter(
+                RepeatUntil(lambda x, lst, ctx: lst[-N:] == list(classId), Byte),
+                lambda obj, ctx: bytes(obj[:-N]),
+                lambda obj, ctx: GreedyBytes.build(obj + classId),
+            ),
+        ),
+        Seek(-N, 1),
+    )
 
 
 def GbxArrayOf(subcon):
@@ -1246,6 +1270,14 @@ body_chunks[0x0307900D] = Struct(
     "localPlayerClipEntIndex" / Int32sl,
 )
 
+# 0307A CGameCtnMediaClipGroup
+
+body_chunks[0x0307A003] = Struct(
+    "listVersion" / Int32ul,
+    "clips" / GbxArrayOf(GbxNodeRef),  # CGameCtnMediaClip
+    "rest" / GbxBytesUntilFacade,
+)
+
 # 03084 CGameCtnMediaBlockCameraGame
 
 body_chunks[0x3084007] = Struct(
@@ -1713,6 +1745,9 @@ body_chunks[0x09002016] = Struct(
     "u04" / Int16sl,
 )
 body_chunks[0x09002018] = Struct("u01" / Int32sl)
+body_chunks[0x09002019] = Struct(
+    "u01" / GbxArrayOf(GbxVec2),
+)
 body_chunks[0x0900201B] = Struct(
     "version" / Int32ul,
     "u01" / GbxFloat,
@@ -1992,10 +2027,22 @@ body_chunks[0x09005011] = Struct(
     "tree" / GbxNodeRef,
 )
 body_chunks[0x09005017] = Struct(
-    "version" / ExprValidator(Int32ul, obj_ == 3),  # 3
+    "version" / Int32ul,
     "u09" / If(this.version >= 3, GbxBool),
     "solidPreLightGen" / If(this.u09, GbxPlugSolidPreLightGen),
-    # TODO version < 3
+    "vlt3"
+    / If(
+        this.version < 3,
+        Struct(
+            "u01" / Byte,
+            "u02" / GbxFloat,
+            "u03" / GbxBool,
+            "u04" / GbxRect,
+            "u05" / GbxRect,
+            "u06" / GbxInt2,
+            "u07" / If(this._.version >= 1, GbxArrayOf(GbxBox)),
+        ),
+    ),
     StopIf(this.version < 2),
     "fileWriteTime" / GbxFileTime,
 )
@@ -2088,7 +2135,7 @@ body_chunks[0x0900600D] = Struct(
         Struct(
             # TODO recheck
             "version" / Int32ul,
-            "count" / IfThenElse(this.version >= 3, Int32ul, Computed(this._.count)),
+            "count" / IfThenElse(this.version >= 3, Int32ul, Computed(this._.VertexCount)),
             "flags" / If(this.version >= 3, Int32ul),
             "tex_coords"
             / Array(
@@ -2250,6 +2297,9 @@ body_chunks[0x0902600A] = Struct(
 body_chunks[0x0902600C] = Struct(
     "listVersion" / Int32ul,
     "u01" / GbxArrayOf(GbxNodeRef),  # CPlugBitmapAddress?
+)
+body_chunks[0x0902600D] = Struct(
+    "u01" / Byte,
 )
 body_chunks[0x09026010] = Struct("u01" / Byte)
 body_chunks[0x09026011] = Struct(
