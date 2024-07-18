@@ -700,8 +700,14 @@ def need_node_body(this):
 
 class NodeRef(Container):
     def __init__(self, *args, **kwargs):
-        self._index = -1
-        super().__init__(*args, **kwargs)
+        if len(args) >= 1:
+            kwargs["classId"] = args[0]
+        if len(args) >= 2:
+            kwargs["body"] = args[1]
+
+        self._index = -1 if len(kwargs) == 0 else 0
+
+        super().__init__(**kwargs)
 
 
 class GbxNodeRefAdapter(Adapter):
@@ -711,7 +717,6 @@ class GbxNodeRefAdapter(Adapter):
         elif obj.index <= 0 or obj.index >= len(ctx._root._params.nodes):
             return NodeRef(_index=-1, _invalid_index=obj.index)
 
-        # print(f"node_ref {obj.index}")
         if obj.internal_node is not None:
             # print(f"parsed {obj.index} {path}")
             ctx._root._params.nodes[obj.index] = Container(
@@ -719,7 +724,7 @@ class GbxNodeRefAdapter(Adapter):
                 **obj.internal_node,
             )
 
-        return NodeRef(ctx._root._params.nodes[obj.index])
+        return NodeRef(**ctx._root._params.nodes[obj.index])
 
     def _encode(self, obj, ctx, path):
         # print(obj)
@@ -1094,7 +1099,28 @@ body_chunks[0x0304305F] = Struct(
     "version" / Int32ul,  # 0
     "freeBlocks" / GreedyRange(Struct("pos" / GbxVec3, "rotPitchYawRoll" / GbxVec3)),
 )
-
+body_chunks[0x03043062] = Struct(
+    "version" / Int32ul,  # 0
+    "blocksColors" / Array(lambda ctx: len(get_chunk(ctx, 0x304301F).blocks), GbxEDifficultyColor),
+    "bakedBlocksColors" / Array(lambda ctx: len(get_chunk(ctx, 0x3043048).BakedBlocks), GbxEDifficultyColor),
+    "itemsColors" / Array(lambda ctx: len(get_chunk(ctx, 0x3043040).anchoredObjects), GbxEDifficultyColor),
+)
+body_chunks[0x03043068] = Struct(
+    "version" / Int32ul,  # 0
+    "blocksLmQualities" / Array(lambda ctx: len(get_chunk(ctx, 0x304301F).blocks), GbxELightmapQuality),
+    "bakedBlocksLmQualities" / Array(lambda ctx: len(get_chunk(ctx, 0x3043048).BakedBlocks), GbxELightmapQuality),
+    "itemsLmQualities" / Array(lambda ctx: len(get_chunk(ctx, 0x3043040).anchoredObjects), GbxELightmapQuality),
+)
+body_chunks[0x03043069] = Struct(
+    "version" / Int32ul,  # 0
+    "blocksMacroblockIndexes" / Array(lambda ctx: len(get_chunk(ctx, 0x304301F).blocks), Int32sl),
+    "itemsMacroblockIndexes" / Array(lambda ctx: len(get_chunk(ctx, 0x3043040).anchoredObjects), Int32sl),
+    "flags"
+    / GbxArray(
+        "macroblockId" / Int32sl,
+        "flags" / Int32ul,
+    ),
+)
 
 # 0304E CGameCtnBlockInfo
 
@@ -1306,7 +1332,9 @@ body_chunks[0x3084007] = Struct(
 
 body_chunks[0x3092000] = Struct(
     "version" / Int32ul,
-    "playerModel" / GbxMeta,
+    "AppearanceVersion" / If(this.version >= 9, Int32ul),
+    "PlayerModel" / GbxMeta,
+    "LightTrailColor" / GbxVec3,
     "rest" / GreedyBytes,
 )
 
@@ -2263,6 +2291,7 @@ body_chunks[0x0900C003] = Struct(
     ),
     StopIf(this.version < 1),
     "skel" / GbxNodeRef,
+    # "u01" / Int32sl, # node ref?
 )
 
 # 0901D CPlugLight
@@ -3427,16 +3456,14 @@ body_chunks[0x090BB000] = Struct(
         Struct(
             "version" / Int32ul,  # 1
             "u01" / Int32sl,
-            "lightmapSize" / Float32l,  # lightmap size in meters
+            "MeterByUv" / Float32l,  # lightmap size in meters
             "u03" / GbxBool,
-            "u04" / Float32l[4],
-            "u05" / Int32sl,
-            "u06" / Int32sl,
-            "u07" / Int32sl,
-            "u08" / Int32sl,
-            "u09" / Int32sl,
+            "UvBBox" / GbxRect,
+            "UvBBox2" / GbxRect,
+            "spriteCount" / Int32sl,
             "u10" / Int32sl,
             "u14" / GbxArrayOf(GbxBox),
+            StopIf(this.version < 1),
             "uvGroups" / GbxArrayOf(Float32l[5]),  # TODO
         ),
     ),
@@ -3954,11 +3981,16 @@ body_chunks[0x2E00201F] = Struct(
     "version" / ExprValidator(Int32ul, obj_ >= 8),  # 8 - 12
     "waypointType" / GbxEWayPointType,
     StopIf(this.version < 6),
-    "disableLightmap" / GbxBool,
+    "DisableLightmap" / GbxBool,
     StopIf(this.version < 10),
-    "u01" / Int32sl,
+    "scriptWithSettings" / GbxNodeRef,  # CPlugScriptWithSettings
     StopIf(this.version < 11),
-    "u08" / GbxBoolByte,  # if True, put EntityModel.StaticObject.u14 to 0 if was -1
+    "flags"
+    / BitStruct(
+        "rest" / Hex(BitsInteger(6)),
+        "DisableAutoCreateSound" / Flag,
+        "u01" / Flag,  # if 1, put EntityModel.StaticObject.u14 to 0 if was -1
+    ),
     StopIf(this.version < 12),
     "PodiumClipList" / GbxNodeRef,  # Podium only?
     "IntroClipList" / GbxNodeRef,
@@ -3990,7 +4022,8 @@ body_chunks[0x2E020000] = Struct(
     "flags"
     / ByteSwapped(  # little endian 16 bit
         BitStruct(
-            "rest" / Hex(BitsInteger(10)),
+            "rest" / Hex(BitsInteger(9)),
+            "HasPath" / Flag,
             "GhostMode" / Flag,
             "SwitchPivotManually" / Flag,
             "AutoRotation" / Flag,
