@@ -1330,12 +1330,29 @@ body_chunks[0x3084007] = Struct(
 
 # 03092 CGameCtnGhost
 
-body_chunks[0x3092000] = Struct(
+body_chunks[0x03092000] = Struct(
     "version" / Int32ul,
     "AppearanceVersion" / If(this.version >= 9, Int32ul),
     "PlayerModel" / GbxMeta,
     "LightTrailColor" / GbxVec3,
-    "rest" / GreedyBytes,
+    "SkinPackDescs" / GbxArrayOf(GbxFileRef),
+    "HasBadges" / ExprValidator(GbxBool, obj_ == False),  # TODO
+    "u01" / If(this.AppearanceVersion >= 1, GbxString),
+    "GhostNickname" / GbxString,
+    "GhostAvatarName" / GbxString,
+    StopIf(this.version < 2),
+    "RecordingContext" / GbxString,
+    StopIf(this.version < 4),
+    "u03" / GbxBool,
+    StopIf(this.version < 5),
+    "RecordData" / GbxNodeRef,
+    "u04" / GbxArrayOf(Int32sl),
+    StopIf(this.version < 6),
+    "GhostTrigram" / GbxString,
+    StopIf(this.version < 7),
+    "GhostZone" / GbxString,
+    StopIf(this.version < 8),
+    "GhostClubTag" / GbxString,
 )
 
 # 03101 CGameCtnAnchoredObject
