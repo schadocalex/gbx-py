@@ -136,7 +136,7 @@ def need_spawn(waypointType):
 
 
 def extract_content(data, parent=None, opts=None):
-    if "_index" in data and data._index == -1:
+    if data is None or ("_index" in data and data._index == -1):
         return []
     if opts is None:
         opts = {}
