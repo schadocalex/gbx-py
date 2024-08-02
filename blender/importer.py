@@ -15,7 +15,7 @@ from ..src.utils.content import (
     BlockVariant,
     SpawnLoc,
     Loc,
-    MeshTree
+    MeshTree,
 )
 
 from ...operators.OT_Settings import TM_OT_Settings_OpenMessageBox
@@ -175,7 +175,7 @@ def import_content_to_blender(root_collection, content, options):
                 for obj in model.all_objects.values():
                     model.objects.unlink(obj)
                 root_collection.children.unlink(model)
-        
+
         elif isinstance(obj, MeshTree):
             obj_pos, obj_rot = loc_to_blender(obj.loc)
 
@@ -227,7 +227,7 @@ def import_content_to_blender(root_collection, content, options):
             res.append(ent_obj)
         else:
             print("Unknown: " + str(obj))
-        
+
     return res
 
 
@@ -249,7 +249,7 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
 
     files: bpy.props.CollectionProperty(
         type=bpy.types.OperatorFileListElement,
-        options={'HIDDEN', 'SKIP_SAVE'},
+        options={"HIDDEN", "SKIP_SAVE"},
     )
 
     # TODO "remove nonvisible" boolean?
@@ -263,12 +263,12 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
             try:
                 content = extract_content(data)
             except Exception as e:
-                self.report({"ERROR"}, str(e.args[0]))
+                self.report({"ERROR"}, str(e))
                 return {"CANCELLED"}
 
             name = os.path.basename(filepath).split(".")[0]
 
-            collection = bpy.data.collections.new("_nice_" + name)
+            collection = bpy.data.collections.new(name)  # TODO add _nice_ if exportable by NICE, else keep as this
             bpy.context.scene.collection.children.link(collection)
 
             import_content_to_blender(
