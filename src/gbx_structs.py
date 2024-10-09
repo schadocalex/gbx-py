@@ -1337,7 +1337,7 @@ body_chunks[0x03092000] = Struct(
     "LightTrailColor" / GbxVec3,
     "SkinPackDescs" / GbxArrayOf(GbxFileRef),
     "HasBadges" / ExprValidator(GbxBool, obj_ == False),  # TODO
-    "u01" / If(this.AppearanceVersion >= 1, GbxString),
+    "u01" / If(lambda this: this.AppearanceVersion is not None and this.AppearanceVersion >= 1, GbxString),
     "GhostNickname" / GbxString,
     "GhostAvatarName" / GbxString,
     StopIf(this.version < 2),
@@ -3740,7 +3740,7 @@ body_chunks[0x0911F000] = Struct(
                         "u01" / Bytes(4),  # flags?
                         "u02" / Int32sl,
                         "u03" / Int32sl,
-                        "u04" / If(this._.version >= 6, Int32sl),
+                        "u04" / If(this._.version >= 6, Bytes(4)),
                         "samples1"
                         / GbxCPlugEntRecordDataLoop(
                             Struct(
@@ -3840,7 +3840,7 @@ GbxNormUInt8 = ExprAdapter(
 
 GbxNodesWithoutBody.add(0x0A018000)
 body_chunks[0x0A018000] = Struct(
-    "u01" / Bytes(2),  # 0
+    "time" / Int16sl,  # 0
     "sideSpeed"
     / ExprAdapter(
         Int16ul,
@@ -3904,7 +3904,6 @@ body_chunks[0x0A018000] = Struct(
         lambda x, ctx: x * math.pi / 2 / 127,
         lambda x, ctx: int(x / math.pi * 2 * 127),
     ),
-    "u69" / Bytes(47),  # 69
     "rest" / GreedyBytes,
 )
 
