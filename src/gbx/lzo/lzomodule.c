@@ -113,13 +113,13 @@ compress(PyObject *dummy, PyObject *args, PyObject *kwds)
     if (len < 0)
         return NULL;
 
-    if (len > LZO_UINT_MAX)
+    if ((unsigned long)len > LZO_UINT_MAX)
     {
         PyErr_SetString(LzoError, "Input size is larger than LZO_UINT_MAX");
         return NULL;
     }
 
-    if ((len + len / 16 + 64 + 3) > LZO_UINT_MAX)
+    if ((unsigned long)(len + len / 16 + 64 + 3) > LZO_UINT_MAX)
     {
         PyErr_SetString(LzoError, "Output size is larger than LZO_UINT_MAX");
         return NULL;
@@ -447,7 +447,7 @@ optimize(PyObject *dummy, PyObject *args)
     }
 
     /* alloc buffers */
-    result_str = PyBytes_FromStringAndSize(in, len);
+    result_str = PyBytes_FromStringAndSize((const char *)in, len);
     if (result_str == NULL)
         return PyErr_NoMemory();
     out = (lzo_bytep)PyMem_Malloc(out_len > 0 ? out_len : 1);
@@ -548,20 +548,6 @@ static /* const */ PyMethodDef methods[] =
         {"decompress", (PyCFunction)decompress, METH_VARARGS | METH_KEYWORDS, decompress__doc__},
         {"optimize", (PyCFunction)optimize, METH_VARARGS, optimize__doc__},
         {NULL, NULL, 0, NULL}};
-
-static /* const */ char module_documentation[] =
-    "The functions in this module allow compression and decompression "
-    "using the LZO library.\n\n"
-    "adler32(string)         -- Compute an Adler-32 checksum.\n"
-    "adler32(string, start)  -- Compute an Adler-32 checksum using a given starting value.\n"
-    "compress(string)        -- Compress a string.\n"
-    "compress(string, ...)   -- See help(lzo.compress) for more options.\n"
-    "crc32(string)           -- Compute a CRC-32 checksum.\n"
-    "crc32(string, start)    -- Compute a CRC-32 checksum using a given starting value.\n"
-    "decompress(string)      -- Decompresses a compressed string.\n"
-    "decompress(string, ...) -- See help(lzo.decompress) for more options.\n"
-    "optimize(string)        -- Optimize a compressed string.\n"
-    "optimize(string, ...)   -- See help(lzo.optimize) for more options.\n";
 
 static PyModuleDef module = {
     PyModuleDef_HEAD_INIT,
