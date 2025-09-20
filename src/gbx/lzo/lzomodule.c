@@ -34,15 +34,7 @@
 
 #include <Python.h>
 #include <string.h>
-#include "lzo/lzo1.h"
-#include "lzo/lzo1a.h"
-#include "lzo/lzo1b.h"
-#include "lzo/lzo1c.h"
-#include "lzo/lzo1f.h"
-#include "lzo/lzo1x.h"
-#include "lzo/lzo1y.h"
-#include "lzo/lzo1z.h"
-#include "lzo/lzo2a.h"
+#include <lzo/lzo1x.h>
 
 /* Python 2x3 compatible macros */
 #if PY_VERSION_HEX >= 0x03000000
@@ -75,13 +67,11 @@ typedef int (*lzo_decompress_fn)(const lzo_bytep, lzo_uint, lzo_bytep, lzo_uintp
 ************************************************************************/
 
 static /* const */ char compress__doc__[] =
-    "compress(string[,level[,header[,algorithm]]]) -- Compress string, returning a string "
+    "compress(string[,level[,header]]) -- Compress string, returning a string "
     "containing compressed data.\n"
     "level  - Set compression level of either 1 (default) or 9.\n"
     "header - Include metadata header for decompression in the output "
-    "(default: True).\n"
-    "algorithm (keyword argument)  - can be either LZO1, LZO1A, LZO1B, LZO1C, LZO1F, LZO1X, LZO1Y, LZO1Z, LZO2A."
-    "(default: LZO1X).\n";
+    "(default: True).\n";
 
 static PyObject *
 compress(PyObject *dummy, PyObject *args, PyObject *kwds)
@@ -99,16 +89,13 @@ compress(PyObject *dummy, PyObject *args, PyObject *kwds)
     int header = 1;
     int err;
 
-    static char *argnames[] = {"", "", "", "algorithm", NULL};
-    char *algorithm = "LZO1X";
-    lzo_compress_fn compress_1_ptr;
-    lzo_compress_fn compress_999_ptr;
+    static char *argnames[] = {"", "", "", NULL};
     lzo_uint32_t MEM_COMPRESS_1;
     lzo_uint32_t MEM_COMPRESS_999;
 
     /* init */
     UNUSED(dummy);
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "s#|ii$s", argnames, &in, &len, &level, &header, &algorithm))
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "s#|ii$s", argnames, &in, &len, &level, &header))
         return NULL;
     if (len < 0)
         return NULL;
@@ -125,89 +112,6 @@ compress(PyObject *dummy, PyObject *args, PyObject *kwds)
         return NULL;
     }
 
-    /* init for different algorithms*/
-    if (strcmp(algorithm, "LZO1") == 0)
-    {
-        // settings specific for lzo1
-        MEM_COMPRESS_1 = LZO1_MEM_COMPRESS;
-        MEM_COMPRESS_999 = LZO1_99_MEM_COMPRESS;
-
-        compress_1_ptr = &lzo1_compress;
-        compress_999_ptr = &lzo1_99_compress;
-    }
-    else if (strcmp(algorithm, "LZO1A") == 0)
-    {
-        // settings for LZO1A
-        MEM_COMPRESS_1 = LZO1A_MEM_COMPRESS;
-        MEM_COMPRESS_999 = LZO1A_99_MEM_COMPRESS;
-
-        compress_1_ptr = &lzo1a_compress;
-        compress_999_ptr = &lzo1a_99_compress;
-    }
-    else if (strcmp(algorithm, "LZO1B") == 0)
-    {
-        // settings for LZO1B
-        MEM_COMPRESS_1 = LZO1B_MEM_COMPRESS;
-        MEM_COMPRESS_999 = LZO1B_999_MEM_COMPRESS;
-
-        compress_1_ptr = &lzo1b_1_compress;
-        compress_999_ptr = &lzo1b_999_compress;
-    }
-    else if (strcmp(algorithm, "LZO1C") == 0)
-    {
-        // settings for LZO1C
-        MEM_COMPRESS_1 = LZO1C_MEM_COMPRESS;
-        MEM_COMPRESS_999 = LZO1C_999_MEM_COMPRESS;
-
-        compress_1_ptr = &lzo1c_1_compress;
-        compress_999_ptr = &lzo1c_999_compress;
-    }
-    else if (strcmp(algorithm, "LZO1F") == 0)
-    {
-        // settings for LZO1F
-        MEM_COMPRESS_1 = LZO1F_MEM_COMPRESS;
-        MEM_COMPRESS_999 = LZO1F_999_MEM_COMPRESS;
-
-        compress_1_ptr = &lzo1f_1_compress;
-        compress_999_ptr = &lzo1f_999_compress;
-    }
-    else if (strcmp(algorithm, "LZO1Y") == 0)
-    {
-        // settings for LZO1Y
-        MEM_COMPRESS_1 = LZO1Y_MEM_COMPRESS;
-        MEM_COMPRESS_999 = LZO1Y_999_MEM_COMPRESS;
-
-        compress_1_ptr = &lzo1y_1_compress;
-        compress_999_ptr = &lzo1y_999_compress;
-    }
-    else if (strcmp(algorithm, "LZO1Z") == 0)
-    {
-        // settings for LZO1Z
-        MEM_COMPRESS_1 = LZO1Z_999_MEM_COMPRESS;
-        MEM_COMPRESS_999 = LZO1Z_999_MEM_COMPRESS;
-
-        compress_1_ptr = &lzo1z_999_compress;
-        compress_999_ptr = &lzo1z_999_compress;
-    }
-    else if (strcmp(algorithm, "LZO2A") == 0)
-    {
-        // settings for LZO2A
-        MEM_COMPRESS_1 = LZO2A_999_MEM_COMPRESS;
-        MEM_COMPRESS_999 = LZO2A_999_MEM_COMPRESS;
-
-        compress_1_ptr = &lzo2a_999_compress;
-        compress_999_ptr = &lzo2a_999_compress;
-    }
-    else
-    {
-        // settings for LZO1X
-        MEM_COMPRESS_1 = LZO1X_1_MEM_COMPRESS;
-        MEM_COMPRESS_999 = LZO1X_999_MEM_COMPRESS;
-
-        compress_1_ptr = &lzo1x_1_compress;
-        compress_999_ptr = &lzo1x_999_compress;
-    }
-
     in_len = len;
     out_len = in_len + in_len / 16 + 64 + 3;
 
@@ -216,9 +120,9 @@ compress(PyObject *dummy, PyObject *args, PyObject *kwds)
     if (result_str == NULL)
         return PyErr_NoMemory();
     if (level == 1)
-        wrkmem = (lzo_voidp)PyMem_Malloc(MEM_COMPRESS_1);
+        wrkmem = (lzo_voidp)PyMem_Malloc(LZO1X_1_MEM_COMPRESS);
     else
-        wrkmem = (lzo_voidp)PyMem_Malloc(MEM_COMPRESS_999);
+        wrkmem = (lzo_voidp)PyMem_Malloc(LZO1X_999_MEM_COMPRESS);
     if (wrkmem == NULL)
     {
         Py_DECREF(result_str);
@@ -235,13 +139,13 @@ compress(PyObject *dummy, PyObject *args, PyObject *kwds)
     {
         if (header)
             out[0] = 0xf0;
-        err = (*compress_1_ptr)(in, in_len, outc, &new_len, wrkmem);
+        err = lzo1x_1_compress(in, in_len, outc, &new_len, wrkmem);
     }
     else
     {
         if (header)
             out[0] = 0xf1;
-        err = (*compress_999_ptr)(in, in_len, outc, &new_len, wrkmem);
+        err = lzo1x_999_compress(in, in_len, outc, &new_len, wrkmem);
     }
     Py_END_ALLOW_THREADS
 
@@ -275,12 +179,10 @@ compress(PyObject *dummy, PyObject *args, PyObject *kwds)
 ************************************************************************/
 
 static /* const */ char decompress__doc__[] =
-    "decompress(string[,header[,buflen[,algorithm]]]) -- Decompress the data in string, returning a string containing the decompressed data.\n"
+    "decompress(string[,header[,buflen]]) -- Decompress the data in string, returning a string containing the decompressed data.\n"
     "header - Metadata header is included in input (default: True).\n"
     "buflen - If header is False, a buffer length in bytes must be given that "
-    "will fit the output.\n"
-    "algorithm (keyword argument) - can be either LZO1, LZO1A, LZO1B, LZO1C, LZO1F, LZO1X, LZO1Y, LZO1Z, LZO2A."
-    "(default: LZO1X).\n";
+    "will fit the output.\n";
 
 static PyObject *
 decompress(PyObject *dummy, PyObject *args, PyObject *kwds)
@@ -296,13 +198,11 @@ decompress(PyObject *dummy, PyObject *args, PyObject *kwds)
     int header = 1;
     int err;
 
-    static char *argnames[] = {"", "", "", "algorithm", NULL};
-    char *algorithm = "LZO1X";
-    lzo_decompress_fn decompress_ptr;
+    static char *argnames[] = {"", "", "", NULL};
 
     /* init */
     UNUSED(dummy);
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "s#|ii$s", argnames, &in, &len, &header, &buflen, &algorithm))
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "s#|ii$s", argnames, &in, &len, &header, &buflen))
         return NULL;
     if (header)
     {
@@ -322,53 +222,6 @@ decompress(PyObject *dummy, PyObject *args, PyObject *kwds)
         in_len = len;
     }
 
-    /* init for different algorithms*/
-    if (strcmp(algorithm, "LZO1") == 0)
-    {
-        // settings specific for lzo1
-        decompress_ptr = &lzo1_decompress;
-    }
-    else if (strcmp(algorithm, "LZO1A") == 0)
-    {
-        // settings for LZO1A
-        decompress_ptr = &lzo1a_decompress;
-    }
-    else if (strcmp(algorithm, "LZO1B") == 0)
-    {
-        // settings for LZO1B
-        decompress_ptr = &lzo1b_decompress_safe;
-    }
-    else if (strcmp(algorithm, "LZO1C") == 0)
-    {
-        // settings for LZO1C
-        decompress_ptr = &lzo1c_decompress_safe;
-    }
-    else if (strcmp(algorithm, "LZO1F") == 0)
-    {
-        // settings for LZO1F
-        decompress_ptr = &lzo1f_decompress_safe;
-    }
-    else if (strcmp(algorithm, "LZO1Y") == 0)
-    {
-        // settings for LZO1Y
-        decompress_ptr = &lzo1y_decompress_safe;
-    }
-    else if (strcmp(algorithm, "LZO1Z") == 0)
-    {
-        // settings for LZO1Z
-        decompress_ptr = &lzo1z_decompress_safe;
-    }
-    else if (strcmp(algorithm, "LZO2A") == 0)
-    {
-        // settings for LZO2A
-        decompress_ptr = &lzo2a_decompress_safe;
-    }
-    else
-    {
-        // settings for LZO1X
-        decompress_ptr = &lzo1x_decompress_safe;
-    }
-
     /* alloc buffers */
     result_str = PyBytes_FromStringAndSize(NULL, out_len);
     if (result_str == NULL)
@@ -379,7 +232,7 @@ decompress(PyObject *dummy, PyObject *args, PyObject *kwds)
 
     Py_BEGIN_ALLOW_THREADS
         new_len = out_len;
-    err = (*decompress_ptr)(in, in_len, out, &new_len, NULL);
+    err = lzo1x_decompress_safe(in, in_len, out, &new_len, NULL);
     Py_END_ALLOW_THREADS
 
         if (err != LZO_E_OK || (header && new_len != out_len))
@@ -597,7 +450,3 @@ PyInit_lzo(void)
 
     return m;
 }
-
-/*
-vi:ts=4:et
-*/
