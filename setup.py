@@ -32,7 +32,6 @@ setup(
         "Programming Language :: Python :: 3",
     ],
     python_requires=">=3.10",
-    py_modules=["gbx"],
     package_dir={"": "src"},
     packages=find_packages(),
     ext_modules=[gbx_lzo],
