@@ -26,7 +26,7 @@ Install and build locally
 ### Deploy
 
 ```
-bump2version --current-version 0.3.0 patch # major/minor
+bump2version --current-version 0.3.0 patch setup.py # major/minor
 git push
 git push --tags
 ```
