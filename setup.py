@@ -3,9 +3,17 @@ import sys
 from glob import glob
 from setuptools import setup, Extension, find_packages
 
-__version__ = "0.3.0"
 
-lzo_dir = "src/gbx/lzo/lzo-2.10"  # Relative path.
+def get_version() -> str:
+    version_file = "src/gbx/_version.py"
+    with open(version_file, encoding="utf-8") as f:
+        return f.read().split('"')[1]
+
+
+GBX_VERSION = get_version()
+
+
+lzo_dir = "src/gbx/lzo/lzo-2.10"
 
 src_list = ["src/gbx/lzo/lzomodule.c"]
 if sys.platform == "win32":
@@ -20,7 +28,7 @@ gbx_lzo = Extension(
 
 setup(
     name="gbx-py",
-    version=__version__,
+    version=GBX_VERSION,
     description="Read and write gbx files for Trackmania.",
     long_description=open("README.md", "r").read(),
     long_description_content_type="text/markdown",

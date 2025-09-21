@@ -1,6 +1,6 @@
 [project]
 name = "gbx-py"
-version = "0.3.0"
+dynamic = ["version"]
 description = "Read and write GBX files for Trackmania."
 readme = "README.md"
 authors = [{ name = "Alexis Schad", email = "schad.alexis@gmail.com" }]
@@ -50,3 +50,6 @@ select = [
   "B",  # flake8-bugbear
   "UP", # pyupgrade
 ]
+
+[tool.setuptools.dynamic]
+version = { attr = "gbx.__version__" }

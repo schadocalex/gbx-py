@@ -90,8 +90,6 @@ compress(PyObject *dummy, PyObject *args, PyObject *kwds)
     int err;
 
     static char *argnames[] = {"", "", "", NULL};
-    lzo_uint32_t MEM_COMPRESS_1;
-    lzo_uint32_t MEM_COMPRESS_999;
 
     /* init */
     UNUSED(dummy);

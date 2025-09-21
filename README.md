@@ -21,12 +21,16 @@ Read and write GBX files for Trackmania.
 
 Install and build locally
 
-`py -m pip install -e .`
+```
+del src\gbx\lzo*.pyd
+py -m pip install -e .
+```
 
 ### Deploy
 
+Change version in `src/gbx/_version.py`. Commit and push.
+
 ```
-bump2version --current-version 0.3.0 patch setup.py # major/minor
-git push
+git tag v<version>
 git push --tags
 ```
