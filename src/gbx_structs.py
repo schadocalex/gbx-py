@@ -4,7 +4,7 @@ import string
 from collections import OrderedDict
 import math
 import os
-import lzo
+import gbx.lzo
 import zlib
 import zipfile
 import io
@@ -26,7 +26,7 @@ class CompressedLZ0(Tunnel):
     def _decode(self, raw_bytes, context, path):
         data = GbxCompressedBody.parse(raw_bytes)
 
-        return lzo.decompress(data.compressed_body, False, data.uncompressed_size)
+        return gbx.lzo.decompress(data.compressed_body, False, data.uncompressed_size)
 
         # return mini_lzo.decompress(data.compressed_body, data.uncompressed_size)
 
@@ -35,7 +35,7 @@ class CompressedLZ0(Tunnel):
             Container(
                 uncompressed_size=len(raw_bytes),
                 # compressed_body=mini_lzo.compress(raw_bytes),
-                compressed_body=lzo.compress(raw_bytes, 1, False),  # TODO change to 9 when tmx can handle that?
+                compressed_body=gbx.lzo.compress(raw_bytes, 1, False),  # TODO change to 9 when tmx can handle that?
             )
         )
 
@@ -191,7 +191,7 @@ GbxBytesUntilFacade = Struct(
         ExprAdapter(
             RepeatUntil(lambda x, lst, ctx: lst[-4:] == [0x01, 0xDE, 0xCA, 0xFA], Byte),
             lambda obj, ctx: bytes(obj[:-4]),
-            lambda obj, ctx: GreedyBytes.build(obj + b"\x01\xDE\xCA\xFA"),
+            lambda obj, ctx: GreedyBytes.build(obj + b"\x01\xde\xca\xfa"),
         ),
     ),
     Seek(-4, 1),
@@ -337,10 +337,11 @@ class AGbxFileTime(Adapter):
 GbxFileTime = AGbxFileTime(Int64ul)
 
 GbxFileRef = Struct(
-    "version" / Int8ul,  # 3
-    "checksum" / Bytes(32),
-    "filePath" / GbxString,
-    "locatorUrl" / GbxString,
+    "PackDescVersion" / Int8ul,
+    "Checksum" / If(this.PackDescVersion >= 3, Bytes(32)),
+    "FilePath" / GbxString,
+    "LocatorUrl"
+    / If(lambda this: this.PackDescVersion >= 3 or (this.PackDescVersion >= 1 and len(this.FilePath) > 0), GbxString),
 )
 
 GbxFolders = Struct(
@@ -846,11 +847,6 @@ body_chunks[0x0303F006] = Struct(
     "isReplaying" / GbxBool,
     *body_chunks[0x0303F005].subcons,
 )
-body_chunks[0x0309200C] = Struct("u01" / Int32sl)
-body_chunks[0x0309200E] = Struct("ghostUid" / Int32sl)
-body_chunks[0x0309200F] = Struct("ghostLogin" / GbxString)
-body_chunks[0x03092010] = Struct("validate_ChallengeUid" / GbxLookbackString)
-body_chunks[0x0309201C] = Struct("u01" / Bytes(32))  # BigInt?
 
 # 03043 CGameCtnChallenge
 
@@ -1037,7 +1033,7 @@ body_chunks[0x03043049] = Struct(
         ExprAdapter(
             RepeatUntil(lambda x, lst, ctx: lst[-4:] == [0x4B, 0x30, 0x04, 0x03], Byte),
             lambda obj, ctx: bytes(obj[:-4]),
-            lambda obj, ctx: GreedyBytes.build(obj + b"\x4B\x30\x04\x03"),
+            lambda obj, ctx: GreedyBytes.build(obj + b"\x4b\x30\x04\x03"),
         ),
     ),
     Seek(-4, 1),
@@ -1330,6 +1326,20 @@ body_chunks[0x3084007] = Struct(
 
 # 03092 CGameCtnGhost
 
+GbxInputValue = ExprAdapter(
+    Struct(
+        "u01" / Int8ul,
+        "sign" / Int8sl,
+        "value" / Int16ul,
+    ),
+    lambda obj, ctx: obj.sign * obj.value,
+    lambda obj, ctx: Container(
+        u01=0,
+        sign=1 if obj >= 0 else -1,
+        value=abs(obj),
+    ),
+)
+
 body_chunks[0x03092000] = Struct(
     "version" / Int32ul,
     "AppearanceVersion" / If(this.version >= 9, Int32ul),
@@ -1353,6 +1363,79 @@ body_chunks[0x03092000] = Struct(
     "GhostZone" / GbxString,
     StopIf(this.version < 8),
     "GhostClubTag" / GbxString,
+)
+body_chunks[0x0309200C] = Struct("u01" / Int32sl)
+body_chunks[0x0309200E] = Struct("ghostUid" / GbxLookbackString)
+body_chunks[0x0309200F] = Struct("ghostLogin" / GbxString)
+body_chunks[0x03092010] = Struct("Validate_ChallengeUid" / GbxLookbackString)
+body_chunks[0x03092011] = Struct(
+    "duration" / Int32ul,
+    StopIf(this.duration == 0),
+    "u01" / Int32ul,
+    "inputNames" / GbxArrayOf(GbxLookbackString),
+    "inputsLen" / Int32sl,
+    "u02" / Int32sl,
+    "inputs"
+    / Array(
+        this.inputsLen,
+        Struct(
+            "time" / Int32ul,  # ms
+            "inputNameIndex" / Int8ul,
+            "data"
+            / Switch(
+                lambda this: this._.inputNames[this.inputNameIndex],
+                {
+                    "_FakeDontInverseAxis": GbxBool,
+                    "_FakeFinishLine": GbxBool,
+                    "_FakeIsRaceRunning": GbxBool,
+                    "Accelerate": GbxBool,
+                    "AccelerateReal": GbxInputValue,
+                    "Brake": GbxBool,
+                    "BrakeReal": GbxInputValue,
+                    "Gas": GbxInputValue,
+                    "Horn": GbxBool,
+                    "Respawn": GbxBool,
+                    "Steer": GbxInputValue,
+                    "SteerLeft": GbxBool,
+                    "SteerRight": GbxBool,
+                },
+                Int32ul,
+            ),
+        ),
+    ),
+    "validate_ExeVersion" / GbxString,
+    "validate_ExeChecksum" / Bytes(4),
+    "validate_OsKind" / Int32ul,
+    "validate_CpuKind" / Int32ul,
+    "validate_RaceSettings" / GbxString,
+    "u03" / Int32ul,
+)
+body_chunks[0x03092012] = Struct("u01" / Int32sl, "u02" / Bytes(16))
+body_chunks[0x03092015] = Struct("GhostNickname" / GbxLookbackString)
+body_chunks[0x03092017] = Struct(
+    "SkinPackDescs" / GbxArrayOf(GbxFileRef),
+    "GhostNickname" / GbxString,
+    "GhostAvatarName" / GbxString,
+)
+body_chunks[0x03092018] = Struct("PlayerModel" / GbxMeta)
+body_chunks[0x03092019] = body_chunks[0x03092011]
+body_chunks[0x0309201C] = Struct("u01" / Bytes(32))
+
+# 03093 CGameCtnReplayRecord
+
+body_chunks[0x03093002] = Struct(
+    "challengeData" / Prefixed(Int32ul, GreedyBytes),
+)
+
+body_chunks[0x03093014] = Struct(
+    "list_version" / ExprValidator(Int32sl, obj_ == 10),
+    "Ghosts" / GbxArrayOf(GbxNodeRef),  # CGameCtnGhost
+    "_0" / Int32sl,
+    "Extras" / GbxArrayOf(Int64sl),
+)
+
+body_chunks[0x03093015] = Struct(
+    "Clip" / GbxNodeRef,  # CGameCtnMediaClip
 )
 
 # 03101 CGameCtnAnchoredObject
@@ -4431,7 +4514,7 @@ def create_gbx_struct(gbx_body):
                 "nb_nodes"
                 / ExprValidator(
                     Peek(Int32ul[2]),
-                    lambda obj, ctx: obj[0] < 1000 and obj[1] < 1000,
+                    lambda obj, ctx: obj[0] < 1000 and obj[1] < 1000,  # not a chunk id
                 ),
             ),  # fix corrupted chunk size
             Prefixed(
