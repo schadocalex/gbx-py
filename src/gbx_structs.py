@@ -842,7 +842,62 @@ body_chunks[0x0303600C] = Struct(
 
 # 0303F CGameGhost
 
-body_chunks[0x0303F005] = Struct("data" / CompressedZLib(GreedyBytes))
+
+def CGameGhost_decode_sample(obj, ctx):
+    assert obj.SavedMobilClassId in body_chunks
+    assert obj.sizePerSample != -1  # TODO
+    samples = []
+    index = 0
+    time = 0
+    for i in range(obj.numSamples):
+        buffer = obj.samples[index : index + obj.sizePerSample]
+        sample = body_chunks[obj.SavedMobilClassId].parse(buffer, Version=obj.Version)
+        sample._Time = time
+        samples.append(sample)
+
+        index += obj.sizePerSample
+        time += obj.SamplePeriod
+
+    obj.samples = samples
+
+    return obj
+
+
+def CGameGhost_encode_sample(obj, ctx):
+    buffer = b""
+    index = 0
+    obj.numSamples = len(obj.samples)
+    for i in range(obj.numSamples):
+        buffer += body_chunks[obj.SavedMobilClassId].build(obj.samples[i], Version=obj.Version)
+
+    obj.samples = buffer
+
+    return obj
+
+
+body_chunks[0x0303F005] = Struct(
+    "data"
+    / CompressedZLib(
+        ExprAdapter(
+            Struct(
+                "SavedMobilClassId" / Hex(Int32ul),  # CSceneVehicleCar or CSceneMobilCharVis
+                StopIf(this.SavedMobilClassId == 0xFFFFFFFF),
+                "IsFixedTimeStep" / GbxBool,
+                "u01" / Int32sl,
+                "SamplePeriod" / Int32sl,
+                "Version" / Int32sl,
+                "samples" / Prefixed(Int32ul, GreedyBytes),
+                "numSamples" / Int32sl,
+                "firstSampleOffset" / If(this.numSamples > 0, Int32sl),
+                "sizePerSample" / If(this.numSamples > 1, Int32sl),
+                "sampleSizes" / If(this.sizePerSample == -1, Array(this.numSamples - 1, Int32sl)),
+                "sampleTimes" / If(not this.IsFixedTimeStep, GbxArray(Int32sl)),
+            ),
+            CGameGhost_decode_sample,
+            CGameGhost_encode_sample,
+        )
+    ),
+)
 body_chunks[0x0303F006] = Struct(
     "isReplaying" / GbxBool,
     *body_chunks[0x0303F005].subcons,
@@ -3987,6 +4042,256 @@ body_chunks[0x0A018000] = Struct(
         lambda x, ctx: x * math.pi / 2 / 127,
         lambda x, ctx: int(x / math.pi * 2 * 127),
     ),
+    "rest" / GreedyBytes,
+)
+
+# 0A02B CSceneVehicleCar
+
+
+def decode_GbxVec3_4(obj, ctx):
+    mag = 0.0 if obj.mag == -0x8000 else math.exp(obj.mag / 1000.0)
+    heading = (obj.heading * math.pi) / 127.0
+    pitch = (obj.pitch * (math.pi / 2)) / 127.0
+
+    return Container(
+        x=math.cos(heading) * math.cos(pitch) * mag,
+        y=math.sin(heading) * math.cos(pitch) * mag,
+        z=math.sin(pitch) * mag,
+    )
+
+
+def encode_GbxVec3_4(obj, ctx):
+    mag = math.sqrt(obj.x * obj.x + obj.y * obj.y + obj.z * obj.z)
+
+    if mag <= 1e-5:
+        return Container(mag=-0x8000, heading=0, pitch=0)
+
+    nx = obj.x / mag
+    ny = obj.y / mag
+    nz = obj.z / mag
+
+    pitch = math.asin(nz)
+    heading = math.atan2(ny, nx)
+
+    return Container(
+        mag=int(round(math.log(mag) * 1000.0)),
+        heading=int(round((heading * 127.0) / math.pi)),
+        pitch=int(round((pitch * 127.0) / (math.pi / 2))),
+    )
+
+
+GbxVec3_4 = ExprAdapter(
+    Struct(
+        "mag" / Int16sl,
+        "heading" / Int8sl,
+        "pitch" / Int8sl,
+    ),
+    decode_GbxVec3_4,
+    encode_GbxVec3_4,
+)
+
+
+def decode_GbxVec3Unit_4(obj, ctx):
+    heading = (obj.heading * math.pi) / 32767.0
+    pitch = (obj.pitch * (math.pi / 2)) / 32767.0
+
+    return Container(
+        x=math.cos(heading) * math.cos(pitch),
+        y=math.sin(heading) * math.cos(pitch),
+        z=math.sin(pitch),
+    )
+
+
+def encode_GbxVec3Unit_4(obj, ctx):
+    heading = math.atan2(obj.y, obj.x)
+    pitch = math.asin(obj.z)
+
+    return Container(
+        heading=int(round(heading * 32767.0 / math.pi)),
+        pitch=int(round(pitch * 32767.0 / (math.pi / 2))),
+    )
+
+
+GbxVec3Unit_4 = ExprAdapter(
+    Struct(
+        "heading" / Int16sl,
+        "pitch" / Int16sl,
+    ),
+    decode_GbxVec3Unit_4,
+    encode_GbxVec3Unit_4,
+)
+
+
+def decode_GbxQuat_6(obj, ctx):
+    theta = (obj.theta * math.pi) / 65535.0
+
+    sin_theta = math.sin(theta)
+    cos_theta = math.cos(theta)
+
+    return Container(
+        x=obj.axis.x * sin_theta,
+        y=obj.axis.y * sin_theta,
+        z=obj.axis.z * sin_theta,
+        w=cos_theta,
+    )
+
+
+def encode_GbxQuat_6(obj, ctx):
+    sin_theta = math.sqrt(obj.x * obj.x + obj.y * obj.y + obj.z * obj.z)
+    if sin_theta == 0.0:
+        return Container(theta=0, axis=Container(x=0, y=0, z=0))
+
+    axis = Container(x=obj.x / sin_theta, y=obj.y / sin_theta, z=obj.z / sin_theta)
+    theta = math.asin(sin_theta)
+
+    return Container(
+        theta=int(round(theta * 65535.0 / math.pi)),
+        axis=axis,
+    )
+
+
+GbxQuat_6 = ExprAdapter(
+    Struct(
+        "theta" / Int16sl,
+        "axis" / GbxVec3Unit_4,
+    ),
+    decode_GbxQuat_6,
+    encode_GbxQuat_6,
+)
+
+
+body_chunks[0x0A02B000] = Struct(
+    "Version" / ExprValidator(Computed(lambda ctx: ctx._params.Version), obj_ <= 12),
+    "Position" / GbxVec3,
+    "Rotation" / GbxQuat_6,  # TODO
+    "Velocity" / GbxVec3_4,
+    "AngularVelocity" / GbxVec3_4,
+    "SpeedForward"
+    / ExprAdapter(
+        Int16ul,
+        (obj_ / 65535.0 * 11000.0 - 1000.0) * 3.6,
+        lambda obj, ctx: int(round((obj / 3.6 + 1000.0) / 11000.0 * 65535.0)),
+    ),
+    "SpeedSideward"
+    / ExprAdapter(
+        Int16ul,
+        obj_ / 65535.0 * 2000.0 - 1000.0,
+        lambda obj, ctx: int(round((obj + 1000.0) / 2000.0 * 65535.0)),
+    ),
+    "RPM"
+    / ExprAdapter(
+        Int16ul,
+        obj_ / 65535.0 * 30000.0,
+        lambda obj, ctx: int(round(obj * 65535.0 / 30000.0)),
+    ),
+    "FLWheelRotation"
+    / ExprAdapter(
+        Int16ul,
+        obj_ / 65535.0 * 1608.495,
+        lambda obj, ctx: int(round(obj * 65535.0 / 1608.495)),
+    ),
+    "FRWheelRotation"
+    / ExprAdapter(
+        Int16ul,
+        obj_ / 65535.0 * 1608.495,
+        lambda obj, ctx: int(round(obj * 65535.0 / 1608.495)),
+    ),
+    "RRWheelRotation"
+    / ExprAdapter(
+        Int16ul,
+        obj_ / 65535.0 * 1608.495,
+        lambda obj, ctx: int(round(obj * 65535.0 / 1608.495)),
+    ),
+    "RLWheelRotation"
+    / ExprAdapter(
+        Int16ul,
+        obj_ / 65535.0 * 1608.495,
+        lambda obj, ctx: int(round(obj * 65535.0 / 1608.495)),
+    ),
+    "Steer"
+    / ExprAdapter(
+        Byte,
+        obj_ / 255.0 * 2.0 - 1.0,
+        lambda obj, ctx: int(round((obj + 1.0) / 2.0 * 255.0)),
+    ),
+    "Gas" / ExprAdapter(Byte, obj_ / 255.0, lambda obj, ctx: int(round(obj * 255.0))),
+    "Brake" / ExprAdapter(Byte, obj_ / 255.0, lambda obj, ctx: int(round(obj * 255.0))),
+    "U11" / ExprAdapter(Byte, obj_ / 255.0, lambda obj, ctx: int(round(obj * 255.0))),
+    "U12" / If(this.Version >= 8, Byte),
+    "U13"
+    / ExprAdapter(
+        Byte,
+        obj_ / 255.0 * 2.0 - 1.0,
+        lambda obj, ctx: int(round((obj + 1.0) / 2.0 * 255.0)),
+    ),
+    "U14"
+    / ExprAdapter(
+        Byte,
+        obj_ / 255.0 * 2.0 - 1.0,
+        lambda obj, ctx: int(round((obj + 1.0) / 2.0 * 255.0)),
+    ),
+    "TurboStrength" / ExprAdapter(Byte, obj_ / 255.0, lambda obj, ctx: int(round(obj * 255.0))),
+    "SteerFront"
+    / ExprAdapter(
+        Byte,
+        obj_ / 255.0 * math.pi * 2.0 - math.pi,
+        lambda obj, ctx: int(round((obj + math.pi) / 2.0 / math.pi * 255.0)),
+    ),
+    "FLDampenLen"
+    / ExprAdapter(
+        Byte,
+        obj_ / 255.0 * 4.0 - 2.0,
+        lambda obj, ctx: int(round((obj + 2.0) / 4.0 * 255.0)),
+    ),
+    "FLGroundContactMaterial" / GbxEPlugSurfacePhysicsId,
+    "FRDampenLen"
+    / ExprAdapter(
+        Byte,
+        obj_ / 255.0 * 4.0 - 2.0,
+        lambda obj, ctx: int(round((obj + 2.0) / 4.0 * 255.0)),
+    ),
+    "FRGroundContactMaterial" / GbxEPlugSurfacePhysicsId,
+    "RRDampenLen"
+    / ExprAdapter(
+        Byte,
+        obj_ / 255.0 * 4.0 - 2.0,
+        lambda obj, ctx: int(round((obj + 2.0) / 4.0 * 255.0)),
+    ),
+    "RRGroundContactMaterial" / GbxEPlugSurfacePhysicsId,
+    "RLDampenLen"
+    / ExprAdapter(
+        Byte,
+        obj_ / 255.0 * 4.0 - 2.0,
+        lambda obj, ctx: int(round((obj + 2.0) / 4.0 * 255.0)),
+    ),
+    "RLGroundContactMaterial" / GbxEPlugSurfacePhysicsId,
+    StopIf(this.Version < 8),
+    "U25"
+    / BitStruct(
+        "u01" / BitsInteger(3),
+        "horn" / BitsInteger(2),
+        "u02" / BitsInteger(2),
+        "u03" / Flag,
+    ),
+    "U26"
+    / ByteSwapped(  # little endian 16 bit
+        BitStruct(
+            "u04" / Flag,
+            "u05" / Flag,
+            "rl_on_ground" / Flag,
+            "rl_is_sliding" / Flag,
+            "rr_on_ground" / Flag,
+            "rr_is_sliding" / Flag,
+            "fr_on_ground" / Flag,
+            "fr_is_sliding" / Flag,
+            "fl_on_ground" / Flag,
+            "fl_is_sliding" / Flag,
+            "u06" / BitsInteger(6),
+        ),
+    ),
+    StopIf(this.Version < 9),
+    "DirtBlend" / Byte,
+    StopIf(this.Version < 10),
     "rest" / GreedyBytes,
 )
 
