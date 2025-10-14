@@ -4137,12 +4137,27 @@ def decode_GbxQuat_6(obj, ctx):
 
 
 def encode_GbxQuat_6(obj, ctx):
-    sin_theta = math.sqrt(obj.x * obj.x + obj.y * obj.y + obj.z * obj.z)
-    if sin_theta == 0.0:
-        return Container(theta=0, axis=Container(x=0, y=0, z=0))
+    norm = math.sqrt(obj.x * obj.x + obj.y * obj.y + obj.z * obj.z + obj.w * obj.w)
+    if norm == 0:
+        raise Exception("error: nul quaternion", obj)
+    if abs(norm - 1) >= 0.003162278:
+        print("warn: quaternion must me normalized", obj, norm)
+        obj = Container(x=obj.x / norm, y=obj.y / norm, z=obj.z / norm, w=obj.w / norm)
 
-    axis = Container(x=obj.x / sin_theta, y=obj.y / sin_theta, z=obj.z / sin_theta)
-    theta = math.asin(sin_theta)
+    # axis
+    sin_theta = math.sqrt(obj.x * obj.x + obj.y * obj.y + obj.z * obj.z)
+    if sin_theta >= 1e-05:
+        axis = Container(x=obj.x / sin_theta, y=obj.y / sin_theta, z=obj.z / sin_theta)
+    else:
+        axis = Container(x=0, y=0, z=1)
+
+    # theta
+    if obj.w < -0.999999:
+        theta = math.pi
+    elif obj.w > 0.999999:
+        theta = 0.0
+    else:
+        theta = math.acos(obj.w)
 
     return Container(
         theta=int(round(theta * 65535.0 / math.pi)),
