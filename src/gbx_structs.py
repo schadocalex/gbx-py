@@ -4167,7 +4167,7 @@ def encode_GbxQuat_6(obj, ctx):
 
 GbxQuat_6 = ExprAdapter(
     Struct(
-        "theta" / Int16sl,
+        "theta" / Int16ul,
         "axis" / GbxVec3Unit_4,
     ),
     decode_GbxQuat_6,
