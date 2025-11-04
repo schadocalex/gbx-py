@@ -103,7 +103,7 @@ class TM_OT_NICE_Item_Install_Deps(bpy.types.Operator):
 
     def execute(self, context):
         run_pip_command(run_module="ensurepip")
-        run_pip_command("install", "--target", MODULES_FOLDER, "construct", "python-lzo", "Pillow")
+        run_pip_command("install", "--target", MODULES_FOLDER, "construct", "gbx-py", "Pillow")
 
         # display reload text
         global installation_success
