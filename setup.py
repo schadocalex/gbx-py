@@ -15,9 +15,7 @@ GBX_VERSION = get_version()
 
 lzo_dir = "src/gbx/lzo/lzo-2.10"
 
-src_list = ["src/gbx/lzo/lzomodule.c"]
-if sys.platform == "win32":
-    src_list += glob(os.path.join(lzo_dir, "src/*.c"))
+src_list = ["src/gbx/lzo/lzomodule.c"] + glob(os.path.join(lzo_dir, "src/*.c"))
 
 gbx_lzo = Extension(
     "gbx.lzo",
