@@ -294,7 +294,7 @@ class TM_PT_NICE(bpy.types.Panel):
 
     def draw_header(self, context):
         layout = self.layout
-        layout.label(icon="SEQUENCE_COLOR_03")
+        layout.label(icon="COLLECTION_COLOR_03")
 
     def draw_header_preset(self, context):
         layout = self.layout
