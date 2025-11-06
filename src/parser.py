@@ -33,18 +33,24 @@ def parse_file(file_path, with_nodes=False, recursive=True, log=False):
     with open(file_path, "rb") as f:
         gbx_data = {}
         nodes = []
+        errors = []
+        warns = []
         data = GbxStruct.parse(
             f.read(),
             gbx_data=gbx_data,
             nodes=nodes,
             filename=file_path,
             load_external_file=partial(_load_external_file, {}, log, file_dir, with_nodes, recursive),
+            errors=errors,
+            warns=warns,
         )
         data.filepath = file_path
         if with_nodes:
             data.nodes = nodes
         data.node_offset = 0
         nb_nodes = len(nodes) - 1
+        data._errors = errors
+        data._warns = warns
 
         return data
 
@@ -78,7 +84,8 @@ def _load_external_file(files_cache, log, root_path, with_nodes, recursive, rela
             files_cache[file_path] = parse_file(file_path, with_nodes=with_nodes, recursive=True)
         except Exception as e:
             print(e)
-            files_cache[file_path] = Container(_error="Unable to load file: " + file_path, _message=str(e))
+            files_cache[file_path] = Container(_error="Unable to load file: " + file_path, _message=repr(e))
+            files_cache[file_path]._errors = [f"{repr(e)} in {file_path}"]
 
     return files_cache[file_path]
 

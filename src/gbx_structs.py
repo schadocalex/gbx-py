@@ -584,12 +584,14 @@ def print_next_chunk_id(obj, ctx):
 
 
 def print_chunk_unknown(obj, ctx):
-    print(f" -- Unknown chunk id: {hex(ctx._.chunkId)}")
+    ctx._params.errors.append(f" -- Unknown chunk id: {hex(ctx._.chunkId)} in {ctx._params.filename}")
+    print(ctx._params.errors[-1])
     return obj
 
 
 def print_chunk_fail(obj, ctx):
-    print(f" -- Parse chunk failed: {hex(ctx._.chunkId)}")
+    ctx._params.errors.append(f" -- Parse chunk failed: {hex(ctx._.chunkId)} in {ctx._params.filename}")
+    print(ctx._params.errors[-1])
     return obj
 
 
@@ -4810,11 +4812,16 @@ def compute_all_folders(ctx):
 
 
 def load_external_nodes(obj, ctx):
-    ctx._root._params.nodes[obj.nodeIndex] = Container(
+    node = Container(
         _index=obj.nodeIndex,
         _relativeFilePath=obj._computedRelativePath,
         **ctx._root._params.load_external_file(obj._computedRelativePath),
     )
+    ctx._root._params.nodes[obj.nodeIndex] = node
+    if "_errors" in node:
+        ctx._params.errors += node._errors
+    if "_warns" in node:
+        ctx._params.warns += node._warns
 
     return obj
 

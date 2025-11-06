@@ -143,7 +143,8 @@ def extract_content(data, parent=None, opts=None):
 
     if "classId" not in data:
         if "_index" in data and "_relativeFilePath" in data:
-            print(f"missing file, ignoring: {data._relativeFilePath}")
+            data._warns.append(f"missing file, ignoring: {data._relativeFilePath}")
+            print(data._warns[-1])
             return []
         raise Exception(data._error if "_error" in data else data)
 
@@ -159,7 +160,7 @@ def extract_content(data, parent=None, opts=None):
         content = model_edition_content + model_content
 
         # remap materials
-        if chunk.MaterialModifier._index >= 0:
+        if chunk.MaterialModifier._index >= 0 and "_error" not in chunk.MaterialModifier:
             apply_mat_modifier(content, chunk.MaterialModifier)
 
         return content
@@ -240,9 +241,9 @@ def extract_content(data, parent=None, opts=None):
         content += extract_block_variant(data, data.body[0x0304E023].variantBaseGround, "ground0")
         content += extract_block_variant(data, data.body[0x0304E023].variantBaseAir, "air0")
         for idx, variant_ground in enumerate(data.body[0x0304E027].additionalVariantsGround):
-            content += extract_block_variant(data, variant_ground.body, f"ground{idx+1}")
+            content += extract_block_variant(data, variant_ground.body, f"ground{idx + 1}")
         for idx, variant_air in enumerate(data.body[0x0304E02C].additionalVariantsAir):
-            content += extract_block_variant(data, variant_air.body, f"air{idx+1}")
+            content += extract_block_variant(data, variant_air.body, f"air{idx + 1}")
 
         # remap materials
         if data.body[0x0304E031].materialModifier._index >= 0:

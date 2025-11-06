@@ -3,6 +3,7 @@ import bpy
 import bpy_extras
 import bmesh
 from mathutils import Vector, Quaternion
+import traceback
 
 # from src.nice.api import *
 from ..src.parser import parse_file, generate_file
@@ -254,16 +255,27 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
 
     # TODO "remove nonvisible" boolean?
 
+    def _show_errors(self, data):
+        for err in data._errors:
+            self.report({"ERROR"}, str(err))
+        for err in data._warns:
+            self.report({"WARNING"}, str(err))
+        data._errors = []
+        data._warns = []
+
     def execute(self, context):
         dirname = os.path.dirname(self.filepath) + os.path.sep
         for file in self.files:
             filepath = dirname + file.name
             data = parse_file(filepath)
+            self._show_errors(data)
 
             try:
                 content = extract_content(data)
+                self._show_errors(data)
             except Exception as e:
-                self.report({"ERROR"}, str(e))
+                tb = traceback.format_exception(e)
+                self.report({"ERROR"}, f"{repr(e)}\n{''.join(tb)}")
                 return {"CANCELLED"}
 
             name = os.path.basename(filepath).split(".")[0]
