@@ -2007,8 +2007,7 @@ GbxCrystal = Struct(
         "facesCount" / Int32ul,
         "uvsCoords" / If(this._.version >= 37, GbxArrayOf(GbxVec2)),
         "faceCornersCount" / If(this._.version >= 37, Int32ul),
-        "uvsIndicies"
-        / If(this._.version >= 37, GbxOptimizedIntArray(this.faceCornersCount)),  # indexed by face corner
+        "uvsIndicies" / If(this._.version >= 37, GbxOptimizedIntArray(this.faceCornersCount)),  # indexed by face corner
         "faces"
         / Array(
             this.facesCount,
@@ -3458,6 +3457,8 @@ GbxNodesWithoutBody.add(0x09179000)
 body_chunks[0x09179000] = Struct(
     "version" / Int32ul,
     "surf" / GbxNodeRef,
+    StopIf(this.version <= 1),
+    "IsMergeable" / GbxBool,
 )
 
 # 0917A CPlugSpawnModel
@@ -3793,7 +3794,7 @@ body_chunks[0x090FD000] = Struct(
 )
 body_chunks[0x090FD001] = Struct(
     "version" / ExprValidator(Int32ul, obj_ >= 3),
-    "u01" / GbxNodeRef,
+    "u01" / GbxNodeRef,  # 0x90a8000 CPlugBitmapAtlas
     "tilingU" / GbxETexAddress,
     "tilingV" / GbxETexAddress,
     "textureSize" / Float32l,
@@ -4380,7 +4381,7 @@ body_chunks[0x2E002019] = Struct(
     "MaterialModifier" / GbxNodeRef,
 )
 
-body_chunks[0x2E00201A] = Struct("u01" / GbxNodeRef)
+body_chunks[0x2E00201A] = Struct("u01" / GbxNodeRef)  # VCGameCtnMediaContext
 body_chunks[0x2E00201C] = Struct(
     "version" / ExprValidator(Int32ul, obj_ == 5),
     "defaultPlacement" / GbxNodeRef,
