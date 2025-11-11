@@ -43,7 +43,7 @@ def create_raw_mesh(obj_name, raw_mesh):
             elif isinstance(material, RawInvisibleMaterial):
                 material_name = f"TM_invisible_{material.physicsId}"
                 if material.gameplayId != "No":
-                    material_name += "_" + material.gameplayId
+                    material_name += f"_{material.gameplayId}"
 
         all_material_names.append(material_name)
 
@@ -67,10 +67,13 @@ def create_raw_mesh(obj_name, raw_mesh):
 
     bm.verts.ensure_lookup_table()
 
-    # normals, does that work?
+    # normals
     if raw_mesh.normals is not None:
         for vidx, normal in enumerate(raw_mesh.normals):
-            bm.verts[vidx].normal = Vector((normal.x, -normal.z, normal.y))
+            if normal is None:
+                print(obj_name)
+            else:
+                bm.verts[vidx].normal = Vector((normal.x, -normal.z, normal.y))
 
     # faces
     for i, vert_indices in enumerate(raw_mesh.faces):
@@ -85,10 +88,10 @@ def create_raw_mesh(obj_name, raw_mesh):
                 coord = raw_mesh.vertices[-1]
                 bm.verts.new((coord.x, -coord.z, coord.y))
             bm.verts.ensure_lookup_table()
-            raw_mesh.faces[i] = (new_vidx, new_vidx + 1, new_vidx + 2)
+            raw_mesh.faces[i] = range(new_vidx, new_vidx + len(vert_indices))
             if raw_mesh.facesMaterials:
                 raw_mesh.facesMaterials.append(raw_mesh.facesMaterials[i])
-            face = bm.faces.new([bm.verts[new_vidx], bm.verts[new_vidx + 1], bm.verts[new_vidx + 2]])
+            face = bm.faces.new([bm.verts[i] for i in raw_mesh.faces[i]])
 
         face.material_index = raw_mesh.facesMaterials[i] if raw_mesh.facesMaterials is not None else 0
 
@@ -96,19 +99,28 @@ def create_raw_mesh(obj_name, raw_mesh):
     bm.to_mesh(mesh_data)
 
     # Add uvs
-    # TODO check if uv0 is BaseMaterial (depeding on the material)
-    if raw_mesh.uv0:
-        uv0 = mesh_data.uv_layers.new(name="BaseMaterial", do_init=False)
-        uv0.active = True
-        uv0.active_render = True
-        for idx, coord in uv0.uv.items():
-            pt = raw_mesh.uv0[idx]
-            coord.vector = Vector((pt.x, pt.y))
-    if raw_mesh.uv1:
-        uv1 = mesh_data.uv_layers.new(name="Lightmap", do_init=False)
-        for idx, coord in uv1.uv.items():
-            pt = raw_mesh.uv1[idx]
-            coord.vector = Vector((pt.x, pt.y))
+    if raw_mesh.uvs:
+        for i, mesh_uv in enumerate(raw_mesh.uvs):
+            name = f"uv{i + 1}"
+            # TODO check if uv0 is BaseMaterial (depending on the material)
+            if i == 0:
+                name = "BaseMaterial"
+            elif i == 1:
+                name = "Lightmap"
+            uv0 = mesh_data.uv_layers.new(name=name, do_init=False)
+            if i == 0:
+                uv0.active = True
+                uv0.active_render = True
+
+            for idx, coord in uv0.uv.items():
+                coord.vector = Vector((mesh_uv[idx].x, mesh_uv[idx].y))
+
+    # Add vertex color
+    if raw_mesh.colors:
+        for i, vcolors in enumerate(raw_mesh.colors):
+            color_layer = mesh_data.color_attributes.new(name=f"color{i}", type="BYTE_COLOR", domain="POINT")
+            for i, col in enumerate(vcolors):
+                color_layer.data[i].color = (col.r / 255.0, col.g / 255.0, col.b / 255.0, col.a / 255.0)
 
     # update the mesh data (helps with redrawing the mesh in the viewport)
     mesh_data.update()
@@ -120,7 +132,10 @@ def create_raw_mesh(obj_name, raw_mesh):
 
 
 def loc_to_blender(loc):
-    return (Vector((loc.pos.x, -loc.pos.z, loc.pos.y)), Quaternion((loc.rot.w, loc.rot.x, -loc.rot.z, loc.rot.y)))
+    return (
+        Vector((loc.pos.x, -loc.pos.z, loc.pos.y)),
+        Quaternion((loc.rot.w, loc.rot.x, -loc.rot.z, loc.rot.y)),
+    )
 
 
 def create_and_place_empty(obj, name):
@@ -180,16 +195,29 @@ def import_content_to_blender(root_collection, content, options):
         elif isinstance(obj, MeshTree):
             obj_pos, obj_rot = loc_to_blender(obj.loc)
 
+            prefix = f"z{int(obj.farZ)}_" if obj.farZ is not None else options.get("name_prefix", "")
+
             for child in obj.children:
-                for new_obj in import_content_to_blender(root_collection, child, options):
+                for new_obj in import_content_to_blender(root_collection, child, {**options, "name_prefix": prefix}):
                     res.append(new_obj)
                     new_obj.location = obj_pos + (obj_rot @ new_obj.location)
                     new_obj.rotation_mode = "QUATERNION"
                     new_obj.rotation_quaternion = obj_rot.cross(new_obj.rotation_quaternion)
+                if child and len(child) > 0 and child[0].farZ is not None and options.get("highest_lod_only", True):
+                    break
 
             if obj.mesh:
                 assert len(obj.mesh) == 1
-                mesh = create_raw_mesh(obj.name, obj.mesh[0])
+                mesh = create_raw_mesh(f"{prefix}{obj.name}_mesh", obj.mesh[0])
+                mesh.location = obj_pos
+                mesh.rotation_mode = "QUATERNION"
+                mesh.rotation_quaternion = obj_rot
+                root_collection.objects.link(mesh)
+                res.append(mesh)
+
+            if obj.surface:
+                assert len(obj.surface) == 1
+                mesh = create_raw_mesh(f"{prefix}{obj.name}_surf", obj.surface[0])
                 mesh.location = obj_pos
                 mesh.rotation_mode = "QUATERNION"
                 mesh.rotation_quaternion = obj_rot
@@ -256,9 +284,9 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
     # TODO "remove nonvisible" boolean?
 
     def _show_errors(self, data):
-        for err in data._errors:
+        for err in data.get("_errors"):
             self.report({"ERROR"}, str(err))
-        for err in data._warns:
+        for err in data.get("_warns"):
             self.report({"WARNING"}, str(err))
         data._errors = []
         data._warns = []

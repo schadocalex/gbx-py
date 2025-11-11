@@ -27,8 +27,7 @@ class RawMesh:
     facesMaterials = None  # if len(materials) > 0
 
     # indexed by face corners
-    uv0 = None
-    uv1 = None
+    uvs = None
 
     # misc
     lod = 0
@@ -65,8 +64,15 @@ class SpawnLoc(Loc):
 class MeshTree:
     name = ""
     mesh = None
+    surface = None
     loc = None
     children = None
+    farZ = None
+
+
+def warn(opts, s):
+    opts["root"]._warns.append(s)
+    print(opts["root"]._warns[-1])
 
 
 def label_all_meshes(content, label):
@@ -101,13 +107,23 @@ def remap_materials(content, remap):
 
 
 def apply_mat_modifier(content, mat_modifier):
+    if (
+        not mat_modifier.get("MaterialModifier")
+        or mat_modifier.MaterialModifier._index < 0
+        or mat_modifier.MaterialModifier.get("_errors")
+    ):
+        return
     assert mat_modifier.classId == 0x0915D000
+
+    if 0x915D001 in mat_modifier.body and mat_modifier.body[0x915D001].get("name") == "Turbo":
+        return  # because the Turbo materials variants doesn't exist in blendermania, we need to take defautl ones. TODO
 
     chunk = mat_modifier.body[0x915D000]
     remap = {}
     prefix = chunk.RemapFolder.split("\\")[-2] + "_"
     for fid in chunk.Remapping.body[0x90F4005].fids:
-        remap[fid.type] = prefix + fid.type
+        material_link = fid.filePath.split("\\")[-1].replace(".Material.Gbx", "")
+        remap[material_link] = prefix + fid.type
 
     remap_materials(content, remap)
 
@@ -135,16 +151,17 @@ def need_spawn(waypointType):
     return waypointType in ("Start", "Checkpoint", "StartFinish")
 
 
-def extract_content(data, parent=None, opts=None):
+def extract_content(data, parent=None, opts=None, root=None):
     if data is None or ("_index" in data and data._index == -1):
         return []
     if opts is None:
         opts = {}
+    if "root" not in opts:
+        opts["root"] = data
 
     if "classId" not in data:
         if "_index" in data and "_relativeFilePath" in data:
-            data._warns.append(f"missing file, ignoring: {data._relativeFilePath}")
-            print(data._warns[-1])
+            warn(opts, f"missing file, ignoring: {data._relativeFilePath}")
             return []
         raise Exception(data._error if "_error" in data else data)
 
@@ -152,16 +169,15 @@ def extract_content(data, parent=None, opts=None):
     if data.classId == 0x2E002000:
         chunk = data.body[0x2E002019]
 
-        model_edition_content = extract_content(chunk.EntityModelEdition, data)
-        model_content = extract_content(chunk.EntityModel, data)
+        model_edition_content = extract_content(chunk.EntityModelEdition, data, opts)
+        model_content = extract_content(chunk.EntityModel, data, opts)
         # TODO data.body[0x2E00201F].waypointType
         # add the metadata somewhere? Metadata(key="waypoint", value=waypointType)?
 
         content = model_edition_content + model_content
 
         # remap materials
-        if chunk.MaterialModifier._index >= 0 and "_error" not in chunk.MaterialModifier:
-            apply_mat_modifier(content, chunk.MaterialModifier)
+        apply_mat_modifier(content, chunk.MaterialModifier)
 
         return content
 
@@ -173,9 +189,9 @@ def extract_content(data, parent=None, opts=None):
     elif data.classId == 0x2E027000:
         chunk = data.body[0x2E027000]
 
-        objects_content = extract_content(chunk.staticObject, data)
+        objects_content = extract_content(chunk.staticObject, data, opts)
 
-        trigger_shape_content = label_all_meshes(extract_content(chunk.props.triggerShape, data), "_trigger_")
+        trigger_shape_content = label_all_meshes(extract_content(chunk.props.triggerShape, data, opts), "_trigger_")
 
         content = objects_content + trigger_shape_content
 
@@ -188,14 +204,14 @@ def extract_content(data, parent=None, opts=None):
 
     # CPlugStaticObjectModel
     elif data.classId == 0x09159000:
-        meshes = extract_content(data.body.Mesh, data)
+        meshes = extract_content(data.body.Mesh, data, opts)
         if data.body.isMeshCollidable:
             if parent is not None and parent.classId != 0x2E027000:
                 label_all_meshes(meshes, "_notcollidable_")
             return meshes
         else:
             label_all_meshes(meshes, "_notcollidable_")
-            shapes = extract_content(data.body.Shape, data)
+            shapes = extract_content(data.body.Shape, data, opts)
             return meshes + shapes
 
     # SPlugPrefab
@@ -205,7 +221,7 @@ def extract_content(data, parent=None, opts=None):
         ents.ents = []
         for ent_idx, ent in enumerate(data.body.Ents):
             if ent.model._index not in ents.models:
-                ents.models[ent.model._index] = extract_content(ent.model, data)
+                ents.models[ent.model._index] = extract_content(ent.model, data, opts)
 
             new_ent = Entity()
             new_ent.model_idx = ent.model._index
@@ -221,33 +237,32 @@ def extract_content(data, parent=None, opts=None):
 
     # CPlugSurface
     elif data.classId == 0x0900C000:
-        return surf_to_content(data.body[0x900C003].surf)
+        return surf_to_content(data.body[0x900C003].surf, opts)
 
     # CPlugDynaObjectModel
     elif data.classId == 0x09144000:
         content = []
 
-        content += label_all_meshes(extract_content(data.body.Mesh, data), "_notcollidable_")
+        content += label_all_meshes(extract_content(data.body.Mesh, data, opts), "_notcollidable_")
         if data.body.DynaShape._index > 0:
-            content += label_all_meshes(extract_content(data.body.DynaShape, data), "_dynashape_")
+            content += label_all_meshes(extract_content(data.body.DynaShape, data, opts), "_dynashape_")
         if data.body.StaticShape._index > 0:
-            content += label_all_meshes(extract_content(data.body.StaticShape, data), "_staticshape_")
+            content += label_all_meshes(extract_content(data.body.StaticShape, data, opts), "_staticshape_")
 
         return content
 
     # CGameCtnBlockInfoClassic
     elif data.classId == 0x03051000:
         content = []
-        content += extract_block_variant(data, data.body[0x0304E023].variantBaseGround, "ground0")
-        content += extract_block_variant(data, data.body[0x0304E023].variantBaseAir, "air0")
+        content += extract_block_variant(data, data.body[0x0304E023].variantBaseGround, "ground0", opts)
+        content += extract_block_variant(data, data.body[0x0304E023].variantBaseAir, "air0", opts)
         for idx, variant_ground in enumerate(data.body[0x0304E027].additionalVariantsGround):
-            content += extract_block_variant(data, variant_ground.body, f"ground{idx + 1}")
+            content += extract_block_variant(data, variant_ground.body, f"ground{idx + 1}", opts)
         for idx, variant_air in enumerate(data.body[0x0304E02C].additionalVariantsAir):
-            content += extract_block_variant(data, variant_air.body, f"air{idx + 1}")
+            content += extract_block_variant(data, variant_air.body, f"air{idx + 1}", opts)
 
         # remap materials
-        if data.body[0x0304E031].materialModifier._index >= 0:
-            apply_mat_modifier(content, data.body[0x0304E031].materialModifier)
+        apply_mat_modifier(content, data.body[0x0304E031].materialModifier)
 
         return content
 
@@ -256,15 +271,15 @@ def extract_content(data, parent=None, opts=None):
         prefab_fid = data.body[0x03122003].prefab_fid
         if prefab_fid._index < 0:
             return []
-        return extract_content(prefab_fid, data)
+        return extract_content(prefab_fid, data, opts)
 
     # NPlugTrigger_SWaypoint
     elif data.classId == 0x09178000:
-        return label_all_meshes(extract_content(data.body.TriggerShape, data), "_trigger_")
+        return label_all_meshes(extract_content(data.body.TriggerShape, data, opts), "_trigger_")
 
     # NPlugTrigger_SSpecial
     elif data.classId == 0x09179000:
-        return label_all_meshes(extract_content(data.body.surf, data), "_gate_")
+        return label_all_meshes(extract_content(data.body.surf, data, opts), "_gate_")
 
     # CPlugSpawnModel
     elif data.classId == 0x0917A000:
@@ -272,15 +287,24 @@ def extract_content(data, parent=None, opts=None):
 
     # CPlugSolid
     elif data.classId == 0x09005000:
-        return extract_content(data.body[0x09005011].tree)
+        return extract_content(data.body[0x09005011].tree, data, opts)
 
     # CPlugTree
-    elif data.classId == 0x0904F000:
+    elif data.classId == 0x0904F000 or data.classId == 0x09015000:  # 0x09015000 is with Levels
         tree = MeshTree()
         tree.name = data.body[0x0904F00D].name
-        tree.mesh = extract_content(data.body[0x0904F016].visual, data)
-        tree.loc = iso4_to_loc(Loc(), data.body[0x0904F01A].loc)
-        tree.children = [extract_content(child, data) for child in data.body[0x0904F006].children]
+        tree.mesh = extract_content(data.body[0x0904F016].visual, data, opts)
+        tree.surface = extract_content(data.body[0x0904F016].surface, data, opts)
+        tree.loc = Loc()
+        if data.body[0x0904F01A].loc is not None:
+            iso4_to_loc(tree.loc, data.body[0x0904F01A].loc)
+        tree.children = [extract_content(child, data, opts) for child in data.body[0x0904F006].children]
+        if 0x09015002 in data.body:
+            for level in data.body[0x09015002].Levels:
+                tree.children.append(extract_content(level.tree, data, opts))
+                tree.children[-1][0].farZ = level.farZ
+
+        # TODO material
 
         return [tree]
 
@@ -294,11 +318,11 @@ def extract_content(data, parent=None, opts=None):
         variant.name = "variants"
         variant.mobils = {}
         for i, child in enumerate(data.body.variants):
-            variant.mobils["variant" + str(i)] = extract_content(child.EntityModel)
+            variant.mobils["variant" + str(i)] = extract_content(child.EntityModel, data, opts)
         return [variant]
 
     else:
-        print("unsupported classId: " + str(data.classId))
+        warn(opts, f"unsupported classId: {hex(data.classId)}")
         return []
 
 
@@ -321,7 +345,7 @@ def extract_MeshCrystal(mesh_crystal):
             mesh = RawMesh()
             mesh.vertices = crystal.vertices
             # TODO add unfaced edges?
-            mesh.uv0 = [crystal.uvsCoords[idx] for idx in crystal.uvsIndicies]
+            mesh.uvs = [[crystal.uvsCoords[idx] for idx in crystal.uvsIndicies]]
             mesh.materials = materials
             mesh.faces = []
             mesh.facesMaterials = []
@@ -359,67 +383,86 @@ def extract_mesh_CPlugVisualIndexedTriangles(data):
     mesh.normals = []
     mesh.colors = []
     mesh.faces = []
-    mesh.uv0 = []
-    mesh.uv1 = []
+    mesh.uvs = []
 
-    vertex_streams = data.body[0x0900600F].vertexStreams
+    if 0x0900600F in data.body:
+        visual_chunk_id = 0x0900600F
+    elif 0x0900600E in data.body:
+        visual_chunk_id = 0x0900600E
+    elif 0x0900600D in data.body:
+        visual_chunk_id = 0x0900600D
+    else:
+        raise Exception("unknown body")
+
+    vertex_streams = data.body[visual_chunk_id].vertexStreams
+
     if len(vertex_streams) == 0:
         # vertices
+        if data.body[0x0902C004]._flags.UseVertexColor:
+            mesh.colors = [[]]
         for v in data.body[0x0902C004].vertices:
             mesh.vertices.append(v.position)
-            mesh.normals.append(v.normal)
-            mesh.colors.append(v.color)
+            if data.body[0x0902C004]._flags.UseVertexNormal:
+                mesh.normals.append(v.normal)
+            if data.body[0x0902C004]._flags.UseVertexColor:
+                mesh.colors[0].append(v.color)
 
         # faces
         index_buffer = data.body[0x0906A001].indexBuffer[0x09057000]
-        assert index_buffer.flags == 2  # TODO, find a case
+        assert index_buffer.flags == 2  # TODO, find another case
         for i in range(0, len(index_buffer.indices), 3):
             mesh.faces.append((index_buffer.indices[i], index_buffer.indices[i + 1], index_buffer.indices[i + 2]))
 
         # uvs
-        for i, texCoord in enumerate(data.body[0x0900600F].texCoords):
-            assert i < 2  # TODO find a case
+        for i, texCoord in enumerate(data.body[visual_chunk_id].texCoords):
+            assert i < 2  # TODO find another case
             uvs_array = []
             for tex in texCoord.tex_coords:
                 uvs_array.append(tex.uv)
-            mesh_uvs = convert_verts_data_to_face_corners_data(uvs_array, mesh.faces)
-            if i == 0:
-                mesh.uv0 = mesh_uvs
-            elif i == 1:
-                mesh.uv1 = mesh_uvs
+            mesh.uvs.append(convert_verts_data_to_face_corners_data(uvs_array, mesh.faces))
     else:
-        assert len(vertex_streams) == 1  # TODO, find a case
-        verts_uv0 = None
-        verts_uv1 = None
+        assert len(vertex_streams) == 1  # TODO, find another case
+        verts_uvs = []
         vertex_stream = vertex_streams[0].body[0x09056000]
+        blend_indicies = None
         for data_idx, data_decl in enumerate(vertex_stream.DataDecl):
             if data_decl.header.Name == "Position":
                 mesh.vertices = vertex_stream.Data[data_idx]
             elif data_decl.header.Name == "Normal":
                 mesh.normals = vertex_stream.Data[data_idx]
-            elif data_decl.header.Name == "TexCoord0":
-                verts_uv0 = vertex_stream.Data[data_idx]
-            elif data_decl.header.Name == "TexCoord1":
-                verts_uv1 = vertex_stream.Data[data_idx]
+            elif data_decl.header.Name.startswith("TexCoord"):
+                verts_uvs.append(vertex_stream.Data[data_idx])
+            elif data_decl.header.Name.startswith("Color"):
+                mesh.colors.append(vertex_stream.Data[data_idx])
+            elif data_decl.header.Name == "BlendIndices":
+                blend_indicies = vertex_stream.Data[data_idx]
 
-        index_buffer = data.body[0x0906A001].indexBuffer[0x09057001]
-        assert index_buffer.flags & 0xC == 0  # TODO, find a case
+        index_buffer_body = data.body[0x0906A001].indexBuffer
+        if 0x09057000 in index_buffer_body:
+            index_buffer = index_buffer_body[0x09057000]
+            assert index_buffer.flags == 2  # TODO, find another case
+            # indexes are absolute so insert them
+            for i in range(0, len(index_buffer.indices), 3):
+                mesh.faces.append(index_buffer.indices[i : i + 3])
 
-        # convert to absolute
-        current_face = 0
-        for i in range(0, len(index_buffer.indices), 3):
-            current_face += index_buffer.indices[i]
-            x = current_face
-            current_face += index_buffer.indices[i + 1]
-            y = current_face
-            current_face += index_buffer.indices[i + 2]
-            mesh.faces.append((x, y, current_face))
+        elif 0x09057001 in index_buffer_body:
+            index_buffer = index_buffer_body[0x09057001]
+            assert index_buffer.flags & 0xC == 0  # TODO, find another case
 
-        if verts_uv0 is not None:
-            mesh.uv0 = convert_verts_data_to_face_corners_data(verts_uv0, mesh.faces)
-        if verts_uv1 is not None:
-            mesh.uv1 = convert_verts_data_to_face_corners_data(verts_uv1, mesh.faces)
-        # TODO check relative/absolute face indexes
+            # convert to absolute
+            current_face = 0
+            for i in range(0, len(index_buffer.indices), 3):
+                current_face += index_buffer.indices[i]
+                x = current_face
+                current_face += index_buffer.indices[i + 1]
+                y = current_face
+                current_face += index_buffer.indices[i + 2]
+                mesh.faces.append((x, y, current_face))
+        else:
+            raise Exception("unknown case")
+
+        for verts_uv in verts_uvs:
+            mesh.uvs.append(convert_verts_data_to_face_corners_data(verts_uv, mesh.faces))
 
     return mesh
 
@@ -473,7 +516,7 @@ def extract_meshes2(root_data, data, off_pos=None, off_rot=None, extracted_files
         return []
 
 
-def extract_block_variant(root_data, variant_body, variant_name):
+def extract_block_variant(root_data, variant_body, variant_name, opts):
     variant = BlockVariant()
     variant.name = variant_name
     variant.mobils = {}
@@ -485,7 +528,7 @@ def extract_block_variant(root_data, variant_body, variant_name):
         for sub_mobil_idx, sub_mobil in enumerate(mobil):
             # print("\t\tsub_mobil" + str(sub_mobil_idx))
             mobil_key = f"mobil{mobil_idx}_submobil{sub_mobil_idx}"
-            variant.mobils[mobil_key] = extract_content(sub_mobil, root_data)
+            variant.mobils[mobil_key] = extract_content(sub_mobil, root_data, opts)
 
     # waypoint spawn loc
     waypoint_type = root_data.body[0x0304E026].waypointType
@@ -501,14 +544,14 @@ def extract_block_variant(root_data, variant_body, variant_name):
 
     # trigger
     trigger_shape = variant_body[0x0315B006].waypointTriggerShape
-    variant.content += label_all_meshes(extract_content(trigger_shape, root_data), "_trigger_")
+    variant.content += label_all_meshes(extract_content(trigger_shape, root_data, opts), "_trigger_")
 
     # TODO clips
 
     return [variant]
 
 
-def surf_to_content(surf):
+def surf_to_content(surf, opts):
     if surf.type == "Mesh":
         mesh = RawMesh()
         mesh.faces = []
@@ -536,7 +579,7 @@ def surf_to_content(surf):
         ents.ents = []
 
         for i, surface in enumerate(surf.data.surfaces):
-            ents.models[i] = surf_to_content(surface)
+            ents.models[i] = surf_to_content(surface, opts)
             loc = iso4_to_spawnloc(surf.data.locs[i])
 
             new_ent = Entity()
@@ -546,6 +589,15 @@ def surf_to_content(surf):
             ents.ents.append(new_ent)
 
         return [ents]
+    elif surf.type == "ConvexPolyhedron":
+        mesh = RawMesh()
+        mesh.faces = []
+        mesh.label = "_notvisible_"
+        mesh.vertices = surf.data.vertices
+        for start, length in surf.data.faces:
+            mesh.faces.append(surf.data.facesIndicies[start : start + length])
+
+        return [mesh]
     else:
-        print("unsupported CPlugSurface: " + surf.type)
+        warn(opts, "unsupported CPlugSurface: " + surf.type)
         return []
