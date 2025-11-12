@@ -48,9 +48,8 @@ def parse_file(file_path, with_nodes=False, recursive=True, log=False):
         if with_nodes:
             data.nodes = nodes
         data.node_offset = 0
-        nb_nodes = len(nodes) - 1
-        data._errors = errors
-        data._warns = warns
+        data._errors = list(set(errors))
+        data._warns = list(set(warns))
 
         return data
 
