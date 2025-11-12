@@ -42,8 +42,9 @@ def create_raw_mesh(obj_name, raw_mesh):
             elif isinstance(material, RawMaterial):
                 material_name = material.link
                 material_name, _link = _get_material_name(material_name)
-                if material_name + "_asset" not in bpy.data.materials:
-                    all_material_names_to_load.append(material_name)
+
+            if material_name + "_asset" not in bpy.data.materials:
+                all_material_names_to_load.append(material_name)
 
             all_material_names.append(material_name)
 
