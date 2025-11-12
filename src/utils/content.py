@@ -8,6 +8,7 @@ class RawMaterial:
     physicId = None
     gameplayId = None
     color = None
+    invisible = False
 
 
 class RawInvisibleMaterial:
@@ -134,6 +135,7 @@ def mat_from_CPlugMaterialUserInst(data):
     mat.physicId = data.body[0x090FD000].surfacePhysicId
     mat.gameplayId = data.body[0x090FD000].surfaceGameplayId
     mat.color = data.body[0x090FD000].color
+    mat.invisible = data.body[0x090FD000].link.startswith("Editors")
     return mat
 
 
