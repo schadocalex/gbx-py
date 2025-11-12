@@ -45,7 +45,7 @@ def create_raw_mesh(obj_name, raw_mesh):
                 if material.gameplayId != "No":
                     material_name += f"_{material.gameplayId}"
 
-        all_material_names.append(material_name)
+            all_material_names.append(material_name)
 
     if all_material_names_to_load:
         _load_asset_mats(all_material_names_to_load)

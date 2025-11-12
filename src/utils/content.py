@@ -346,12 +346,16 @@ def extract_MeshCrystal(mesh_crystal):
             mesh.vertices = crystal.vertices
             # TODO add unfaced edges?
             mesh.uvs = [[crystal.uvsCoords[idx] for idx in crystal.uvsIndicies]]
-            mesh.materials = materials
+            mesh.materials = []
             mesh.faces = []
             mesh.facesMaterials = []
+            materials_mapping = {}
             for face in crystal.faces:
                 mesh.faces.append(face.inds)
-                mesh.facesMaterials.append(face.material_index)
+                if face.material_index not in materials_mapping:
+                    materials_mapping[face.material_index] = len(mesh.materials)
+                    mesh.materials.append(materials[face.material_index])
+                mesh.facesMaterials.append(materials_mapping[face.material_index])
 
             if layer.type == "Geometry":
                 if not layer.content.isVisible:
