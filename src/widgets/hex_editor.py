@@ -183,3 +183,9 @@ class GbxHexEditor(QWidget):
 
         set_selection(self.hex_widget, 0, 0, 0)
         set_selection(self.ascii_widget, 0, 0, 0)
+
+    def set_selection(self, selection):
+        start_idx, end_idx = selection
+        end_idx -= 1
+        set_selection(self.hex_widget, start_idx, end_idx, start_idx)
+        set_selection(self.ascii_widget, start_idx, end_idx, start_idx)

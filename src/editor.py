@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QTextEdit,
     QFileDialog,
+    QLabel,
 )
 from PySide6.QtCore import Slot, QSize, Qt
 from PySide6.QtGui import QTextCursor
@@ -33,7 +34,7 @@ from .widgets.inspector import Inspector
 
 def container_iter(ctn):
     for key, value in ctn.items():
-        if key != "_io":
+        if key != "_io" and key != "_iopos":
             yield key, value
 
 
@@ -47,18 +48,15 @@ class QTreeWidgetItem_WithData(QTreeWidgetItem):
 def tree_widget_item(key, value):
     if isinstance(value, NodeRef):
         if value._index == -1:
-            return QTreeWidgetItem_WithData(
-                Container(type=type(value).__name__, value=value),
-                [key, "NodeRef", "-1"],
-            )
+            return QTreeWidgetItem_WithData(value, [key, "NodeRef", "-1"])
 
-        item = QTreeWidgetItem([key, f"NodeRef"])
+        item = QTreeWidgetItem_WithData(value, [key, f"NodeRef"])
         for child in container_iter(value):
             item.addChild(tree_widget_item(*child))
 
         return item
     if isinstance(value, Container):
-        item = QTreeWidgetItem([key])
+        item = QTreeWidgetItem_WithData(value, [key])
         for child in container_iter(value):
             item.addChild(tree_widget_item(*child))
 
@@ -176,9 +174,18 @@ class GbxEditorUiWindow(QMainWindow):
             # expand_items(top_level_item)
 
         tree.expandToDepth(3)
-        tree.resizeColumnToContents(0)
+        tree.setColumnWidth(0, 400)
         tree.resizeColumnToContents(1)
         tree.resizeColumnToContents(2)
+
+        @Slot()
+        def on_item_clicked(item: QTreeWidgetItem, col):
+            if isinstance(item, QTreeWidgetItem_WithData):
+                if "_iopos" in item.gbx_data:
+                    item.gbx_data._io.seek(item.gbx_data._iopos[0])
+                    data = item.gbx_data._io.read(item.gbx_data._iopos[1] - item.gbx_data._iopos[0])
+                    self._on_item_select(data)
+                    # self.hex_editor.set_selection((0, item.gbx_data._iopos[1] - item.gbx_data._iopos[0]))
 
         @Slot()
         def on_item_double_clicked(item: QTreeWidgetItem, col):
@@ -186,6 +193,7 @@ class GbxEditorUiWindow(QMainWindow):
                 if item.gbx_data.type == "bytes":
                     self._on_item_select(item.gbx_data.value)
 
+        tree.itemClicked.connect(on_item_clicked)
         tree.itemDoubleClicked.connect(on_item_double_clicked)
 
 

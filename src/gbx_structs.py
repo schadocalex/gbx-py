@@ -11,7 +11,7 @@ import io
 
 from construct import *
 
-from .my_construct import MyRepeatUntil, MySelect, DebugStruct, save_context, load_context
+from .my_construct import MyRepeatUntil, MySelect, DebugStruct, save_context, load_context, Struct
 from .gbx_enums import *
 
 GbxBytes = Prefixed(Int32ul, GreedyBytes)
@@ -2013,7 +2013,8 @@ GbxCrystal = Struct(
         "facesCount" / Int32ul,
         "uvsCoords" / If(this._.version >= 37, GbxArrayOf(GbxVec2)),
         "faceCornersCount" / If(this._.version >= 37, Int32ul),
-        "uvsIndicies" / If(this._.version >= 37, GbxOptimizedIntArray(this.faceCornersCount)),  # indexed by face corner
+        "uvsIndicies"
+        / If(this._.version >= 37, GbxOptimizedIntArray(this.faceCornersCount)),  # indexed by face corner
         "faces"
         / Array(
             this.facesCount,

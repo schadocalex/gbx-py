@@ -5,7 +5,7 @@ from construct import (
     ListContainer,
     evaluate,
     Construct,
-    Struct,
+    Struct as ConstructStruct,
     StreamError,
     RepeatError,
     ExplicitError,
@@ -151,7 +151,7 @@ def load_context(ctx, old_ctx):
     ctx._root._params.gbx_data["lookbackstring_version"] = old_ctx["lookbackstring_version"]
 
 
-class DebugStruct(Struct):
+class DebugStruct(ConstructStruct):
     r"""
     Debug a Struct with the "no subconstruct match" error
     """
@@ -181,7 +181,7 @@ class DebugStruct(Struct):
                 stream_seek(stream, fallback, 0, path)
 
                 try:
-                    obj = Struct(*subcons)._parse(stream, context, path)
+                    obj = ConstructStruct(*subcons)._parse(stream, context, path)
                     print(f"Debug successful, subcon in error is: {subcon_in_error}")
                     return obj
                 except ExplicitError:
@@ -212,7 +212,7 @@ class DebugStruct(Struct):
                 load_context(context, old_ctx)
 
                 try:
-                    Struct(*subcons)._build(obj, stream, context, path)
+                    ConstructStruct(*subcons)._build(obj, stream, context, path)
                     raise ExplicitError(f"Debug successful, subcon in error is: {subcon_in_error}")
                 except ExplicitError:
                     raise
@@ -285,3 +285,12 @@ class MySelect(Construct):
                 stream_write(stream, data, len(data), path)
                 return obj
         raise SelectError("no subconstruct matched: %s" % (obj,), path=path)
+
+
+class Struct(ConstructStruct):
+    def _parse(self, stream, context, path):
+        start = stream.tell()
+        obj = super()._parse(stream, context, path)
+        end = stream.tell()
+        obj._iopos = (start, end)
+        return obj
