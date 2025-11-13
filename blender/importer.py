@@ -35,17 +35,18 @@ def create_raw_mesh(obj_name, raw_mesh):
     all_material_names_to_load = []
     if raw_mesh.materials:
         for material in raw_mesh.materials:
-            if isinstance(material, RawMaterial):
-                material_name = material.link
-                material_name, _link = _get_material_name(material_name)
-                if material_name + "_asset" not in bpy.data.materials:
-                    all_material_names_to_load.append(material_name)
-            elif isinstance(material, RawInvisibleMaterial):
-                material_name = f"TM_invisible_{material.physicsId}"
+            if isinstance(material, RawInvisibleMaterial) or (isinstance(material, RawMaterial) and material.invisible):
+                material_name = f"TM_Invisible_{material.physicId}"
                 if material.gameplayId != "No":
                     material_name += f"_{material.gameplayId}"
+            elif isinstance(material, RawMaterial):
+                material_name = material.link
+                material_name, _link = _get_material_name(material_name)
 
-        all_material_names.append(material_name)
+            if material_name + "_asset" not in bpy.data.materials:
+                all_material_names_to_load.append(material_name)
+
+            all_material_names.append(material_name)
 
     if all_material_names_to_load:
         _load_asset_mats(all_material_names_to_load)

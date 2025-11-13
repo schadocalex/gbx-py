@@ -8,6 +8,7 @@ class RawMaterial:
     physicId = None
     gameplayId = None
     color = None
+    invisible = False
 
 
 class RawInvisibleMaterial:
@@ -134,6 +135,7 @@ def mat_from_CPlugMaterialUserInst(data):
     mat.physicId = data.body[0x090FD000].surfacePhysicId
     mat.gameplayId = data.body[0x090FD000].surfaceGameplayId
     mat.color = data.body[0x090FD000].color
+    mat.invisible = data.body[0x090FD000].link.startswith("Editors")
     return mat
 
 
@@ -346,12 +348,16 @@ def extract_MeshCrystal(mesh_crystal):
             mesh.vertices = crystal.vertices
             # TODO add unfaced edges?
             mesh.uvs = [[crystal.uvsCoords[idx] for idx in crystal.uvsIndicies]]
-            mesh.materials = materials
+            mesh.materials = []
             mesh.faces = []
             mesh.facesMaterials = []
+            materials_mapping = {}
             for face in crystal.faces:
                 mesh.faces.append(face.inds)
-                mesh.facesMaterials.append(face.material_index)
+                if face.material_index not in materials_mapping:
+                    materials_mapping[face.material_index] = len(mesh.materials)
+                    mesh.materials.append(materials[face.material_index])
+                mesh.facesMaterials.append(materials_mapping[face.material_index])
 
             if layer.type == "Geometry":
                 if not layer.content.isVisible:
