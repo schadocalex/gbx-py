@@ -4,6 +4,7 @@ import bpy_extras
 import bmesh
 from mathutils import Vector, Quaternion
 import traceback
+from hashlib import sha256
 
 # from src.nice.api import *
 from ..src.parser import parse_file, generate_file
@@ -17,10 +18,32 @@ from ..src.utils.content import (
     SpawnLoc,
     Loc,
     MeshTree,
+    FileRef,
 )
 
 from ...operators.OT_Settings import TM_OT_Settings_OpenMessageBox
 from ...utils.ItemsImport import _get_material_name, _load_asset_mats
+
+
+def filepath_to_collection_name(filepath):
+    gamedata_path = os.path.normpath(filepath).lower().replace("\\", "/").split("gamedata/")[-1]
+    uid = sha256(gamedata_path.encode(), usedforsecurity=False).hexdigest()[:10]
+    return uid + "_" + os.path.basename(filepath).split(".")[0][-55:]  # max size in 66
+
+
+def get_gamedata_collection():
+    collection = bpy.data.collections.get("_GameData")
+    if collection is None:
+        collection = bpy.data.collections.new("_GameData")
+        bpy.context.scene.collection.children.link(collection)
+    return collection
+
+
+def loc_to_blender(loc):
+    return (
+        Vector((loc.pos.x, -loc.pos.z, loc.pos.y)),
+        Quaternion((loc.rot.w, loc.rot.x, -loc.rot.z, loc.rot.y)),
+    )
 
 
 def create_raw_mesh(obj_name, raw_mesh):
@@ -132,13 +155,6 @@ def create_raw_mesh(obj_name, raw_mesh):
     return mesh_obj
 
 
-def loc_to_blender(loc):
-    return (
-        Vector((loc.pos.x, -loc.pos.z, loc.pos.y)),
-        Quaternion((loc.rot.w, loc.rot.x, -loc.rot.z, loc.rot.y)),
-    )
-
-
 def create_and_place_empty(obj, name):
     pos, rot = loc_to_blender(obj)
 
@@ -148,6 +164,50 @@ def create_and_place_empty(obj, name):
     empty_obj.rotation_quaternion = rot
 
     return empty_obj
+
+
+def show_errors(data, options):
+    report = options.get("report")
+    if not report:
+        return
+    for err in data.get("_errors", []):
+        report({"ERROR"}, str(err))
+    for err in data.get("_warns", []):
+        report({"WARNING"}, str(err))
+    data._errors = []
+    data._warns = []
+
+
+def import_fileref(filepath, options):
+    collection_name = filepath_to_collection_name(filepath)
+
+    gamedata_collection = get_gamedata_collection()
+    collection = gamedata_collection.children.get(collection_name)
+    if collection is None:
+        # TODO factorize with execute() code
+        try:
+            options = {**options, "dirname": os.path.dirname(filepath) + os.path.sep}
+            data = parse_file(filepath, recursive=False)
+            show_errors(data, options)
+            content = extract_content(data, None, options)
+            show_errors(data, options)
+        except Exception as e:
+            tb = traceback.format_exception(e)
+            report = options.get("report")
+            if report:
+                report({"ERROR"}, f"error while parsing {filepath}:\n{repr(e)}\n{''.join(tb)}")
+            return None
+
+        collection = bpy.data.collections.new(filepath_to_collection_name(filepath))
+        gamedata_collection.children.link(collection)
+
+        import_content_to_blender(collection, content, options)
+
+    instance = bpy.data.objects.new(collection.name[11:], None)
+    instance.instance_type = "COLLECTION"
+    instance.instance_collection = collection
+
+    return instance
 
 
 def import_content_to_blender(root_collection, content, options):
@@ -251,12 +311,16 @@ def import_content_to_blender(root_collection, content, options):
                 res += import_content_to_blender(variant_collection, obj.content, options)
 
         elif isinstance(obj, SpawnLoc):
-            ent_obj = create_and_place_empty(obj, f"_socket_spawnloc")
+            ent_obj = create_and_place_empty(obj, "_socket_spawnloc")
             root_collection.objects.link(ent_obj)
 
             res.append(ent_obj)
+        elif isinstance(obj, FileRef):
+            instance = import_fileref(obj.filepath, options)
+            if instance:
+                root_collection.objects.link(instance)
         else:
-            print("Unknown: " + str(obj))
+            raise Exception("Unknown: " + str(obj))
 
     return res
 
@@ -271,40 +335,71 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
         options={"HIDDEN"},
     )
 
-    highest_lod_only: bpy.props.BoolProperty(
-        name="Highest LOD only",
-        description="Import only the highest LOD. If disable, will import all LODs.",
-        default=True,
-    )
-
     files: bpy.props.CollectionProperty(
         type=bpy.types.OperatorFileListElement,
         options={"HIDDEN", "SKIP_SAVE"},
     )
 
+    visible_only: bpy.props.BoolProperty(
+        name="Visible part only",
+        description="Auto-merge objects of similar properties when possible.",
+        default=True,
+    )
+
+    merge_objects: bpy.props.BoolProperty(
+        name="Merge objects",
+        description="Auto-merge objects of similar properties when possible.",
+        default=False,
+    )
+
+    lod: bpy.props.EnumProperty(
+        name="LOD",
+        description="Choose the LOD to import.",
+        default="highest",
+        items=(
+            ("highest", "Highest", ""),
+            ("lowest", "Lowest", ""),
+            ("all", "All", ""),
+        ),
+    )
+
+    block_variant: bpy.props.StringProperty(
+        name="Variant id",
+        description="Import only the visible part of the mesh",
+        default=True,
+    )
+
+    # factorization: bpy.props.BoolProperty(
+    #     name="Smart factorization",
+    #     description="Import Nadeo sub meshes only once between imports. Collections instances will be used in Blender.\nEnable this for optimized import of Nadeo files without the need to reexport.",
+    #     default=True,
+    # )
+
     # TODO "remove nonvisible" boolean?
 
-    def _show_errors(self, data):
-        for err in data.get("_errors"):
-            self.report({"ERROR"}, str(err))
-        for err in data.get("_warns"):
-            self.report({"WARNING"}, str(err))
-        data._errors = []
-        data._warns = []
-
     def execute(self, context):
+        self.factorization = True  # TODO only when importing maps
+
         dirname = os.path.dirname(self.filepath) + os.path.sep
+        options = {
+            "report": self.report,
+            "dirname": dirname,
+            "use_fileref": self.factorization,
+            "visible_only": self.visible_only,
+            "lod": self.lod,
+        }
+
         for file in self.files:
             filepath = dirname + file.name
-            data = parse_file(filepath)
-            self._show_errors(data)
 
             try:
-                content = extract_content(data)
-                self._show_errors(data)
+                data = parse_file(filepath, recursive=not self.factorization)
+                show_errors(data, options)
+                content = extract_content(data, None, options)
+                show_errors(data, options)
             except Exception as e:
                 tb = traceback.format_exception(e)
-                self.report({"ERROR"}, f"{repr(e)}\n{''.join(tb)}")
+                self.report({"ERROR"}, f"error while extracting{filepath}:\n{repr(e)}\n{''.join(tb)}")
                 return {"CANCELLED"}
 
             name = os.path.basename(filepath).split(".")[0]
@@ -312,19 +407,13 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
             collection = bpy.data.collections.new(name)  # TODO add _nice_ if exportable by NICE, else keep as this
             bpy.context.scene.collection.children.link(collection)
 
-            import_content_to_blender(
-                collection,
-                content,
-                {
-                    "highest_lod_only": self.highest_lod_only,
-                },
-            )
+            import_content_to_blender(collection, content, options)
 
         return {"FINISHED"}
 
 
 class TM_PT_NICE(bpy.types.Panel):
-    bl_label = "NICE v0.2"
+    bl_label = "NICE v0.3"
     bl_idname = "TM_PT_NICE"
     bl_context = "objectmode"
     # bl_parent_id = "TM_PT_Map_Manipulate"

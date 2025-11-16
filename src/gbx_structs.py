@@ -120,7 +120,7 @@ def check_bool(obj, ctx):
         return True
     if obj == 0x00:
         return False
-    print("Not a bool!" + str(hex(obj)))
+    print(f"Not a bool! {hex(obj)} in {ctx._params.filename}")
     return False
 
 
@@ -610,6 +610,8 @@ def list_to_ordered_dict(objs, ctx):
                 res[obj.chunkId] = obj.chunk
         else:
             res["rest"] = obj.rest
+    res._io = objs._io
+    res._iopos = objs._iopos
     return res
 
 
@@ -795,28 +797,35 @@ body_chunks[0x03029002] = Struct(
 # 03036 CGameCtnBlockUnitInfo
 
 body_chunks[0x03036000] = Struct(
-    "placePylons" / Int32sl,
-    "u01" / GbxBool,  # AcceptPylons?
+    "PlacePylons" / Int32sl,
+    "u01" / Int32sl,  # AcceptPylons?
     "u02" / GbxBool,
-    "relativeOffset" / GbxInt3,
-    "clips" / GbxArrayOf(GbxNodeRef),  # pylons clips?
+    "RelativeOffset" / GbxInt3,
+    "Clips" / GbxArrayOf(GbxNodeRef),  # pylons clips?
 )
 body_chunks[0x03036001] = Struct(
-    "u01" / GbxNodeRef,  # Desert, Grass
-    "u02" / Int32sl,
-    "u03" / Int32sl,
+    "Surface" / GbxLookbackString,  # Desert, Grass
+    "Frontier" / Int32sl,
+    "Dir" / Int32sl,
 )
 body_chunks[0x03036002] = Struct(
-    "u01" / GreedyBytes,  # Bytes(12),  # undergound?
+    "Underground" / GbxBool,
 )
 body_chunks[0x03036004] = Struct(
-    "u01" / Int32sl,
+    "AcceptPylons" / Int32sl,
 )
 body_chunks[0x03036005] = Struct(
-    "terrainModifierId" / GbxNodeRef,
+    "TerrainModifierId" / GbxNodeRef,
 )
 body_chunks[0x03036007] = Struct(
-    "u01" / GbxNodeRef[4],
+    "PylonNorth" / GbxNodeRef,  # CGameCtnBlockInfoPylon
+    "PylonEast" / GbxNodeRef,  # CGameCtnBlockInfoPylon
+    "PylonSouth" / GbxNodeRef,  # CGameCtnBlockInfoPylon
+    "PylonWest" / GbxNodeRef,  # CGameCtnBlockInfoPylon
+)
+body_chunks[0x03036008] = Struct(
+    "BottomClip" / GbxNodeRef,  # CGameCtnBlockInfoClip
+    "TopClip" / GbxNodeRef,  # CGameCtnBlockInfoClip
 )
 body_chunks[0x0303600C] = Struct(
     "version" / Int32ul,
@@ -838,8 +847,12 @@ body_chunks[0x0303600C] = Struct(
     "clipsWest" / Array(this.countClips.West, GbxNodeRef),  # CGameCtnBlockInfoClip
     "clipsTop" / Array(this.countClips.Top, GbxNodeRef),  # CGameCtnBlockInfoClip
     "clipsBottom" / Array(this.countClips.Bottom, GbxNodeRef),  # CGameCtnBlockInfoClip
-    "u01" / Int16sl,
-    "u02" / Int16sl,
+    "u01" / IfThenElse(this.version >= 2, Int16sl, Int32sl),
+    "u02" / IfThenElse(this.version >= 2, Int16sl, Int32sl),
+)
+body_chunks[0x0303600D] = Struct(
+    "version" / Int32ul,
+    "data" / GbxBytes,
 )
 
 # 0303F CGameGhost
@@ -1243,6 +1256,8 @@ body_chunks[0x0304E031] = Struct(
     "version" / Int32ul,
     "baseBlock" / GbxNodeRef,
     "materialModifier" / GbxNodeRef,
+    StopIf(this.version < 1),
+    "materialModifier2" / GbxNodeRef,
 )
 
 # 03053 CGameCtnBlockInfoClip
@@ -1266,6 +1281,8 @@ body_chunks[0x03053006] = Struct(
     "u01" / Byte,
     StopIf(this.version < 3),
     "u02" / Byte,
+    StopIf(this.version < 4),
+    "u03" / Byte,
 )
 body_chunks[0x03053008] = Struct(
     "rest" / GreedyBytes,
@@ -1740,6 +1757,13 @@ body_chunks[0x0329F000] = Struct(
     "u16" / Int32sl,
 )
 body_chunks[0x0329F002] = Struct("skinOptions" / GbxString)
+
+# 03340 CGameCtnBlockInfoClipVertical
+
+body_chunks[0x03340000] = Struct(
+    "version" / Int32ul,  # 0
+    "u01" / GbxLookbackString,
+)
 
 # 04001 GxLight
 
@@ -4361,8 +4385,8 @@ body_chunks[0x0A02B000] = Struct(
 
 body_chunks[0x2E001009] = Struct(
     "pagePath" / GbxString,
-    "hasIconFed" / GbxBool,
-    "iconFed" / If(this.hasIconFed, GbxNodeRef),
+    "hasIconFid" / GbxBool,
+    "iconFid" / If(this.hasIconFid, GbxNodeRef),
     "u01" / GbxLookbackString,
 )
 body_chunks[0x2E00100B] = Struct("author" / GbxMeta)
@@ -4424,7 +4448,7 @@ body_chunks[0x2E002019] = Struct(
     StopIf(this.version < 13),
     "vfxFile" / GbxNodeRef,
     StopIf(this.version < 15),
-    "MaterialModifier" / GbxNodeRef,
+    "MaterialModifier" / GbxNodeRef,  # CPlugGameSkinAndFolder
 )
 
 body_chunks[0x2E00201A] = Struct("u01" / GbxNodeRef)  # VCGameCtnMediaContext
@@ -4435,9 +4459,9 @@ body_chunks[0x2E00201C] = Struct(
 )
 body_chunks[0x2E00201E] = Struct(
     "version" / ExprValidator(Int32ul, obj_ >= 3),
-    "archetypeRef" / GbxString,
+    "ArchetypeRef" / GbxString,
     StopIf(this.version < 5),
-    "u01" / If(lambda this: len(this.archetypeRef) == 0, GbxNodeRef),  # CGameItemModel
+    "ArchetypeFid" / If(lambda this: len(this.ArchetypeRef) == 0, GbxNodeRef),  # CGameItemModel
     StopIf(this.version < 6),
     "u02" / GbxString,  # SkinDirNameCustom
     StopIf(this.version < 7),
@@ -4961,9 +4985,9 @@ def create_gbx_struct(gbx_body):
                     Struct(
                         "flags"
                         / BitStruct(
-                            "u01" / Hex(BytesInteger(29)),
+                            "u01" / BitsInteger(29),
                             "isRefResourceIndex" / Flag,
-                            "u02" / Hex(BytesInteger(2)),
+                            "u02" / BitsInteger(2),
                         ),
                         "ref"
                         / IfThenElse(

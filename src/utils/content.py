@@ -1,6 +1,12 @@
+import os
 from construct import Container
 
 from .math import quaternion_from_matrix, quaternion_from_euler
+
+
+class FileRef:
+    filepath = None
+    loc = None
 
 
 class RawMaterial:
@@ -33,6 +39,13 @@ class RawMesh:
     # misc
     lod = 0
     label = ""
+
+
+class RawGroup:
+    name = ""
+    children = None
+    loc = None
+    metadata = None
 
 
 class Entity:
@@ -105,6 +118,7 @@ def remap_materials(content, remap):
             for mat in obj.materials:
                 if isinstance(mat, RawMaterial) and mat.link in remap:
                     mat.link = remap[mat.link]
+        # TODO manage collection (instances)
 
 
 def apply_mat_modifier(content, mat_modifier):
@@ -117,7 +131,7 @@ def apply_mat_modifier(content, mat_modifier):
     assert mat_modifier.classId == 0x0915D000
 
     if 0x915D001 in mat_modifier.body and mat_modifier.body[0x915D001].get("name") == "Turbo":
-        return  # because the Turbo materials variants doesn't exist in blendermania, we need to take defautl ones. TODO
+        return  # because the Turbo materials variants doesn't exist in blendermania, we need to take default ones. TODO
 
     chunk = mat_modifier.body[0x915D000]
     remap = {}
@@ -153,18 +167,23 @@ def need_spawn(waypointType):
     return waypointType in ("Start", "Checkpoint", "StartFinish")
 
 
-def extract_content(data, parent=None, opts=None, root=None):
-    if data is None or ("_index" in data and data._index == -1):
+def extract_content(data, parent, opts):
+    if data is None or data.get("_index") == -1:
         return []
-    if opts is None:
-        opts = {}
     if "root" not in opts:
         opts["root"] = data
 
     if "classId" not in data:
         if "_index" in data and "_relativeFilePath" in data:
-            warn(opts, f"missing file, ignoring: {data._relativeFilePath}")
-            return []
+            assert "dirname" in opts
+            filepath = os.path.normpath(opts.get("dirname", "") + data._relativeFilePath)
+            if opts.get("use_fileref"):
+                fileref = FileRef()
+                fileref.filepath = filepath
+                return [fileref]
+            else:
+                warn(opts, f"missing file, ignoring: {data._relativeFilePath}")
+                return []
         raise Exception(data._error if "_error" in data else data)
 
     # CGameItemModel
@@ -185,7 +204,7 @@ def extract_content(data, parent=None, opts=None, root=None):
 
     # CGameCommonItemEntityModelEdition
     elif data.classId == 0x2E026000:
-        return extract_MeshCrystal(data.body[0x2E026000].meshCrystal)
+        return extract_MeshCrystal(data.body[0x2E026000].meshCrystal, opts)
 
     # CGameCommonItemEntityModel
     elif data.classId == 0x2E027000:
@@ -222,7 +241,9 @@ def extract_content(data, parent=None, opts=None, root=None):
         ents.models = {}
         ents.ents = []
         for ent_idx, ent in enumerate(data.body.Ents):
-            if ent.model._index not in ents.models:
+            if opts.get("visible_only") and ent.model._index == -1:
+                continue
+            if ent.model._index >= 0 and ent.model._index not in ents.models:
                 ents.models[ent.model._index] = extract_content(ent.model, data, opts)
 
             new_ent = Entity()
@@ -256,12 +277,20 @@ def extract_content(data, parent=None, opts=None, root=None):
     # CGameCtnBlockInfoClassic
     elif data.classId == 0x03051000:
         content = []
-        content += extract_block_variant(data, data.body[0x0304E023].variantBaseGround, "ground0", opts)
-        content += extract_block_variant(data, data.body[0x0304E023].variantBaseAir, "air0", opts)
-        for idx, variant_ground in enumerate(data.body[0x0304E027].additionalVariantsGround):
-            content += extract_block_variant(data, variant_ground.body, f"ground{idx + 1}", opts)
-        for idx, variant_air in enumerate(data.body[0x0304E02C].additionalVariantsAir):
-            content += extract_block_variant(data, variant_air.body, f"air{idx + 1}", opts)
+        # TODO choose variant and mobil
+        variant = data.body[0x0304E023].variantBaseAir
+        mobil = variant[0x0315B005].mobils[-1][-1]
+
+        content = extract_content(mobil, data, opts)
+
+        # TODO choose variant
+        # content = []
+        # content += extract_block_variant(data, data.body[0x0304E023].variantBaseGround, "ground0", opts)
+        # content += extract_block_variant(data, data.body[0x0304E023].variantBaseAir, "air0", opts)
+        # for idx, variant_ground in enumerate(data.body[0x0304E027].additionalVariantsGround):
+        #     content += extract_block_variant(data, variant_ground.body, f"ground{idx + 1}", opts)
+        # for idx, variant_air in enumerate(data.body[0x0304E02C].additionalVariantsAir):
+        #     content += extract_block_variant(data, variant_air.body, f"air{idx + 1}", opts)
 
         # remap materials
         apply_mat_modifier(content, data.body[0x0304E031].materialModifier)
@@ -273,7 +302,9 @@ def extract_content(data, parent=None, opts=None, root=None):
         prefab_fid = data.body[0x03122003].prefab_fid
         if prefab_fid._index < 0:
             return []
-        return extract_content(prefab_fid, data, opts)
+        content = extract_content(prefab_fid, data, opts)
+        assert not data.body[0x03122003].hasGeomTransformation  # TODO
+        return content
 
     # NPlugTrigger_SWaypoint
     elif data.classId == 0x09178000:
@@ -328,7 +359,7 @@ def extract_content(data, parent=None, opts=None, root=None):
         return []
 
 
-def extract_MeshCrystal(mesh_crystal):
+def extract_MeshCrystal(mesh_crystal, opts):
     assert mesh_crystal.classId == 0x09003000
 
     materials = []
@@ -340,8 +371,10 @@ def extract_MeshCrystal(mesh_crystal):
 
     content = []
     for layer in mesh_crystal.body[0x9003005].layers:
+        if opts.get("visible_only") and not layer.content.isVisible:
+            continue
         if layer.type == "Geometry" or layer.type == "Trigger":
-            assert layer.content.crystal.isEmbeddedCrystal == True
+            assert layer.content.crystal.isEmbeddedCrystal
             crystal = layer.content.crystal.embeddedCrystal
 
             mesh = RawMesh()
@@ -558,6 +591,9 @@ def extract_block_variant(root_data, variant_body, variant_name, opts):
 
 
 def surf_to_content(surf, opts):
+    if opts.get("visible_only"):
+        return []
+
     if surf.type == "Mesh":
         mesh = RawMesh()
         mesh.faces = []

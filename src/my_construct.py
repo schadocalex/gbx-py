@@ -57,9 +57,10 @@ class MyRepeatUntil(Subconstruct):
         discard = self.discard
         if not callable(predicate):
             predicate = lambda _1, _2, _3: predicate
-        obj = []
+        obj = ListContainer()
         context._array = obj
         context._chunks = {}
+        start = stream.tell()
         for i in itertools.count():
             context._index = i
             e = self.subcon._parsereport(stream, context, path)
@@ -68,6 +69,9 @@ class MyRepeatUntil(Subconstruct):
                 if "chunkId" in e and "chunk" in e:
                     context._chunks[e.chunkId] = e.chunk
             if predicate(e, obj, context):
+                end = stream.tell()
+                obj._io = stream
+                obj._iopos = (start, end)
                 return obj
 
     def _build(self, obj, stream, context, path):
