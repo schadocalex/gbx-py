@@ -19,16 +19,24 @@ from ..src.utils.content import (
     Loc,
     MeshTree,
     FileRef,
+    Metadata,
 )
 
 from ...operators.OT_Settings import TM_OT_Settings_OpenMessageBox
 from ...utils.ItemsImport import _get_material_name, _load_asset_mats
 
 
-def filepath_to_collection_name(filepath):
-    gamedata_path = os.path.normpath(filepath).lower().replace("\\", "/").split("gamedata/")[-1]
+def fileref_to_collection_name(fileref):
+    # max size is 66: 10 (hash) + 44 (name) + 9 (variant) + 3 sep
+    gamedata_path = os.path.normpath(fileref.filepath).lower().replace("\\", "/").split("gamedata/")[-1]
+
     uid = sha256(gamedata_path.encode(), usedforsecurity=False).hexdigest()[:10]
-    return uid + "_" + os.path.basename(filepath).split(".")[0][-55:]  # max size in 66
+    block_name_cropped = os.path.basename(fileref.filepath).split(".")[0][-44:]
+    name = f"{uid}_{block_name_cropped}"
+    if fileref.options and "variant_id" in fileref.options:
+        name += "_" + fileref.options["variant_id"]
+
+    return name
 
 
 def get_gamedata_collection():
@@ -178,15 +186,21 @@ def show_errors(data, options):
     data._warns = []
 
 
-def import_fileref(filepath, options):
-    collection_name = filepath_to_collection_name(filepath)
+def import_fileref(fileref, options):
+    filepath = fileref.filepath
+    collection_name = fileref_to_collection_name(fileref)
 
     gamedata_collection = get_gamedata_collection()
     collection = gamedata_collection.children.get(collection_name)
     if collection is None:
         # TODO factorize with execute() code
         try:
-            options = {**options, "dirname": os.path.dirname(filepath) + os.path.sep}
+            options = {
+                **options,
+                **(fileref.options or {}),
+                "dirname": os.path.dirname(filepath) + os.path.sep,
+                "filepath": filepath,
+            }
             data = parse_file(filepath, recursive=False)
             show_errors(data, options)
             content = extract_content(data, None, options)
@@ -198,7 +212,7 @@ def import_fileref(filepath, options):
                 report({"ERROR"}, f"error while parsing {filepath}:\n{repr(e)}\n{''.join(tb)}")
             return None
 
-        collection = bpy.data.collections.new(filepath_to_collection_name(filepath))
+        collection = bpy.data.collections.new(collection_name)
         gamedata_collection.children.link(collection)
 
         import_content_to_blender(collection, content, options)
@@ -232,7 +246,7 @@ def import_content_to_blender(root_collection, content, options):
                     res.append(ent_obj)
                 else:
                     model_collection = models[ent.model_idx]
-                    ent_pos, ent_rot = loc_to_blender(ent)
+                    ent_pos, ent_rot = loc_to_blender(ent.loc)
 
                     for j, (obj_name, obj) in enumerate(model_collection.all_objects.items()):
                         new_obj = obj.copy()
@@ -240,11 +254,18 @@ def import_content_to_blender(root_collection, content, options):
 
                         # new_obj.data = new_obj.data.copy() # TODO param? avoid meshes to be linked
 
-                        new_obj.location = ent_pos + (ent_rot @ new_obj.location)
+                        pos_offset = Vector((0.0, 0.0, 0.0))
+                        if ent.loc.rotate_from_center and "block_size" in new_obj.instance_collection:
+                            bs = new_obj.instance_collection["block_size"]
+                            rot = ent_rot @ Vector((32.0 * bs[0], -32.0 * bs[2], 0.0))
+                            pos_offset = Vector((-rot[0] if rot[0] < 0 else 0, -rot[1] if rot[1] > 0 else 0, 0))
+
+                        new_obj.location = ent_pos + pos_offset + (ent_rot @ new_obj.location)
                         new_obj.rotation_mode = "QUATERNION"
                         new_obj.rotation_quaternion = ent_rot.cross(new_obj.rotation_quaternion)
 
                         root_collection.objects.link(new_obj)
+
                         res.append(new_obj)
 
             for idx, model in models.items():
@@ -274,6 +295,7 @@ def import_content_to_blender(root_collection, content, options):
                 mesh.rotation_mode = "QUATERNION"
                 mesh.rotation_quaternion = obj_rot
                 root_collection.objects.link(mesh)
+                bpy.ops.object.shade_auto_smooth()  # TODO check if object is selected?
                 res.append(mesh)
 
             if obj.surface:
@@ -316,9 +338,17 @@ def import_content_to_blender(root_collection, content, options):
 
             res.append(ent_obj)
         elif isinstance(obj, FileRef):
-            instance = import_fileref(obj.filepath, options)
+            instance = import_fileref(obj, options)
             if instance:
                 root_collection.objects.link(instance)
+                if obj.loc is not None:
+                    pos, rot = loc_to_blender(obj.loc)
+                    instance.location = pos
+                    instance.rotation_mode = "QUATERNION"
+                    instance.rotation_quaternion = rot
+        elif isinstance(obj, Metadata):
+            assert obj.name is not None and obj.value is not None
+            root_collection[obj.name] = obj.value
         else:
             raise Exception("Unknown: " + str(obj))
 
@@ -363,11 +393,11 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
         ),
     )
 
-    block_variant: bpy.props.StringProperty(
-        name="Variant id",
-        description="Import only the visible part of the mesh",
-        default=True,
-    )
+    # block_variant: bpy.props.StringProperty(
+    #     name="Variant id",
+    #     description="Import only the visible part of the mesh",
+    #     default=True,
+    # )
 
     # factorization: bpy.props.BoolProperty(
     #     name="Smart factorization",
@@ -387,10 +417,12 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
             "use_fileref": self.factorization,
             "visible_only": self.visible_only,
             "lod": self.lod,
+            "gamedata_folder": "D:\\GameData\\",
         }
 
         for file in self.files:
             filepath = dirname + file.name
+            options["filepath"] = filepath
 
             try:
                 data = parse_file(filepath, recursive=not self.factorization)

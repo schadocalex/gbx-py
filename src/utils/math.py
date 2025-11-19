@@ -72,14 +72,18 @@ _AXES2TUPLE = {
 _TUPLE2AXES = dict((v, k) for k, v in _AXES2TUPLE.items())
 
 
-def quaternion_from_euler(ai, aj, ak, axes="szxy"):
+def quaternion_from_euler(roll, pitch, yaw, axes="sxzy"):
     """Return quaternion from Euler angles and axis sequence.
     from https://github.com/ros/geometry/blob/fe344b6c848b8239750ad7f8c7eccf86241396d3/tf/src/tf/transformations.py#L1100
     ai, aj, ak : Euler's roll, pitch and yaw angles
     axes : One of 24 axis sequences as string or encoded tuple
 
-    szxy by default for TM
+    sxzy by default for TM
+    invert roll and pitch for TM
+    if it works, it works
     """
+    ai, aj, ak = pitch, roll, yaw
+
     try:
         firstaxis, parity, repetition, frame = _AXES2TUPLE[axes.lower()]
     except (AttributeError, KeyError):
@@ -124,3 +128,10 @@ def quaternion_from_euler(ai, aj, ak, axes="szxy"):
         quaternion[j] *= -1
 
     return Container(x=quaternion[0], y=quaternion[1], z=quaternion[2], w=quaternion[3])
+
+
+if __name__ == "__main__":
+    roll, pitch, yaw = -0.4636467397212982, -0.0, 0.0
+    for ax in _AXES2TUPLE.keys():
+        q = quaternion_from_euler(roll, pitch, yaw, ax)
+        print(ax, q)

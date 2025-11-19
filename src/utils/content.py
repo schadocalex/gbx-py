@@ -1,12 +1,20 @@
 import os
+from math import sqrt
+from glob import glob
 from construct import Container
 
-from .math import quaternion_from_matrix, quaternion_from_euler
+from .math import quaternion_from_matrix, quaternion_from_euler, _AXES2TUPLE
+
+
+class Metadata:
+    name = None
+    value = None
 
 
 class FileRef:
     filepath = None
     loc = None
+    options = None
 
 
 class RawMaterial:
@@ -49,9 +57,9 @@ class RawGroup:
 
 
 class Entity:
-    pos = Container(x=0, y=0, z=0)
-    rot = Container(x=0, y=0, z=0, w=1)
+    loc = None
     model_idx = -1
+    origin_to_center = False
 
 
 class Entities:
@@ -68,6 +76,7 @@ class BlockVariant:
 class Loc:
     pos = Container(x=0, y=0, z=0)
     rot = Container(x=0, y=0, z=0, w=1)
+    rotate_from_center = False
 
 
 class SpawnLoc(Loc):
@@ -82,6 +91,14 @@ class MeshTree:
     loc = None
     children = None
     farZ = None
+
+
+edir_to_quat = {
+    "North": Container(x=0, y=0, z=0, w=1),
+    "East": Container(x=0, y=-sqrt(2) / 2, z=0, w=sqrt(2) / 2),
+    "South": Container(x=0, y=1, z=0, w=0),
+    "West": Container(x=0, y=sqrt(2) / 2, z=0, w=sqrt(2) / 2),
+}
 
 
 def warn(opts, s):
@@ -167,6 +184,20 @@ def need_spawn(waypointType):
     return waypointType in ("Start", "Checkpoint", "StartFinish")
 
 
+def compute_block_size(variant):
+    block_min = (0, 0, 0)
+    block_max = (0, 0, 0)
+    for unit in variant[0x0315B008].blockUnitModels:
+        off = unit.body[0x03036000].RelativeOffset
+        block_min = (min(block_min[0], off.x), min(block_min[1], off.y), min(block_min[2], off.z))
+        block_max = (max(block_max[0], off.x), max(block_max[1], off.y), max(block_max[2], off.z))
+    return (
+        block_max[0] - block_min[0] + 1,
+        block_max[1] - block_min[1] + 1,
+        block_max[2] - block_min[2] + 1,
+    )
+
+
 def extract_content(data, parent, opts):
     if data is None or data.get("_index") == -1:
         return []
@@ -248,8 +279,9 @@ def extract_content(data, parent, opts):
 
             new_ent = Entity()
             new_ent.model_idx = ent.model._index
-            new_ent.pos = ent.pos
-            new_ent.rot = ent.rot
+            new_ent.loc = Loc()
+            new_ent.loc.pos = ent.pos
+            new_ent.loc.rot = ent.rot
             ents.ents.append(new_ent)
 
         return [ents]
@@ -274,26 +306,69 @@ def extract_content(data, parent, opts):
 
         return content
 
-    # CGameCtnBlockInfoClassic
-    elif data.classId == 0x03051000:
+    # CGameCtnBlockInfo
+    elif (
+        data.classId == 0x03051000  # CGameCtnBlockInfoClassic
+        or data.classId == 0x0304F000  # CGameCtnBlockInfoFlat
+        or data.classId == 0x03053000  # CGameCtnBlockInfoClip
+        or data.classId == 0x03340000  # CGameCtnBlockInfoClipVertical
+        or data.classId == 0x0335B000  # CGameCtnBlockInfoClipHorizontal
+    ):
         content = []
         # TODO choose variant and mobil
-        variant = data.body[0x0304E023].variantBaseAir
-        mobil = variant[0x0315B005].mobils[-1][-1]
+        variant_id = opts.get("variant_id", "a0_-1_-1")
+        indexes = [int(x) for x in variant_id[1:].split("_")]
+        if variant_id[0] == "g":
+            if indexes[0] == 0:
+                variant = data.body[0x0304E023].variantBaseGround
+            else:
+                variant = data.body[0x0304E027].additionalVariantsGround[indexes[0] - 1].body
+        else:
+            indexes[0] = int(variant_id[1])
+            if indexes[0] == 0:
+                variant = data.body[0x0304E023].variantBaseAir
+            else:
+                variant = data.body[0x0304E02C].additionalVariantsAir[indexes[0] - 1].body
+
+        mobil = variant[0x0315B005].mobils[indexes[1]][indexes[2]]
 
         content = extract_content(mobil, data, opts)
 
-        # TODO choose variant
-        # content = []
-        # content += extract_block_variant(data, data.body[0x0304E023].variantBaseGround, "ground0", opts)
-        # content += extract_block_variant(data, data.body[0x0304E023].variantBaseAir, "air0", opts)
-        # for idx, variant_ground in enumerate(data.body[0x0304E027].additionalVariantsGround):
-        #     content += extract_block_variant(data, variant_ground.body, f"ground{idx + 1}", opts)
-        # for idx, variant_air in enumerate(data.body[0x0304E02C].additionalVariantsAir):
-        #     content += extract_block_variant(data, variant_air.body, f"air{idx + 1}", opts)
+        # waypoint spawn loc
+        waypoint_type = data.body[0x0304E026].waypointType
+        if need_spawn(waypoint_type):
+            assert variant[0x0315B008].version >= 2
+
+            spawn = SpawnLoc()
+            content.append(spawn)
+
+            pos3d = variant[0x0315B008].spawn
+            spawn.pos.x, spawn.pos.y, spawn.pos.z = pos3d.x, pos3d.y, pos3d.z
+            spawn.rot = quaternion_from_euler(pos3d.roll, pos3d.pitch, pos3d.yaw)
+            print(pos3d.pitch, pos3d.roll, pos3d.yaw, spawn.rot)
+
+        # trigger
+        trigger_shape = variant[0x0315B006].waypointTriggerShape
+        content += label_all_meshes(extract_content(trigger_shape, data, opts), "_trigger_")
+
+        # TODO do not erase mobils GeomTransformation
+        # for c in content:
+        #     if hasattr(c, "loc"):
+        #         c.loc = Loc()
+        #         c.loc.pos = Container(
+        #             x=-variant[0x0315B008].spawn.x,
+        #             y=-variant[0x0315B008].spawn.y,
+        #             z=-variant[0x0315B008].spawn.z,
+        #         )
 
         # remap materials
         apply_mat_modifier(content, data.body[0x0304E031].materialModifier)
+
+        # block size
+        metadata = Metadata()
+        metadata.name = "block_size"
+        metadata.value = compute_block_size(variant)
+        content.append(metadata)
 
         return content
 
@@ -303,7 +378,13 @@ def extract_content(data, parent, opts):
         if prefab_fid._index < 0:
             return []
         content = extract_content(prefab_fid, data, opts)
-        assert not data.body[0x03122003].hasGeomTransformation  # TODO
+        if data.body[0x03122003].HasGeomTransformation:
+            for c in content:
+                if hasattr(c, "loc"):
+                    c.loc = Loc()
+                    c.loc.pos = data.body[0x03122003].GeomTransformation.translation
+                    r = data.body[0x03122003].GeomTransformation.rotation
+                    c.loc.rot = quaternion_from_euler(r.roll, r.pitch, r.yaw)
         return content
 
     # NPlugTrigger_SWaypoint
@@ -354,9 +435,62 @@ def extract_content(data, parent, opts):
             variant.mobils["variant" + str(i)] = extract_content(child.EntityModel, data, opts)
         return [variant]
 
+    # CGameCtnChallenge
+    elif data.classId == 0x03043000:
+        return extract_map(data, parent, opts)
+
     else:
-        warn(opts, f"unsupported classId: {hex(data.classId)}")
+        warn(opts, f"unsupported classId: {hex(data.classId)} in {opts['filepath']}")
         return []
+
+
+def index_files(dirname):
+    allfiles = {}
+    for file in glob(
+        os.path.join(dirname, "**", "*.Gbx"),
+        recursive=True,
+    ):  # TODO lower()
+        block_name = os.path.basename(file).split(".")[0].lower()
+        if block_name in allfiles and "deprecated" in file[len(dirname) :].lower():
+            continue
+        allfiles[block_name] = file
+
+    return allfiles
+
+
+def extract_map(data, parent, opts):
+    map_ents = Entities()
+    map_ents.models = {}
+    map_ents.ents = []
+
+    allblocks = index_files(os.path.join(opts.get("gamedata_folder"), "Stadium", "GameCtnBlockInfo"))
+    free_index = 0
+
+    for block in data.body[0x0304301F].Blocks + data.body[0x03043048].BakedBlocks[48 * 48 :]:
+        f = block.flags
+        variant_id = f"{'g' if f.isGround else 'a'}{f.blockVariantIndex}_{f.mobilIndex}_{f.mobilVariantIndex}"
+        model_name = f"{block.name}__{variant_id}"
+        if model_name not in map_ents.models:
+            fileref = FileRef()
+            fileref.filepath = allblocks[block.name.lower()]
+            fileref.options = {"variant_id": variant_id}
+            map_ents.models[model_name] = [fileref]
+
+        new_ent = Entity()
+        new_ent.model_idx = model_name
+        new_ent.loc = Loc()
+        if f.isFree:
+            pose = data.body[0x0304305F].freeBlocks[free_index]
+            free_index += 1
+            new_ent.loc.pos = Container(x=pose.x, y=pose.y + data.body[0x03043052].DecoBaseHeightOffset * 8, z=pose.z)
+            new_ent.loc.rot = quaternion_from_euler(pose.roll, pose.pitch, pose.yaw)
+        else:
+            new_ent.loc.pos = Container(x=block.coords.x * 32, y=block.coords.y * 8, z=block.coords.z * 32)
+            new_ent.loc.rot = edir_to_quat[block.dir]
+            new_ent.loc.rotate_from_center = True
+        map_ents.ents.append(new_ent)
+
+    return [map_ents]
 
 
 def extract_MeshCrystal(mesh_crystal, opts):
@@ -626,8 +760,9 @@ def surf_to_content(surf, opts):
 
             new_ent = Entity()
             new_ent.model_idx = i
-            new_ent.pos = loc.pos
-            new_ent.rot = loc.rot
+            new_ent.loc = Loc()
+            new_ent.loc.pos = loc.pos
+            new_ent.loc.rot = loc.rot
             ents.ents.append(new_ent)
 
         return [ents]

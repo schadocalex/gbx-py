@@ -923,7 +923,12 @@ body_chunks[0x0303F006] = Struct(
 GbxBlockInstance = Struct(
     "name" / GbxLookbackString,
     "dir" / GbxECardinalDir,
-    "coords" / GbxInt3Byte,
+    "coords"
+    / ExprAdapter(
+        GbxInt3Byte,
+        lambda obj, ctx: Container(x=obj.x - 1, y=obj.y, z=obj.z - 1),
+        lambda obj, ctx: Container(x=obj.x + 1, y=obj.y, z=obj.z + 1),
+    ),
     "flags"
     / MySelect(
         ExprValidator(Int32sl, obj_ == -1),
@@ -939,7 +944,7 @@ GbxBlockInstance = Struct(
                 "hasU06" / Flag,  # 17
                 "u02a" / Flag,  # 16
                 "isSkinnable" / Flag,  # 15
-                "u01" / Flag,  # 14
+                "isPillar" / Flag,  # 14
                 "isClip" / Flag,  # 13
                 "isGround" / Flag,  # 12
                 "mobilVariantIndex" / BitsInteger(6),  # 6-11
@@ -1015,8 +1020,8 @@ body_chunks[0x0304301F] = Struct(
     "decoration" / GbxMeta,
     "size" / GbxInt3,
     "needUnlock" / GbxBool,
-    "version" / Int32ul,  # 6, only if not 03043013
-    "blocks" / GbxArrayOf(GbxBlockInstance),
+    "listBlocksVersion" / Int32ul,  # 6, only if not 03043013
+    "Blocks" / GbxArrayOf(GbxBlockInstance),
 )
 body_chunks[0x03043022] = Struct(
     "u01" / Int32sl,
@@ -1061,14 +1066,14 @@ body_chunks[0x0304302A] = Struct(
 )
 body_chunks[0x03043040] = GbxLookbackStringContext(
     Struct(
-        "version" / Int32ul,  # 7
+        "version" / Int32ul,  # 8
         "u01" / Int32sl,
         "size" / Int32sl,
         "_listVersion" / Int32ul,
         "anchoredObjects" / GbxArrayOf(GbxClass),
         "itemsOnItem"
         / If(
-            lambda this: this.version >= 1 and this.version != 5,
+            lambda this: this.version >= 1 and this.version != 5 and this.version < 8,
             GbxArrayOf(GbxInt2),
         ),
         StopIf(this.version < 5),
@@ -1108,6 +1113,11 @@ body_chunks[0x03043049] = Struct(
     ),
     Seek(-4, 1),
 )
+body_chunks[0x03043052] = Struct(
+    "version" / Int32ul,  # 0
+    "DecoBaseHeightOffset" / Int32sl,
+)
+
 # = Struct(
 #     "version" / Int32ul,
 #     "clipIntro" / GbxNodeRef,  # CGameCtnMediaClip
@@ -1163,23 +1173,23 @@ body_chunks[0x0304305B] = Struct(
 )
 body_chunks[0x0304305F] = Struct(
     "version" / Int32ul,  # 0
-    "freeBlocks" / GreedyRange(Struct("pos" / GbxVec3, "rotPitchYawRoll" / GbxVec3)),
+    "freeBlocks" / GreedyRange(GbxPose3D),
 )
 body_chunks[0x03043062] = Struct(
     "version" / Int32ul,  # 0
-    "blocksColors" / Array(lambda ctx: len(get_chunk(ctx, 0x304301F).blocks), GbxEDifficultyColor),
+    "blocksColors" / Array(lambda ctx: len(get_chunk(ctx, 0x304301F).Blocks), GbxEDifficultyColor),
     "bakedBlocksColors" / Array(lambda ctx: len(get_chunk(ctx, 0x3043048).BakedBlocks), GbxEDifficultyColor),
     "itemsColors" / Array(lambda ctx: len(get_chunk(ctx, 0x3043040).anchoredObjects), GbxEDifficultyColor),
 )
 body_chunks[0x03043068] = Struct(
     "version" / Int32ul,  # 0
-    "blocksLmQualities" / Array(lambda ctx: len(get_chunk(ctx, 0x304301F).blocks), GbxELightmapQuality),
+    "blocksLmQualities" / Array(lambda ctx: len(get_chunk(ctx, 0x304301F).Blocks), GbxELightmapQuality),
     "bakedBlocksLmQualities" / Array(lambda ctx: len(get_chunk(ctx, 0x3043048).BakedBlocks), GbxELightmapQuality),
     "itemsLmQualities" / Array(lambda ctx: len(get_chunk(ctx, 0x3043040).anchoredObjects), GbxELightmapQuality),
 )
 body_chunks[0x03043069] = Struct(
     "version" / Int32ul,  # 0
-    "blocksMacroblockIndexes" / Array(lambda ctx: len(get_chunk(ctx, 0x304301F).blocks), Int32sl),
+    "blocksMacroblockIndexes" / Array(lambda ctx: len(get_chunk(ctx, 0x304301F).Blocks), Int32sl),
     "itemsMacroblockIndexes" / Array(lambda ctx: len(get_chunk(ctx, 0x3043040).anchoredObjects), Int32sl),
     "flags"
     / GbxArray(
@@ -1285,7 +1295,12 @@ body_chunks[0x03053006] = Struct(
     "u03" / Byte,
 )
 body_chunks[0x03053008] = Struct(
-    "rest" / GreedyBytes,
+    "version" / Int32ul,  # 1
+    "ClipGroupId" / GbxLookbackString,
+    "SymmetricalClipGroupId" / GbxLookbackString,
+    StopIf(this.version < 1),
+    "u01" / GbxLookbackString,
+    "u02" / GbxLookbackString,
 )
 
 # 03059 CGameCtnBlockSkin
@@ -1564,15 +1579,11 @@ body_chunks[0x03122002] = Struct(
     "u01" / Int32ul,
 )
 body_chunks[0x03122003] = Struct(
-    "version" / ExprValidator(Int32ul, obj_ >= 12),  # 23
+    "version" / ExprValidator(Int32ul, obj_ >= 13),  # 23
     "u03" / Int32sl,
     StopIf(this.version < 1),
-    "hasGeomTransformation" / GbxBoolByte,
-    "geomTransformation"
-    / If(
-        this.hasGeomTransformation,
-        Struct("translation" / GbxVec3, "rotation" / GbxVec3),
-    ),
+    "HasGeomTransformation" / GbxBoolByte,
+    "GeomTransformation" / If(this.HasGeomTransformation, GbxPose3D),
     StopIf(this.version < 2),
     "solid_fid" / GbxNodeRef,
     "u14" / If(this.version >= 14, GbxNodeRef),  # CPlugSolid
@@ -1872,8 +1883,8 @@ body_chunks[0x06022019] = Struct(
 
 
 def divide_by_four(data, ctx):
-    if (data % 4) != 0:
-        print("Found a non-multiple of 4")
+    # if (data % 4) != 0:
+    #     print("Found a non-multiple of 4")
     return int(data / 4)
 
 
@@ -2037,8 +2048,7 @@ GbxCrystal = Struct(
         "facesCount" / Int32ul,
         "uvsCoords" / If(this._.version >= 37, GbxArrayOf(GbxVec2)),
         "faceCornersCount" / If(this._.version >= 37, Int32ul),
-        "uvsIndicies"
-        / If(this._.version >= 37, GbxOptimizedIntArray(this.faceCornersCount)),  # indexed by face corner
+        "uvsIndicies" / If(this._.version >= 37, GbxOptimizedIntArray(this.faceCornersCount)),  # indexed by face corner
         "faces"
         / Array(
             this.facesCount,
