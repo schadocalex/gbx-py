@@ -345,11 +345,11 @@ def extract_content(data, parent, opts):
             pos3d = variant[0x0315B008].spawn
             spawn.pos.x, spawn.pos.y, spawn.pos.z = pos3d.x, pos3d.y, pos3d.z
             spawn.rot = quaternion_from_euler(pos3d.roll, pos3d.pitch, pos3d.yaw)
-            print(pos3d.pitch, pos3d.roll, pos3d.yaw, spawn.rot)
 
-        # trigger
-        trigger_shape = variant[0x0315B006].waypointTriggerShape
-        content += label_all_meshes(extract_content(trigger_shape, data, opts), "_trigger_")
+        if not opts.get("visible_only"):
+            # trigger
+            trigger_shape = variant[0x0315B006].waypointTriggerShape
+            content += label_all_meshes(extract_content(trigger_shape, data, opts), "_trigger_")
 
         # TODO do not erase mobils GeomTransformation
         # for c in content:
@@ -382,8 +382,8 @@ def extract_content(data, parent, opts):
             for c in content:
                 if hasattr(c, "loc"):
                     c.loc = Loc()
-                    c.loc.pos = data.body[0x03122003].GeomTransformation.translation
-                    r = data.body[0x03122003].GeomTransformation.rotation
+                    c.loc.pos = data.body[0x03122003].GeomTransformation
+                    r = data.body[0x03122003].GeomTransformation
                     c.loc.rot = quaternion_from_euler(r.roll, r.pitch, r.yaw)
         return content
 
@@ -428,12 +428,8 @@ def extract_content(data, parent, opts):
 
     # NPlugItem_SVariantList
     elif data.classId == 0x2F0BC000:
-        variant = BlockVariant()  # TODO generic variant
-        variant.name = "variants"
-        variant.mobils = {}
-        for i, child in enumerate(data.body.variants):
-            variant.mobils["variant" + str(i)] = extract_content(child.EntityModel, data, opts)
-        return [variant]
+        variant_id = int(opts.get("variant_id", "0"))
+        return extract_content(data.body.variants[variant_id].EntityModel, data, opts)
 
     # CGameCtnChallenge
     elif data.classId == 0x03043000:
@@ -464,12 +460,16 @@ def extract_map(data, parent, opts):
     map_ents.ents = []
 
     allblocks = index_files(os.path.join(opts.get("gamedata_folder"), "Stadium", "GameCtnBlockInfo"))
-    free_index = 0
+    allitems = index_files(os.path.join(opts.get("gamedata_folder"), "Stadium", "Items"))
+    height_offset = data.body[0x03043052].DecoBaseHeightOffset * 8
 
-    for block in data.body[0x0304301F].Blocks + data.body[0x03043048].BakedBlocks[48 * 48 :]:
+    free_index = 0
+    for block in data.body[0x0304301F].Blocks + data.body[0x03043048].BakedBlocks:  # [48 * 48 :]:
+        if block.name.lower() not in allblocks:
+            continue
         f = block.flags
         variant_id = f"{'g' if f.isGround else 'a'}{f.blockVariantIndex}_{f.mobilIndex}_{f.mobilVariantIndex}"
-        model_name = f"{block.name}__{variant_id}"
+        model_name = f"B_{block.name}__{variant_id}"
         if model_name not in map_ents.models:
             fileref = FileRef()
             fileref.filepath = allblocks[block.name.lower()]
@@ -482,12 +482,37 @@ def extract_map(data, parent, opts):
         if f.isFree:
             pose = data.body[0x0304305F].freeBlocks[free_index]
             free_index += 1
-            new_ent.loc.pos = Container(x=pose.x, y=pose.y + data.body[0x03043052].DecoBaseHeightOffset * 8, z=pose.z)
+            new_ent.loc.pos = Container(x=pose.x, y=pose.y + height_offset, z=pose.z)
             new_ent.loc.rot = quaternion_from_euler(pose.roll, pose.pitch, pose.yaw)
         else:
             new_ent.loc.pos = Container(x=block.coords.x * 32, y=block.coords.y * 8, z=block.coords.z * 32)
             new_ent.loc.rot = edir_to_quat[block.dir]
             new_ent.loc.rotate_from_center = True
+        map_ents.ents.append(new_ent)
+
+    for obj in data.body[0x3043040].anchoredObjects:
+        if obj.classId != 0x03101000:
+            warn(opts, "unknown item classId {0x03101000}")
+            continue
+        item = obj.body[0x03101002]
+        if item.itemModel.id.lower() not in allitems:
+            continue
+
+        variant_id = str((item.flags >> 8) & 31)
+        model_name = f"I_{item.itemModel.id}_{variant_id}"
+        # TODO variant
+        if model_name not in map_ents.models:
+            fileref = FileRef()
+            fileref.filepath = allitems[item.itemModel.id.lower()]
+            fileref.options = {"variant_id": variant_id}
+            map_ents.models[model_name] = [fileref]
+
+        new_ent = Entity()
+        new_ent.model_idx = model_name
+        new_ent.loc = Loc()
+        pos = item.absolutePositionInMap
+        new_ent.loc.pos = Container(x=pos.x, y=pos.y + height_offset, z=pos.z)
+        new_ent.loc.rot = quaternion_from_euler(item.rot.roll, item.rot.pitch, item.rot.yaw)
         map_ents.ents.append(new_ent)
 
     return [map_ents]

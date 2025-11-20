@@ -1532,7 +1532,12 @@ body_chunks[0x03093015] = Struct(
 body_chunks[0x03101002] = Struct(
     "version" / Int32ul,  # 8
     "itemModel" / GbxMeta,
-    "rotPitchYawRoll" / GbxVec3,
+    "rot"
+    / Struct(
+        "yaw" / GbxFloat,
+        "pitch" / GbxFloat,
+        "roll" / GbxFloat,
+    ),
     "blockUnitCoord" / GbxVec3Byte,
     "anchorTreeId" / GbxLookbackString,
     "absolutePositionInMap" / GbxVec3,
