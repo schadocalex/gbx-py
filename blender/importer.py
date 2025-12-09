@@ -25,9 +25,11 @@ from ..src.utils.content import (
 from ...operators.OT_Settings import TM_OT_Settings_OpenMessageBox
 from ...utils.ItemsImport import _get_material_name, _load_asset_mats
 
+GAMEDATA_SCENE_NAME = "_GameData"
 
-def fileref_to_collection_name(fileref):
-    # max size is 66: 10 (hash) + 44 (name) + 9 (variant) + 3 sep
+
+def fileref_to_collection_name(fileref, opts):
+    # max size is 66: 10 (hash) + 42 (name) + 9 (variant) + 1 (lod) + 4 sep
     gamedata_path = os.path.normpath(fileref.filepath).lower().replace("\\", "/").split("gamedata/")[-1]
 
     uid = sha256(gamedata_path.encode(), usedforsecurity=False).hexdigest()[:10]
@@ -36,15 +38,48 @@ def fileref_to_collection_name(fileref):
     if fileref.options and "variant_id" in fileref.options:
         name += "_" + fileref.options["variant_id"]
 
+    match opts.get("lod", "all"):
+        case "highest":
+            name += "_h"
+        case "lowest":
+            name += "_l"
+
     return name
 
 
 def get_gamedata_collection():
-    collection = bpy.data.collections.get("_GameData")
-    if collection is None:
-        collection = bpy.data.collections.new("_GameData")
-        bpy.context.scene.collection.children.link(collection)
-    return collection
+    game_data_scene = bpy.data.scenes.get(GAMEDATA_SCENE_NAME)
+    if game_data_scene is None:
+        current_scene = bpy.context.scene
+        bpy.ops.scene.new()
+        game_data_scene = bpy.context.scene
+        game_data_scene.name = GAMEDATA_SCENE_NAME
+        bpy.context.window.scene = current_scene
+    return game_data_scene.collection
+
+
+def delete_collection(collection):
+    for child in collection.children:
+        delete_collection(child)
+
+    meshes = set()
+
+    for obj in [o for o in collection.objects if o.type == "MESH"]:
+        meshes.add(obj.data)
+        bpy.data.objects.remove(obj)
+
+    for mesh in meshes:
+        if mesh.users == 0:
+            bpy.data.meshes.remove(mesh)
+
+
+def delete_scene(scene_name):
+    scene = bpy.data.scenes.get(GAMEDATA_SCENE_NAME)
+    if scene is None:
+        return
+
+    delete_collection(scene.collection)
+    bpy.data.scenes.remove(scene)
 
 
 def loc_to_blender(loc):
@@ -186,30 +221,44 @@ def show_errors(data, options):
     data._warns = []
 
 
-def import_fileref(fileref, options):
-    filepath = fileref.filepath
-    collection_name = fileref_to_collection_name(fileref)
+def get_content(filepath, options, is_map_import):  # TODO is_map_import
+    options["dirname"] = os.path.dirname(filepath) + os.path.sep
+    options["filepath"] = filepath
 
-    gamedata_collection = get_gamedata_collection()
-    collection = gamedata_collection.children.get(collection_name)
+    try:
+        data = parse_file(filepath, recursive=False)
+        show_errors(data, options)
+        content = extract_content(data, None, options)
+        show_errors(data, options)
+    except Exception as e:
+        tb = traceback.format_exception(e)
+        report = options.get("report")
+        if report:
+            report({"ERROR"}, f"error while extracting {filepath}:\n{repr(e)}\n{''.join(tb)}")
+
+        return None
+
+    return content
+
+
+def import_fileref(fileref, options):
+    use_fileref = options.get("use_fileref", True)
+
+    filepath = fileref.filepath
+    collection_name = fileref_to_collection_name(fileref, options)
+
+    if use_fileref:
+        gamedata_collection = get_gamedata_collection()
+        collection = gamedata_collection.children.get(collection_name)
+    else:
+        # TODO factorize with gamedata
+        gamedata_collection = options.get("root_collection", bpy.context.scene.collection)
+        collection = None
+
     if collection is None:
-        # TODO factorize with execute() code
-        try:
-            options = {
-                **options,
-                **(fileref.options or {}),
-                "dirname": os.path.dirname(filepath) + os.path.sep,
-                "filepath": filepath,
-            }
-            data = parse_file(filepath, recursive=False)
-            show_errors(data, options)
-            content = extract_content(data, None, options)
-            show_errors(data, options)
-        except Exception as e:
-            tb = traceback.format_exception(e)
-            report = options.get("report")
-            if report:
-                report({"ERROR"}, f"error while parsing {filepath}:\n{repr(e)}\n{''.join(tb)}")
+        options = {**options, **(fileref.options or {})}
+        content = get_content(filepath, options, False)
+        if content is None:
             return None
 
         collection = bpy.data.collections.new(collection_name)
@@ -285,8 +334,6 @@ def import_content_to_blender(root_collection, content, options):
                     new_obj.location = obj_pos + (obj_rot @ new_obj.location)
                     new_obj.rotation_mode = "QUATERNION"
                     new_obj.rotation_quaternion = obj_rot.cross(new_obj.rotation_quaternion)
-                if child and len(child) > 0 and child[0].farZ is not None and options.get("highest_lod_only", True):
-                    break
 
             if obj.mesh:
                 assert len(obj.mesh) == 1
@@ -308,13 +355,7 @@ def import_content_to_blender(root_collection, content, options):
                 res.append(mesh)
 
         elif isinstance(obj, RawMesh):
-            lod_suffix = ""
-            if options.get("highest_lod_only", True):
-                if obj.lod > 0 and obj.lod & 1 != 1:
-                    continue
-            else:
-                lod_suffix = f"_lod{obj.lod}" if obj.lod > 0 else ""
-
+            lod_suffix = f"_lod{obj.lod}" if obj.lod > 0 else ""
             mesh = create_raw_mesh(f"obj_{idx}{lod_suffix}", obj)
 
             root_collection.objects.link(mesh)
@@ -357,7 +398,7 @@ def import_content_to_blender(root_collection, content, options):
 
 class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
     bl_idname = "view3d.tm_nice_import_gbx"
-    bl_description = "Support all types of items and native blocks. Custom blocks and clips are coming."
+    bl_description = "Import any type of gbx file except maps / replays."
     bl_label = "Import Gbx"
 
     filter_glob: bpy.props.StringProperty(
@@ -372,19 +413,13 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
 
     visible_only: bpy.props.BoolProperty(
         name="Visible part only",
-        description="Auto-merge objects of similar properties when possible.",
-        default=True,
-    )
-
-    merge_objects: bpy.props.BoolProperty(
-        name="Merge objects",
-        description="Auto-merge objects of similar properties when possible.",
+        description="Import only visible meshes of native items and blocks.",
         default=False,
     )
 
     lod: bpy.props.EnumProperty(
-        name="LOD",
-        description="Choose the LOD to import.",
+        name="Level Of Detail",
+        description="Choose the LOD of imported meshes.",
         default="highest",
         items=(
             ("highest", "Highest", ""),
@@ -393,53 +428,105 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
         ),
     )
 
-    # block_variant: bpy.props.StringProperty(
-    #     name="Variant id",
-    #     description="Import only the visible part of the mesh",
-    #     default=True,
-    # )
-
-    # factorization: bpy.props.BoolProperty(
-    #     name="Smart factorization",
-    #     description="Import Nadeo sub meshes only once between imports. Collections instances will be used in Blender.\nEnable this for optimized import of Nadeo files without the need to reexport.",
-    #     default=True,
-    # )
-
-    # TODO "remove nonvisible" boolean?
+    merge_objects: bpy.props.BoolProperty(
+        name="Merge objects",
+        description="Auto-merge objects of similar properties when possible.",
+        default=True,
+    )
 
     def execute(self, context):
         self.factorization = True  # TODO only when importing maps
 
         dirname = os.path.dirname(self.filepath) + os.path.sep
+
         options = {
             "report": self.report,
-            "dirname": dirname,
-            "use_fileref": self.factorization,
+            "use_fileref": False,
             "visible_only": self.visible_only,
             "lod": self.lod,
-            "gamedata_folder": "D:\\GameData\\",
+            "merge_objects": self.merge_objects,
         }
 
         for file in self.files:
             filepath = dirname + file.name
-            options["filepath"] = filepath
-
-            try:
-                data = parse_file(filepath, recursive=not self.factorization)
-                show_errors(data, options)
-                content = extract_content(data, None, options)
-                show_errors(data, options)
-            except Exception as e:
-                tb = traceback.format_exception(e)
-                self.report({"ERROR"}, f"error while extracting{filepath}:\n{repr(e)}\n{''.join(tb)}")
-                return {"CANCELLED"}
 
             name = os.path.basename(filepath).split(".")[0]
-
             collection = bpy.data.collections.new(name)  # TODO add _nice_ if exportable by NICE, else keep as this
             bpy.context.scene.collection.children.link(collection)
+            options = {**options, "root_collection": collection}
+
+            content = get_content(filepath, options, False)
+            if content is None:
+                return {"CANCELLED"}
 
             import_content_to_blender(collection, content, options)
+
+        return {"FINISHED"}
+
+
+class TM_OT_NICE_Map_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
+    bl_idname = "view3d.tm_nice_import_map"
+    bl_description = "Import maps and replays."
+    bl_label = "Import map"
+
+    filter_glob: bpy.props.StringProperty(default="*.Map.Gbx", options={"HIDDEN"})
+
+    filepath: bpy.props.StringProperty(
+        subtype="FILE_PATH",
+        options={"SKIP_SAVE"},
+    )
+
+    visible_only: bpy.props.BoolProperty(
+        name="Visible part only",
+        description="Import only visible meshes of native items and blocks.",
+        default=True,
+    )
+
+    lod: bpy.props.EnumProperty(
+        name="Level Of Detail",
+        description="Choose the LOD of imported meshes.",
+        default="lowest",
+        items=(
+            ("highest", "Highest", ""),
+            ("lowest", "Lowest", ""),
+            # ("all", "All", ""),
+        ),
+    )
+
+    merge_objects: bpy.props.BoolProperty(
+        name="Merge objects",
+        description="Auto-merge objects of similar properties when possible.",
+        default=True,
+    )
+
+    # TODO "remove nonvisible" boolean?
+
+    def execute(self, context):
+        # TODO check game folder is accessible and set gamedata_folder
+
+        scene_name = os.path.basename(self.filepath).split(".")[0]
+        delete_scene(GAMEDATA_SCENE_NAME)  # just for DEV
+        delete_scene(scene_name)
+        bpy.ops.scene.new(type="EMPTY")
+        bpy.context.scene.name = scene_name
+        bpy.context.space_data.clip_end = 10000
+
+        options = {
+            "report": self.report,
+            "use_fileref": True,
+            "root_collection": bpy.context.scene.collection,
+            "visible_only": self.visible_only,
+            "lod": self.lod,
+            "merge_objects": self.merge_objects,
+            "filter_grassfence": True,
+            "gamedata_folder": "D:\\GameData\\",
+        }
+
+        content = get_content(self.filepath, options, True)
+        if content is None:
+            return {"CANCELLED"}
+
+        import_content_to_blender(bpy.context.scene.collection, content, options)
 
         return {"FINISHED"}
 
@@ -468,10 +555,8 @@ class TM_PT_NICE(bpy.types.Panel):
         op.link = ""
         op.title = self.bl_label
         op.infos = TM_OT_Settings_OpenMessageBox.get_text(
-            "Import Gbx",
-            "--> Support all types of items and native blocks. Custom blocks and clips are coming.",
-            "",
-            "The exporter will be available in next version, sorry.",
+            "NadeoImporter Community Edition",
+            "Import all types of gbx files.",
         )
 
     def draw(self, context):
@@ -485,3 +570,7 @@ class TM_PT_NICE(bpy.types.Panel):
         row = scale_box.row()
         row.scale_y = 1.5
         row.operator("view3d.tm_nice_import_gbx", text="Import Gbx")
+
+        row = scale_box.row()
+        row.scale_y = 1.5
+        row.operator("view3d.tm_nice_import_map", text="Import Map")

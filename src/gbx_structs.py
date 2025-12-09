@@ -4671,9 +4671,14 @@ body_chunks[0x2F074000] = Struct(
 )
 
 # 2F086 VegetTreeModel
+SomeTree = GbxArray(
+    "material_index" / Int16ul,
+    "mesh" / GbxNodeRef,
+    "u01" / Byte,
+)
 body_chunks[0x2F086000] = Struct(
     "u01" / Bytes(4 * 4),  # version + lod 4 2 1?, number of things?
-    "u02"  # parts?
+    "textures"  # parts?
     / GbxArray(
         "texture_d" / GbxNodeRef,
         "texture_n" / GbxNodeRef,
@@ -4684,19 +4689,12 @@ body_chunks[0x2F086000] = Struct(
         "u01" / GbxNodeRef[3],
         "u02" / GbxBoolByte,
     ),
-    "u03" / GbxArrayOf(GbxLookbackString),
-    "u04" / Bytes(6),
-    # "mesh1" / GbxNodeRef,
-    # "u05" / Bytes(3),
-    # "mesh2" / GbxNodeRef,
-    # "u06" / Bytes(3),
-    # "mesh3" / GbxNodeRef,
-    # "u07" / Bytes(7),
-    # "mesh4" / GbxNodeRef,
-    # "u08" / Bytes(3),
-    # "mesh5" / GbxNodeRef,
-    # "u09" / Bytes(3),
-    # "mesh6" / GbxNodeRef,
+    "materials" / GbxArrayOf(GbxLookbackString),
+    "tree1" / SomeTree,
+    "tree2" / SomeTree,
+    "u10" / Bytes(43),
+    "u11" / GbxArrayOf(GbxVec3),
+    "u12" / GbxArrayOf(Int32sl[4]),
     "rest" / GreedyBytes,
 )
 

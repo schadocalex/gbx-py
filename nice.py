@@ -81,10 +81,10 @@ class TM_PT_NICE_installer(bpy.types.Panel):
 
 def try_register():
     try:
-        from .blender.importer import TM_OT_NICE_Item_Import, TM_PT_NICE
+        from .blender.importer import TM_OT_NICE_Item_Import, TM_OT_NICE_Map_Import, TM_PT_NICE
 
         global classes
-        classes = (TM_OT_NICE_Item_Import, TM_PT_NICE)
+        classes = (TM_OT_NICE_Item_Import, TM_OT_NICE_Map_Import, TM_PT_NICE)
 
         for cls in classes:
             bpy.utils.register_class(cls)

@@ -208,7 +208,7 @@ def extract_content(data, parent, opts):
         if "_index" in data and "_relativeFilePath" in data:
             assert "dirname" in opts
             filepath = os.path.normpath(opts.get("dirname", "") + data._relativeFilePath)
-            if opts.get("use_fileref"):
+            if True or opts.get("use_fileref"):
                 fileref = FileRef()
                 fileref.filepath = filepath
                 return [fileref]
@@ -288,7 +288,7 @@ def extract_content(data, parent, opts):
 
     # CPlugSolid2Model
     elif data.classId == 0x090BB000:
-        return extract_CPlugSolid2Model(data, parent)
+        return extract_CPlugSolid2Model(data, parent, opts)
 
     # CPlugSurface
     elif data.classId == 0x0900C000:
@@ -435,6 +435,34 @@ def extract_content(data, parent, opts):
     elif data.classId == 0x03043000:
         return extract_map(data, parent, opts)
 
+    # VegetTreeModel
+    elif data.classId == 0x2F086000:
+        content = []
+        match opts.get("lod", "all"):
+            case "highest":
+                for part in data.body.tree1:
+                    content += extract_content(part.mesh, data, opts)
+            case "lowest":
+                for part in data.body.tree2:  # for now tree2
+                    content += extract_content(part.mesh, data, opts)
+            case _:
+                for suffix, tree in (("_lod1", data.body.tree1), ("_lod2", data.body.tree2)):
+                    v = BlockVariant()
+                    content.append(v)
+                    v.name = "tree" + suffix
+                    v.mobils = {}
+                    v.content = []
+                    for part in tree:
+                        v.content += extract_content(part.mesh, data, opts)
+
+                # mesh = RawMesh()
+                # mesh.label = "tree_lod3"
+                # mesh.vertices = data.body.u11
+                # mesh.faces = data.body.u12
+                # trees.append(mesh)
+
+        return content
+
     else:
         warn(opts, f"unsupported classId: {hex(data.classId)} in {opts['filepath']}")
         return []
@@ -461,10 +489,14 @@ def extract_map(data, parent, opts):
 
     allblocks = index_files(os.path.join(opts.get("gamedata_folder"), "Stadium", "GameCtnBlockInfo"))
     allitems = index_files(os.path.join(opts.get("gamedata_folder"), "Stadium", "Items"))
+    # TODO index vegets
     height_offset = data.body[0x03043052].DecoBaseHeightOffset * 8
 
+    # TODO parent collection (item, blocks)
+    # TODO attach clips inside corresponding block collection
+
     free_index = 0
-    for block in data.body[0x0304301F].Blocks + data.body[0x03043048].BakedBlocks:  # [48 * 48 :]:
+    for block in data.body[0x0304301F].Blocks + data.body[0x03043048].BakedBlocks[48 * 48 :]:
         if block.name.lower() not in allblocks:
             continue
         f = block.flags
@@ -498,7 +530,7 @@ def extract_map(data, parent, opts):
         if item.itemModel.id.lower() not in allitems:
             continue
 
-        variant_id = str((item.flags >> 8) & 31)
+        variant_id = str((item.flags >> 8) & 31)  # TODO check in Ghidra
         model_name = f"I_{item.itemModel.id}_{variant_id}"
         # TODO variant
         if model_name not in map_ents.models:
@@ -665,16 +697,25 @@ def extract_mesh_CPlugVisualIndexedTriangles(data):
     return mesh
 
 
-def extract_CPlugSolid2Model(data, parent=None):
+def extract_CPlugSolid2Model(data, _parent, opts):
     assert data.classId == 0x090BB000
 
     obj_chunk = data.body[0x090BB000]
 
     visuals = []
     for i, geom in enumerate(obj_chunk.shadedGeoms):
+        # filter LOD
+        match opts.get("lod", "all"):
+            case "highest":
+                if geom.lod & 1 == 0:
+                    continue
+            case "lowest":
+                if geom.lod & (1 << len(obj_chunk.lodDistances)) == 0:
+                    continue
         visual = extract_mesh_CPlugVisualIndexedTriangles(obj_chunk.visuals[geom.visualIndex])
         visual.materials = []
-        visual.lod = geom.lod
+        if opts.get("lod", "all") == "all":
+            visual.lod = geom.lod
 
         # Material
 
@@ -691,6 +732,11 @@ def extract_CPlugSolid2Model(data, parent=None):
 
             assert type(mat_class) != str
             mat = mat_from_CPlugMaterialUserInst(mat_class)
+
+        # filter GrassFence
+        if opts.get("filter_grassfence", False) and mat.link.lower() == "grassfence":
+            continue
+
         visual.materials.append(mat)
 
         visuals.append(visual)
