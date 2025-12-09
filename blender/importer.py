@@ -5,9 +5,10 @@ import bmesh
 from mathutils import Vector, Quaternion
 import traceback
 from hashlib import sha256
+from time import process_time_ns
 
 # from src.nice.api import *
-from ..src.parser import parse_file, generate_file
+from ..src.parser import parse_file, parse_bytes
 from ..src.utils.content import (
     extract_content,
     RawMesh,
@@ -26,6 +27,40 @@ from ...operators.OT_Settings import TM_OT_Settings_OpenMessageBox
 from ...utils.ItemsImport import _get_material_name, _load_asset_mats
 
 GAMEDATA_SCENE_NAME = "_GameData"
+
+times_profiler = {}
+times_state = None
+TIMES_BLENDER = "import"
+TIMES_PARSE = "parse"
+
+
+def reset_times():
+    global times_profiler
+    global times_state
+    times_profiler = {}
+    times_state = None
+
+
+def change_times(new_state):
+    global times_profiler
+    global times_state
+    now = process_time_ns()
+    if times_state is not None:
+        old, old_state = times_state
+        if old_state not in times_profiler:
+            times_profiler[old_state] = 0
+        times_profiler[old_state] += now - old
+    times_state = now, new_state
+
+
+def start_times():
+    reset_times()
+    change_times(TIMES_BLENDER)
+
+
+def show_times():
+    for k, v in times_profiler.items():
+        print(f"{k} time: {v // 1_000_000}ms")
 
 
 def fileref_to_collection_name(fileref, opts):
@@ -134,24 +169,25 @@ def create_raw_mesh(obj_name, raw_mesh):
 
     bm.verts.ensure_lookup_table()
 
-    # normals
-    if raw_mesh.normals is not None:
-        for vidx, normal in enumerate(raw_mesh.normals):
-            if normal is None:
-                print(obj_name)
-            else:
-                bm.verts[vidx].normal = Vector((normal.x, -normal.z, normal.y))
-
     # faces
+    normals = None
+    if raw_mesh.normals:
+        normals = []
     for i, vert_indices in enumerate(raw_mesh.faces):
         try:
             face = bm.faces.new([bm.verts[vidx] for vidx in vert_indices])
+            if normals is not None:
+                for vidx in vert_indices:
+                    normal = raw_mesh.normals[vidx]
+                    normals.append((normal.x, -normal.z, normal.y))
         except ValueError:
             # faces can share the same vertices in solids
             # we need to duplicate vertices, as blender doesn't allow it
             new_vidx = len(raw_mesh.vertices)
             for vidx in vert_indices:
                 raw_mesh.vertices.append(raw_mesh.vertices[vidx])
+                if normals is not None:
+                    normals.append(normals[vidx])
                 coord = raw_mesh.vertices[-1]
                 bm.verts.new((coord.x, -coord.z, coord.y))
             bm.verts.ensure_lookup_table()
@@ -164,6 +200,10 @@ def create_raw_mesh(obj_name, raw_mesh):
 
     # writes the bmesh data into the mesh data
     bm.to_mesh(mesh_data)
+
+    # apply normals
+    if raw_mesh.normals is not None:
+        mesh_data.normals_split_custom_set(normals)
 
     # Add uvs
     if raw_mesh.uvs:
@@ -221,16 +261,25 @@ def show_errors(data, options):
     data._warns = []
 
 
-def get_content(filepath, options, is_map_import):  # TODO is_map_import
+def get_content(filepath, options, is_map_import, filebytes=None):  # TODO is_map_import
     options["dirname"] = os.path.dirname(filepath) + os.path.sep
     options["filepath"] = filepath
+    options["level"] = options.get("level", 0)
 
     try:
-        data = parse_file(filepath, recursive=False)
+        change_times(TIMES_PARSE)
+        if filebytes is not None:
+            data = parse_bytes(filebytes, filepath, recursive=False)
+        else:
+            data = parse_file(filepath, recursive=False)
+        change_times(TIMES_BLENDER)
         show_errors(data, options)
+        change_times(TIMES_PARSE)
         content = extract_content(data, None, options)
+        change_times(TIMES_BLENDER)
         show_errors(data, options)
     except Exception as e:
+        change_times(TIMES_BLENDER)
         tb = traceback.format_exception(e)
         report = options.get("report")
         if report:
@@ -245,32 +294,53 @@ def import_fileref(fileref, options):
     use_fileref = options.get("use_fileref", True)
 
     filepath = fileref.filepath
-    collection_name = fileref_to_collection_name(fileref, options)
+    if fileref.filebytes is None:
+        collection_name = fileref_to_collection_name(fileref, options)
+    else:
+        collection_name = filepath[-66:]
 
-    if use_fileref:
+    if use_fileref and fileref.filebytes is None:
         gamedata_collection = get_gamedata_collection()
-        collection = gamedata_collection.children.get(collection_name)
     else:
         # TODO factorize with gamedata
         gamedata_collection = options.get("root_collection", bpy.context.scene.collection)
-        collection = None
+        gamedata_collection = get_gamedata_collection()
+
+    collection = gamedata_collection.children.get(collection_name)
 
     if collection is None:
-        options = {**options, **(fileref.options or {})}
-        content = get_content(filepath, options, False)
+        sub_options = {
+            **options,
+            **(fileref.options or {}),
+            "level": options.get("level", 0) + 1,
+        }
+        content = get_content(filepath, sub_options, False, fileref.filebytes)
         if content is None:
             return None
 
         collection = bpy.data.collections.new(collection_name)
         gamedata_collection.children.link(collection)
 
-        import_content_to_blender(collection, content, options)
+        import_content_to_blender(collection, content, sub_options)
 
-    instance = bpy.data.objects.new(collection.name[11:], None)
-    instance.instance_type = "COLLECTION"
-    instance.instance_collection = collection
+    instances = []
+    if options.get("level", 0) >= min(options.get("instance_max_level", 0), 7):  # TODO take from options
+        # make linked duplicates
+        for source in collection.all_objects:
+            instance = bpy.data.objects.new(source.name, source.data)
+            instance.location = source.location
+            instance.rotation_mode = "QUATERNION"
+            instance.rotation_quaternion = source.rotation_quaternion
+            instances.append(instance)
+    else:
+        # make collection instances
+        instance = bpy.data.objects.new("inst_" + collection.name[:56], None)
+        instance.instance_type = "COLLECTION"
+        instance.instance_collection = collection
+        instance.show_instancer_for_viewport = False
+        instances.append(instance)
 
-    return instance
+    return instances
 
 
 def import_content_to_blender(root_collection, content, options):
@@ -289,8 +359,9 @@ def import_content_to_blender(root_collection, content, options):
 
             for i, ent in enumerate(obj.ents):
                 if ent.model_idx == -1:
+                    continue  # TODO param
                     # empty object, TODO add metadata?
-                    ent_obj = create_and_place_empty(ent, f"empty{i}")
+                    ent_obj = create_and_place_empty(ent.loc, f"empty{i}")
                     root_collection.objects.link(ent_obj)
                     res.append(ent_obj)
                 else:
@@ -379,14 +450,15 @@ def import_content_to_blender(root_collection, content, options):
 
             res.append(ent_obj)
         elif isinstance(obj, FileRef):
-            instance = import_fileref(obj, options)
-            if instance:
-                root_collection.objects.link(instance)
-                if obj.loc is not None:
-                    pos, rot = loc_to_blender(obj.loc)
-                    instance.location = pos
-                    instance.rotation_mode = "QUATERNION"
-                    instance.rotation_quaternion = rot
+            instances = import_fileref(obj, options)
+            if instances:
+                for instance in instances:
+                    root_collection.objects.link(instance)
+                    if obj.loc is not None:
+                        pos, rot = loc_to_blender(obj.loc)
+                        instance.location = pos + (rot @ instance.location)
+                        instance.rotation_mode = "QUATERNION"
+                        instance.rotation_quaternion = rot.cross(instance.rotation_quaternion)
         elif isinstance(obj, Metadata):
             assert obj.name is not None and obj.value is not None
             root_collection[obj.name] = obj.value
@@ -432,10 +504,11 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
         name="Merge objects",
         description="Auto-merge objects of similar properties when possible.",
         default=True,
+        options={"HIDDEN"},
     )
 
     def execute(self, context):
-        self.factorization = True  # TODO only when importing maps
+        start_times()
 
         dirname = os.path.dirname(self.filepath) + os.path.sep
 
@@ -445,6 +518,7 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
             "visible_only": self.visible_only,
             "lod": self.lod,
             "merge_objects": self.merge_objects,
+            "instance_max_level": 0,
         }
 
         for file in self.files:
@@ -460,6 +534,11 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
                 return {"CANCELLED"}
 
             import_content_to_blender(collection, content, options)
+
+        show_times()
+
+        if bpy.context.space_data.clip_start < 1:
+            bpy.context.space_data.clip_start = 1
 
         return {"FINISHED"}
 
@@ -497,6 +576,7 @@ class TM_OT_NICE_Map_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelper
         name="Merge objects",
         description="Auto-merge objects of similar properties when possible.",
         default=True,
+        options={"HIDDEN"},
     )
 
     # TODO "remove nonvisible" boolean?
@@ -504,11 +584,14 @@ class TM_OT_NICE_Map_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelper
     def execute(self, context):
         # TODO check game folder is accessible and set gamedata_folder
 
+        start_times()
+
         scene_name = os.path.basename(self.filepath).split(".")[0]
-        delete_scene(GAMEDATA_SCENE_NAME)  # just for DEV
+        # delete_scene(GAMEDATA_SCENE_NAME)  # just for DEV
         delete_scene(scene_name)
         bpy.ops.scene.new(type="EMPTY")
         bpy.context.scene.name = scene_name
+        bpy.context.space_data.clip_start = 1
         bpy.context.space_data.clip_end = 10000
 
         options = {
@@ -518,6 +601,7 @@ class TM_OT_NICE_Map_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelper
             "visible_only": self.visible_only,
             "lod": self.lod,
             "merge_objects": self.merge_objects,
+            "instance_max_level": 1,
             "filter_grassfence": True,
             "gamedata_folder": "D:\\GameData\\",
         }
@@ -527,6 +611,8 @@ class TM_OT_NICE_Map_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelper
             return {"CANCELLED"}
 
         import_content_to_blender(bpy.context.scene.collection, content, options)
+
+        show_times()
 
         return {"FINISHED"}
 

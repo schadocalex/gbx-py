@@ -8,19 +8,33 @@ from construct import Container
 from .gbx_structs import GbxStruct, GbxStructWithoutBodyParsed
 
 
-def parse_bytes(raw_bytes):
+def parse_bytes(raw_bytes, filepath="", log=False, recursive=False):
     """Use this for in-memory reading"""
-    return GbxStruct.parse(
+    file_dir = os.path.dirname(filepath)
+
+    gbx_data = {}
+    nodes = []
+    errors = []
+    warns = []
+    data = GbxStruct.parse(
         raw_bytes,
-        gbx_data={},
-        nodes=[],
-        load_external_file=lambda _: Container(),
+        gbx_data=gbx_data,
+        nodes=nodes,
+        filename=filepath,
+        load_external_file=partial(_load_external_file, {}, log, file_dir, recursive),
+        errors=errors,
+        warns=warns,
     )
+    data.filepath = filepath
+    data.node_offset = 0
+    data._errors = list(set(errors))
+    data._warns = list(set(warns))
+
+    return data
 
 
-def parse_file(file_path, with_nodes=False, recursive=True, log=False):
+def parse_file(file_path, recursive=True, log=False):
     file_path = os.path.abspath(file_path)
-    file_dir = os.path.dirname(file_path)
 
     if not os.path.exists(file_path):
         error = f"[FILE NOT FOUND] {file_path}"
@@ -31,30 +45,10 @@ def parse_file(file_path, with_nodes=False, recursive=True, log=False):
         print(file_path)
 
     with open(file_path, "rb") as f:
-        gbx_data = {}
-        nodes = []
-        errors = []
-        warns = []
-        data = GbxStruct.parse(
-            f.read(),
-            gbx_data=gbx_data,
-            nodes=nodes,
-            filename=file_path,
-            load_external_file=partial(_load_external_file, {}, log, file_dir, with_nodes, recursive),
-            errors=errors,
-            warns=warns,
-        )
-        data.filepath = file_path
-        if with_nodes:
-            data.nodes = nodes
-        data.node_offset = 0
-        data._errors = list(set(errors))
-        data._warns = list(set(warns))
-
-        return data
+        return parse_bytes(f.read(), file_path, log, recursive)
 
 
-def _load_external_file(files_cache, log, root_path, with_nodes, recursive, relative_path):
+def _load_external_file(files_cache, log, root_path, recursive, relative_path):
     file_path = os.path.normpath(root_path + os.path.sep + relative_path)
 
     if file_path in files_cache:
@@ -80,7 +74,7 @@ def _load_external_file(files_cache, log, root_path, with_nodes, recursive, rela
             print("load external: " + file_path)
 
         try:
-            files_cache[file_path] = parse_file(file_path, with_nodes=with_nodes, recursive=True)
+            files_cache[file_path] = parse_file(file_path, recursive=True)
         except Exception as e:
             print(e)
             files_cache[file_path] = Container(_error="Unable to load file: " + file_path, _message=repr(e))

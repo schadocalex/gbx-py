@@ -13,6 +13,7 @@ class Metadata:
 
 class FileRef:
     filepath = None
+    filebytes = None
     loc = None
     options = None
 
@@ -463,6 +464,9 @@ def extract_content(data, parent, opts):
 
         return content
 
+    elif data.classId == 0x0917B000:
+        return extract_content(data.body.helper, data, opts)
+
     else:
         warn(opts, f"unsupported classId: {hex(data.classId)} in {opts['filepath']}")
         return []
@@ -482,6 +486,25 @@ def index_files(dirname):
     return allfiles
 
 
+def index_embedded_files(data):
+    allfiles = {}
+    for i, file in enumerate(data.body[0x03043054].embeddedData.filesMeta):
+        allfiles[file.id] = i, file
+    return allfiles
+
+
+def match_embedded(data, fileref, allfiles, model):
+    if model.author == "Nadeo" or model.id not in allfiles:
+        return False
+
+    idx, file_info = allfiles[model.id]
+    zip = data.body[0x03043054].embeddedData.zip
+    fileref.filepath = zip.namelist()[idx]
+    fileref.filebytes = zip.read(fileref.filepath)
+
+    return True
+
+
 def extract_map(data, parent, opts):
     map_ents = Entities()
     map_ents.models = {}
@@ -489,6 +512,7 @@ def extract_map(data, parent, opts):
 
     allblocks = index_files(os.path.join(opts.get("gamedata_folder"), "Stadium", "GameCtnBlockInfo"))
     allitems = index_files(os.path.join(opts.get("gamedata_folder"), "Stadium", "Items"))
+    all_embedded_items = index_embedded_files(data)
     # TODO index vegets
     height_offset = data.body[0x03043052].DecoBaseHeightOffset * 8
 
@@ -496,7 +520,7 @@ def extract_map(data, parent, opts):
     # TODO attach clips inside corresponding block collection
 
     free_index = 0
-    for block in data.body[0x0304301F].Blocks + data.body[0x03043048].BakedBlocks[48 * 48 :]:
+    for block in data.body[0x0304301F].Blocks + data.body[0x03043048].BakedBlocks:
         if block.name.lower() not in allblocks:
             continue
         f = block.flags
@@ -527,15 +551,19 @@ def extract_map(data, parent, opts):
             warn(opts, "unknown item classId {0x03101000}")
             continue
         item = obj.body[0x03101002]
-        if item.itemModel.id.lower() not in allitems:
-            continue
 
-        variant_id = str((item.flags >> 8) & 31)  # TODO check in Ghidra
+        variant_id = str((item.flags >> 8) & 0xFF)  # TODO check in Ghidra
         model_name = f"I_{item.itemModel.id}_{variant_id}"
         # TODO variant
         if model_name not in map_ents.models:
             fileref = FileRef()
-            fileref.filepath = allitems[item.itemModel.id.lower()]
+            # TODO check flags: (item.flags & 1) == 1 when embedded?
+            if match_embedded(data, fileref, all_embedded_items, item.itemModel):
+                pass
+            elif item.itemModel.id.lower() in allitems:
+                fileref.filepath = allitems[item.itemModel.id.lower()]
+            else:
+                continue
             fileref.options = {"variant_id": variant_id}
             map_ents.models[model_name] = [fileref]
 

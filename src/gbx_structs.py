@@ -1781,6 +1781,13 @@ body_chunks[0x03340000] = Struct(
     "u01" / GbxLookbackString,
 )
 
+# 03340 CGameCtnBlockInfoClipHorizontal
+
+body_chunks[0x0335B000] = Struct(
+    "version" / Int32ul,  # 0
+    "u01" / GbxLookbackString,
+)
+
 # 04001 GxLight
 
 body_chunks[0x400100A] = Struct(
@@ -2482,14 +2489,14 @@ body_chunks[0x0900C003] = Struct(
     "materials"
     / GbxArray(
         "hasMaterial" / GbxBool,  # Rebuild(GbxBool, lambda this: this.material is not None),
-        "material" / If(this.hasMaterial, GbxNodeRef),
+        "material" / If(this.hasMaterial, GbxNodeRef),  # PlatformDetailsToPlatformPxz.Material.Gbx when -1?
         "materialId" / If(lambda this: not this.hasMaterial, GbxPlugSurfaceMaterialId),
     ),
     "surfaceIds"
     / If(
         lambda this: (this.version < 3)
         or (this.version == 3 and len(this.materials) == 0)
-        or (this.version > 3 and len(this.materials) > 0),
+        or (this.version > 3 and len(this.materials) > 0 and all(mat.material._index > 0 for mat in this.materials)),
         GbxArrayOf(GbxEPlugSurfacePhysicsId),
     ),
     "materialsIds"
