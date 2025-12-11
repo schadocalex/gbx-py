@@ -700,7 +700,7 @@ def need_node_body(this):
         else:
             raise Exception(f"Unknwon state")
     else:
-        print(f"Unknown node ref index: {this.index}")
+        print(f"Unknown node ref index: {this.index} in {this._params.filename}")
 
 
 class NodeRef(Container):

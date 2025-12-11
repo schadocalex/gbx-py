@@ -1,4 +1,5 @@
 import os
+import re
 import bpy
 import bpy_extras
 import bmesh
@@ -26,7 +27,11 @@ from ..src.utils.content import (
 from ...operators.OT_Settings import TM_OT_Settings_OpenMessageBox
 from ...utils.ItemsImport import _get_material_name, _load_asset_mats
 
-GAMEDATA_SCENE_NAME = "_GameData"
+GAMEDATA_FOLDER = "D:\\GameData\\"
+MAP_SCENE_NAME = "Map"
+GAMEDATA_SCENE_NAME = "zzz_GameData"
+
+REGEXP_ID = re.compile(r"\.\d{3}$")
 
 times_profiler = {}
 times_state = None
@@ -86,7 +91,7 @@ def get_gamedata_collection():
     game_data_scene = bpy.data.scenes.get(GAMEDATA_SCENE_NAME)
     if game_data_scene is None:
         current_scene = bpy.context.scene
-        bpy.ops.scene.new()
+        bpy.ops.scene.new(type="EMPTY")
         game_data_scene = bpy.context.scene
         game_data_scene.name = GAMEDATA_SCENE_NAME
         bpy.context.window.scene = current_scene
@@ -96,11 +101,13 @@ def get_gamedata_collection():
 def delete_collection(collection):
     for child in collection.children:
         delete_collection(child)
+        bpy.data.collections.remove(child)
 
     meshes = set()
 
-    for obj in [o for o in collection.objects if o.type == "MESH"]:
-        meshes.add(obj.data)
+    for obj in collection.objects:
+        if obj.type == "MESH":
+            meshes.add(obj.data)
         bpy.data.objects.remove(obj)
 
     for mesh in meshes:
@@ -109,7 +116,7 @@ def delete_collection(collection):
 
 
 def delete_scene(scene_name):
-    scene = bpy.data.scenes.get(GAMEDATA_SCENE_NAME)
+    scene = bpy.data.scenes.get(scene_name)
     if scene is None:
         return
 
@@ -290,23 +297,60 @@ def get_content(filepath, options, is_map_import, filebytes=None):  # TODO is_ma
     return content
 
 
+def get_collection_without_id(collection, name):
+    for child in collection.children:
+        if re.sub(REGEXP_ID, "", child.name).lower() == name.lower():
+            return child
+    return None
+
+
+def get_collection_from_path(collection, path):
+    for child_name in path:
+        child = get_collection_without_id(collection, child_name)
+        if child is None:
+            child = bpy.data.collections.new(child_name)
+            collection.children.link(child)
+
+        collection = child
+    return collection
+
+
+def fileref_to_path(fileref, opts):
+    # max size is 66: 10 (hash) + 42 (name) + 9 (variant) + 1 (lod) + 4 sep
+    path = os.path.normpath(fileref.filepath).replace("\\", "/").split("GameData/")[-1].split("/")
+
+    block_name = os.path.basename(fileref.filepath).split(".")[0]
+    if fileref.options and "variant_id" in fileref.options:
+        block_name += "_" + fileref.options["variant_id"]
+
+    match opts.get("lod", "all"):
+        case "highest":
+            block_name += "_h"
+        case "lowest":
+            block_name += "_l"
+
+    path[-1] = block_name
+
+    return path
+
+
 def import_fileref(fileref, options):
     use_fileref = options.get("use_fileref", True)
 
     filepath = fileref.filepath
+
     if fileref.filebytes is None:
-        collection_name = fileref_to_collection_name(fileref, options)
+        path = fileref_to_path(fileref, options)
+        collection_name = path[-1]
+        gamedata_collection = get_collection_from_path(get_gamedata_collection(), path[:-1])
     else:
-        collection_name = filepath[-66:]
+        path = filepath.replace("\\", "/").split("/")
+        collection_name = path[-1]
+        gamedata_collection = get_collection_from_path(
+            options.get("root_collection", bpy.context.scene.collection), path[:-1]
+        )
 
-    if use_fileref and fileref.filebytes is None:
-        gamedata_collection = get_gamedata_collection()
-    else:
-        # TODO factorize with gamedata
-        gamedata_collection = options.get("root_collection", bpy.context.scene.collection)
-        gamedata_collection = get_gamedata_collection()
-
-    collection = gamedata_collection.children.get(collection_name)
+    collection = get_collection_without_id(gamedata_collection, collection_name)
 
     if collection is None:
         sub_options = {
@@ -586,24 +630,25 @@ class TM_OT_NICE_Map_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelper
 
         start_times()
 
-        scene_name = os.path.basename(self.filepath).split(".")[0]
+        root_collection = bpy.context.scene.collection
+
         # delete_scene(GAMEDATA_SCENE_NAME)  # just for DEV
-        delete_scene(scene_name)
+        delete_scene(MAP_SCENE_NAME)
         bpy.ops.scene.new(type="EMPTY")
-        bpy.context.scene.name = scene_name
+        bpy.context.scene.name = MAP_SCENE_NAME
         bpy.context.space_data.clip_start = 1
         bpy.context.space_data.clip_end = 10000
 
         options = {
             "report": self.report,
             "use_fileref": True,
-            "root_collection": bpy.context.scene.collection,
+            "root_collection": root_collection,
             "visible_only": self.visible_only,
             "lod": self.lod,
             "merge_objects": self.merge_objects,
             "instance_max_level": 1,
             "filter_grassfence": True,
-            "gamedata_folder": "D:\\GameData\\",
+            "gamedata_folder": GAMEDATA_FOLDER,
         }
 
         content = get_content(self.filepath, options, True)

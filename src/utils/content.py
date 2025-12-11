@@ -499,8 +499,8 @@ def match_embedded(data, fileref, allfiles, model):
 
     idx, file_info = allfiles[model.id]
     zip = data.body[0x03043054].embeddedData.zip
-    fileref.filepath = zip.namelist()[idx]
-    fileref.filebytes = zip.read(fileref.filepath)
+    fileref.filepath = zip.namelist()[idx].split(".")[0]
+    fileref.filebytes = zip.read(zip.namelist()[idx])
 
     return True
 
