@@ -60,7 +60,6 @@ class RawGroup:
 class Entity:
     loc = None
     model_idx = -1
-    origin_to_center = False
 
 
 class Entities:
@@ -77,7 +76,8 @@ class BlockVariant:
 class Loc:
     pos = Container(x=0, y=0, z=0)
     rot = Container(x=0, y=0, z=0, w=1)
-    rotate_from_center = False
+    pivot_position = None
+    rotate_from_center = False  # set pivot_position to center of block
 
 
 class SpawnLoc(Loc):
@@ -429,8 +429,18 @@ def extract_content(data, parent, opts):
 
     # NPlugItem_SVariantList
     elif data.classId == 0x2F0BC000:
-        variant_id = int(opts.get("variant_id", "0"))
-        return extract_content(data.body.variants[variant_id].EntityModel, data, opts)
+        variant_id = opts.get("variant_id", None)
+        if variant_id is None:
+            content = []
+            for i, variant in enumerate(data.body.variants):
+                v = BlockVariant()
+                content.append(v)
+                v.name = str(i)
+                v.mobils = {}
+                v.content = extract_content(variant.EntityModel, data, opts)
+            return content
+        else:
+            return extract_content(data.body.variants[int(variant_id)].EntityModel, data, opts)
 
     # CGameCtnChallenge
     elif data.classId == 0x03043000:
@@ -573,6 +583,7 @@ def extract_map(data, parent, opts):
         pos = item.absolutePositionInMap
         new_ent.loc.pos = Container(x=pos.x, y=pos.y + height_offset, z=pos.z)
         new_ent.loc.rot = quaternion_from_euler(item.rot.roll, item.rot.pitch, item.rot.yaw)
+        new_ent.loc.pivot_position = item.pivotPosition
         map_ents.ents.append(new_ent)
 
     return [map_ents]

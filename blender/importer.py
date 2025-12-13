@@ -32,6 +32,7 @@ MAP_SCENE_NAME = "Map"
 GAMEDATA_SCENE_NAME = "zzz_GameData"
 
 REGEXP_ID = re.compile(r"\.\d{3}$")
+REGEXP_GBX = re.compile(r"\.gbx$", re.I)
 
 times_profiler = {}
 times_state = None
@@ -103,16 +104,14 @@ def delete_collection(collection):
         delete_collection(child)
         bpy.data.collections.remove(child)
 
-    meshes = set()
-
     for obj in collection.objects:
         if obj.type == "MESH":
-            meshes.add(obj.data)
-        bpy.data.objects.remove(obj)
-
-    for mesh in meshes:
-        if mesh.users == 0:
-            bpy.data.meshes.remove(mesh)
+            mesh = obj.data
+            bpy.data.objects.remove(obj)
+            if mesh.users == 0:
+                bpy.data.meshes.remove(mesh)
+        elif obj.type == "EMPTY":
+            bpy.data.objects.remove(obj)
 
 
 def delete_scene(scene_name):
@@ -122,6 +121,10 @@ def delete_scene(scene_name):
 
     delete_collection(scene.collection)
     bpy.data.scenes.remove(scene)
+
+
+def pos_to_blender(pos):
+    return Vector((pos.x, -pos.z, pos.y))
 
 
 def loc_to_blender(loc):
@@ -319,7 +322,7 @@ def fileref_to_path(fileref, opts):
     # max size is 66: 10 (hash) + 42 (name) + 9 (variant) + 1 (lod) + 4 sep
     path = os.path.normpath(fileref.filepath).replace("\\", "/").split("GameData/")[-1].split("/")
 
-    block_name = os.path.basename(fileref.filepath).split(".")[0]
+    block_name = re.sub(REGEXP_GBX, "", os.path.basename(fileref.filepath))
     if fileref.options and "variant_id" in fileref.options:
         block_name += "_" + fileref.options["variant_id"]
 
@@ -382,6 +385,7 @@ def import_fileref(fileref, options):
         instance.instance_type = "COLLECTION"
         instance.instance_collection = collection
         instance.show_instancer_for_viewport = False
+        instance.show_instancer_for_render = False
         instances.append(instance)
 
     return instances
@@ -415,6 +419,7 @@ def import_content_to_blender(root_collection, content, options):
                     for j, (obj_name, obj) in enumerate(model_collection.all_objects.items()):
                         new_obj = obj.copy()
                         new_obj.name = f"{obj_name}_e{i}m{ent.model_idx}"
+                        new_obj.name = f"e{i}m{ent.model_idx}"
 
                         # new_obj.data = new_obj.data.copy() # TODO param? avoid meshes to be linked
 
@@ -423,6 +428,9 @@ def import_content_to_blender(root_collection, content, options):
                             bs = new_obj.instance_collection["block_size"]
                             rot = ent_rot @ Vector((32.0 * bs[0], -32.0 * bs[2], 0.0))
                             pos_offset = Vector((-rot[0] if rot[0] < 0 else 0, -rot[1] if rot[1] > 0 else 0, 0))
+
+                        if ent.loc.pivot_position is not None:
+                            pos_offset = ent_rot @ pos_to_blender(ent.loc.pivot_position)
 
                         new_obj.location = ent_pos + pos_offset + (ent_rot @ new_obj.location)
                         new_obj.rotation_mode = "QUATERNION"
@@ -552,6 +560,8 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
     )
 
     def execute(self, context):
+        # delete_scene(GAMEDATA_SCENE_NAME) # just for dev
+
         start_times()
 
         dirname = os.path.dirname(self.filepath) + os.path.sep
@@ -630,10 +640,10 @@ class TM_OT_NICE_Map_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelper
 
         start_times()
 
-        root_collection = bpy.context.scene.collection
-
         # delete_scene(GAMEDATA_SCENE_NAME)  # just for DEV
         delete_scene(MAP_SCENE_NAME)
+        root_collection = bpy.context.scene.collection
+
         bpy.ops.scene.new(type="EMPTY")
         bpy.context.scene.name = MAP_SCENE_NAME
         bpy.context.space_data.clip_start = 1

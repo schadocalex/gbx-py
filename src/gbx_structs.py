@@ -2496,7 +2496,9 @@ body_chunks[0x0900C003] = Struct(
     / If(
         lambda this: (this.version < 3)
         or (this.version == 3 and len(this.materials) == 0)
-        or (this.version > 3 and len(this.materials) > 0 and all(mat.material._index > 0 for mat in this.materials)),
+        or (
+            this.version > 3 and len(this.materials) > 0
+        ),  # and all(mat.material._index > 0 for mat in this.materials)),
         GbxArrayOf(GbxEPlugSurfacePhysicsId),
     ),
     "materialsIds"
