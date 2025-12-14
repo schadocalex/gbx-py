@@ -178,9 +178,9 @@ GbxBoxInt = Struct(
     "z2" / Int32sl,
 )
 GbxColor = Struct("b" / Byte, "g" / Byte, "r" / Byte, "a" / Byte)
-GbxPlugSurfaceMaterialId = Struct(
-    "physicsId" / GbxEPlugSurfacePhysicsId,
-    "gameplayId" / GbxEPlugSurfaceGameplayId,
+GbxPlugSurfaceMaterialId = Struct(  # GMSurfaceId
+    "physicsId" / GbxEPlugSurfacePhysicsId,  # PhysicId
+    "gameplayId" / GbxEPlugSurfaceGameplayId,  # GameplayId
 )
 
 GbxBytesUntilFacade = Struct(
@@ -2489,19 +2489,16 @@ body_chunks[0x0900C003] = Struct(
     "materials"
     / GbxArray(
         "hasMaterial" / GbxBool,  # Rebuild(GbxBool, lambda this: this.material is not None),
-        "material" / If(this.hasMaterial, GbxNodeRef),  # PlatformDetailsToPlatformPxz.Material.Gbx when -1?
+        "material" / If(this.hasMaterial, GbxNodeRef),
         "materialId" / If(lambda this: not this.hasMaterial, GbxPlugSurfaceMaterialId),
     ),
     "surfaceIds"
     / If(
-        lambda this: (this.version < 3)
-        or (this.version == 3 and len(this.materials) == 0)
-        or (
-            this.version > 3 and len(this.materials) > 0
-        ),  # and all(mat.material._index > 0 for mat in this.materials)),
-        GbxArrayOf(GbxEPlugSurfacePhysicsId),
+        lambda this: (this.version == 3 and len(this.materials) == 0) or this.version >= 4,
+        GbxArrayOf(GbxPlugSurfaceMaterialId),
     ),
-    "materialsIds"
+    "physicIds" / If(lambda this: (this.version < 3), GbxArrayOf(GbxEPlugSurfacePhysicsId)),
+    "surfaceIds2"  # ?
     / If(
         lambda this: this.version >= 3 and (this.surfaceIds is None or len(this.surfaceIds) == 0),
         GbxArrayOf(GbxPlugSurfaceMaterialId),

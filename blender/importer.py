@@ -69,25 +69,6 @@ def show_times():
         print(f"{k} time: {v // 1_000_000}ms")
 
 
-def fileref_to_collection_name(fileref, opts):
-    # max size is 66: 10 (hash) + 42 (name) + 9 (variant) + 1 (lod) + 4 sep
-    gamedata_path = os.path.normpath(fileref.filepath).lower().replace("\\", "/").split("gamedata/")[-1]
-
-    uid = sha256(gamedata_path.encode(), usedforsecurity=False).hexdigest()[:10]
-    block_name_cropped = os.path.basename(fileref.filepath).split(".")[0][-44:]
-    name = f"{uid}_{block_name_cropped}"
-    if fileref.options and "variant_id" in fileref.options:
-        name += "_" + fileref.options["variant_id"]
-
-    match opts.get("lod", "all"):
-        case "highest":
-            name += "_h"
-        case "lowest":
-            name += "_l"
-
-    return name
-
-
 def get_gamedata_collection():
     game_data_scene = bpy.data.scenes.get(GAMEDATA_SCENE_NAME)
     if game_data_scene is None:
@@ -337,15 +318,41 @@ def fileref_to_path(fileref, opts):
     return path
 
 
+def fileref_to_collection_name(fileref, opts):
+    # max size is 66: 10 (hash) + 42 (name) + 9 (variant) + 1 (lod) + 4 sep
+    gamedata_path = os.path.normpath(fileref.filepath).lower().replace("\\", "/").split("gamedata/")[-1]
+
+    uid = sha256(gamedata_path.encode(), usedforsecurity=False).hexdigest()[:10]
+    block_name_cropped = os.path.basename(fileref.filepath).split(".")[0][-44:]
+    name = f"{uid}_{block_name_cropped}"
+    if fileref.options and "variant_id" in fileref.options:
+        name += "_" + fileref.options["variant_id"]
+
+    match opts.get("lod", "all"):
+        case "highest":
+            name += "_h"
+        case "lowest":
+            name += "_l"
+
+    return name
+
+
 def import_fileref(fileref, options):
     use_fileref = options.get("use_fileref", True)
 
     filepath = fileref.filepath
+    if filepath.lower().endswith(".fxsys.gbx"):
+        return None
 
     if fileref.filebytes is None:
-        path = fileref_to_path(fileref, options)
-        collection_name = path[-1]
-        gamedata_collection = get_collection_from_path(get_gamedata_collection(), path[:-1])
+        # As collection tree
+        # path = fileref_to_path(fileref, options)
+        # collection_name = path[-1]
+        # gamedata_collection = get_collection_from_path(get_gamedata_collection(), path[:-1])
+
+        # As flat collections
+        collection_name = fileref_to_collection_name(fileref, options)
+        gamedata_collection = get_gamedata_collection()
     else:
         path = filepath.replace("\\", "/").split("/")
         collection_name = path[-1]
@@ -419,7 +426,6 @@ def import_content_to_blender(root_collection, content, options):
                     for j, (obj_name, obj) in enumerate(model_collection.all_objects.items()):
                         new_obj = obj.copy()
                         new_obj.name = f"{obj_name}_e{i}m{ent.model_idx}"
-                        new_obj.name = f"e{i}m{ent.model_idx}"
 
                         # new_obj.data = new_obj.data.copy() # TODO param? avoid meshes to be linked
 

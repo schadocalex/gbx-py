@@ -477,6 +477,9 @@ def extract_content(data, parent, opts):
     elif data.classId == 0x0917B000:
         return extract_content(data.body.helper, data, opts)
 
+    elif data.classId == 0x2F0CA000:
+        return []
+
     else:
         warn(opts, f"unsupported classId: {hex(data.classId)} in {opts['filepath']}")
         return []
@@ -663,6 +666,36 @@ def extract_mesh_CPlugVisualIndexedTriangles(data):
     else:
         raise Exception("unknown body")
 
+    # faces
+    index_buffer_body = data.body[0x0906A001].indexBuffer
+    if 0x09057000 in index_buffer_body:
+        index_buffer = index_buffer_body[0x09057000]
+        assert index_buffer.flags == 2  # TODO, find another case
+        # indexes are absolute so insert them
+        for i in range(0, len(index_buffer.indices), 3):
+            mesh.faces.append(index_buffer.indices[i : i + 3])
+
+    elif 0x09057001 in index_buffer_body:
+        index_buffer = index_buffer_body[0x09057001]
+        assert index_buffer.flags & 0xC == 0  # TODO, find another case
+
+        sub_visuals = data.body[0x9006005].sub_visuals
+        if not sub_visuals:
+            sub_visuals = [Container(x=0, y=0, z=len(index_buffer.indices))]
+
+        for sub_visual in sub_visuals[:1]:  # TODO animate
+            # convert to absolute
+            current_vertex = sub_visual.x
+            for i in range(sub_visual.y, sub_visual.z, 3):
+                current_vertex += index_buffer.indices[i]
+                x = current_vertex
+                current_vertex += index_buffer.indices[i + 1]
+                y = current_vertex
+                current_vertex += index_buffer.indices[i + 2]
+                mesh.faces.append((x, y, current_vertex))
+    else:
+        raise Exception("unknown case")
+
     vertex_streams = data.body[visual_chunk_id].vertexStreams
 
     if len(vertex_streams) == 0:
@@ -675,13 +708,6 @@ def extract_mesh_CPlugVisualIndexedTriangles(data):
                 mesh.normals.append(v.normal)
             if data.body[0x0902C004]._flags.UseVertexColor:
                 mesh.colors[0].append(v.color)
-
-        # faces
-        index_buffer = data.body[0x0906A001].indexBuffer[0x09057000]
-        assert index_buffer.flags == 2  # TODO, find another case
-        for i in range(0, len(index_buffer.indices), 3):
-            mesh.faces.append((index_buffer.indices[i], index_buffer.indices[i + 1], index_buffer.indices[i + 2]))
-
         # uvs
         for i, texCoord in enumerate(data.body[visual_chunk_id].texCoords):
             assert i < 2  # TODO find another case
@@ -705,30 +731,6 @@ def extract_mesh_CPlugVisualIndexedTriangles(data):
                 mesh.colors.append(vertex_stream.Data[data_idx])
             elif data_decl.header.Name == "BlendIndices":
                 blend_indicies = vertex_stream.Data[data_idx]
-
-        index_buffer_body = data.body[0x0906A001].indexBuffer
-        if 0x09057000 in index_buffer_body:
-            index_buffer = index_buffer_body[0x09057000]
-            assert index_buffer.flags == 2  # TODO, find another case
-            # indexes are absolute so insert them
-            for i in range(0, len(index_buffer.indices), 3):
-                mesh.faces.append(index_buffer.indices[i : i + 3])
-
-        elif 0x09057001 in index_buffer_body:
-            index_buffer = index_buffer_body[0x09057001]
-            assert index_buffer.flags & 0xC == 0  # TODO, find another case
-
-            # convert to absolute
-            current_face = 0
-            for i in range(0, len(index_buffer.indices), 3):
-                current_face += index_buffer.indices[i]
-                x = current_face
-                current_face += index_buffer.indices[i + 1]
-                y = current_face
-                current_face += index_buffer.indices[i + 2]
-                mesh.faces.append((x, y, current_face))
-        else:
-            raise Exception("unknown case")
 
         for verts_uv in verts_uvs:
             mesh.uvs.append(convert_verts_data_to_face_corners_data(verts_uv, mesh.faces))
