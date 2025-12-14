@@ -11,11 +11,16 @@ class Metadata:
     value = None
 
 
+class NewOptions:
+    options = None
+
+
 class FileRef:
     filepath = None
     filebytes = None
     loc = None
     options = None
+    materials_remap = None
 
 
 class RawMaterial:
@@ -48,13 +53,6 @@ class RawMesh:
     # misc
     lod = 0
     label = ""
-
-
-class RawGroup:
-    name = ""
-    children = None
-    loc = None
-    metadata = None
 
 
 class Entity:
@@ -136,15 +134,12 @@ def remap_materials(content, remap):
             for mat in obj.materials:
                 if isinstance(mat, RawMaterial) and mat.link in remap:
                     mat.link = remap[mat.link]
-        # TODO manage collection (instances)
+        # if isinstance(obj, FileRef):
+        #     obj.materials_remap = remap
 
 
 def apply_mat_modifier(content, mat_modifier):
-    if (
-        not mat_modifier.get("MaterialModifier")
-        or mat_modifier.MaterialModifier._index < 0
-        or mat_modifier.MaterialModifier.get("_errors")
-    ):
+    if not mat_modifier or mat_modifier._index < 0 or mat_modifier.get("_errors"):
         return
     assert mat_modifier.classId == 0x0915D000
 
@@ -222,15 +217,16 @@ def extract_content(data, parent, opts):
     if data.classId == 0x2E002000:
         chunk = data.body[0x2E002019]
 
+        mat_modifier = extract_content(chunk.MaterialModifier, data, opts)
         model_edition_content = extract_content(chunk.EntityModelEdition, data, opts)
         model_content = extract_content(chunk.EntityModel, data, opts)
         # TODO data.body[0x2E00201F].waypointType
         # add the metadata somewhere? Metadata(key="waypoint", value=waypointType)?
 
-        content = model_edition_content + model_content
+        content = mat_modifier + model_edition_content + model_content
 
         # remap materials
-        apply_mat_modifier(content, chunk.MaterialModifier)
+        # apply_mat_modifier(content, chunk.MaterialModifier)
 
         return content
 
@@ -316,6 +312,9 @@ def extract_content(data, parent, opts):
         or data.classId == 0x0335B000  # CGameCtnBlockInfoClipHorizontal
     ):
         content = []
+
+        content += extract_content(data.body[0x0304E031].materialModifier, data, opts)
+
         # TODO choose variant and mobil
         variant_id = opts.get("variant_id", "a0_-1_-1")
         indexes = [int(x) for x in variant_id[1:].split("_")]
@@ -333,7 +332,7 @@ def extract_content(data, parent, opts):
 
         mobil = variant[0x0315B005].mobils[indexes[1]][indexes[2]]
 
-        content = extract_content(mobil, data, opts)
+        content += extract_content(mobil, data, opts)
 
         # waypoint spawn loc
         waypoint_type = data.body[0x0304E026].waypointType
@@ -363,7 +362,7 @@ def extract_content(data, parent, opts):
         #         )
 
         # remap materials
-        apply_mat_modifier(content, data.body[0x0304E031].materialModifier)
+        # apply_mat_modifier(content, data.body[0x0304E031].materialModifier)
 
         # block size
         metadata = Metadata()
@@ -474,8 +473,25 @@ def extract_content(data, parent, opts):
 
         return content
 
+    # CPlugEditorHelper
     elif data.classId == 0x0917B000:
         return extract_content(data.body.helper, data, opts)
+
+    # CPlugGameSkinAndFolder
+    elif data.classId == 0x0915D000:
+        if 0x915D001 in data.body and data.body[0x915D001].get("name") == "Turbo":
+            return []  # because the Turbo materials variants doesn't exist in blendermania, we need to take default ones. TODO
+
+        chunk = data.body[0x915D000]
+        remap = {}
+        prefix = chunk.RemapFolder.split("\\")[-2] + "_"
+        for fid in chunk.Remapping.body[0x90F4005].fids:
+            material_link = fid.filePath.split("\\")[-1].replace(".Material.Gbx", "")
+            remap[material_link] = prefix + fid.type
+
+        new_opts = NewOptions()
+        new_opts.options = {"materials_remap": remap}
+        return [new_opts]
 
     elif data.classId == 0x2F0CA000:
         return []

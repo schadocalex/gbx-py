@@ -56,17 +56,21 @@ def _load_external_file(files_cache, log, root_path, recursive, relative_path):
             print("reuse " + file_path)
         return files_cache[file_path]
 
+    force_recursive = (
+        file_path.lower().endswith(".terrainmodifier.gbx")
+        or file_path.lower().endswith(".kinematicconstraint.gbx")
+        or file_path.lower().endswith(".gameskin.gbx")
+    )
+
     if file_path.endswith(".Material.Gbx"):
         material_name = os.path.basename(file_path).split(".")[0]
         files_cache[file_path] = create_custom_material(material_name)
-    elif (
+    elif not force_recursive and (
         not recursive
         or not file_path.lower().endswith(".gbx")
         or file_path.lower().endswith(".texture.gbx")
         or file_path.lower().endswith(".light.gbx")
         or file_path.lower().endswith(".sound.gbx")
-        or file_path.lower().endswith(".vegettreemodel.gbx")
-        or "vegetation" in file_path.lower()
     ):
         files_cache[file_path] = Container()
     else:

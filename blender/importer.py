@@ -22,6 +22,7 @@ from ..src.utils.content import (
     MeshTree,
     FileRef,
     Metadata,
+    NewOptions,
 )
 
 from ...operators.OT_Settings import TM_OT_Settings_OpenMessageBox
@@ -115,6 +116,29 @@ def loc_to_blender(loc):
     )
 
 
+def load_asset_mats(all_mats):
+    _load_asset_mats([mat for mat in all_mats if mat + "_asset" not in bpy.data.materials])
+    result = []
+    for mat in all_mats:
+        material_name_asset = mat + "_asset"
+        if material_name_asset not in bpy.data.materials:
+            result.append(bpy.data.materials.new(material_name_asset))
+        else:
+            result.append(bpy.data.materials[material_name_asset])
+
+    return result
+
+
+def remap_object_materials(obj, remap):
+    for i, slot in enumerate(obj.material_slots):
+        if slot.material.link in remap:
+            new_mat_name, _ = _get_material_name(remap[slot.material.link])
+            [new_mat] = load_asset_mats([new_mat_name])
+
+            obj.material_slots[i].link = "OBJECT"
+            obj.material_slots[i].material = new_mat
+
+
 def create_raw_mesh(obj_name, raw_mesh):
     # create the mesh data
     mesh_data = bpy.data.meshes.new(f"{obj_name}_data")
@@ -124,7 +148,6 @@ def create_raw_mesh(obj_name, raw_mesh):
 
     # materials
     all_material_names = []
-    all_material_names_to_load = []
     if raw_mesh.materials:
         for material in raw_mesh.materials:
             if isinstance(material, RawInvisibleMaterial) or (isinstance(material, RawMaterial) and material.invisible):
@@ -135,21 +158,10 @@ def create_raw_mesh(obj_name, raw_mesh):
                 material_name = material.link
                 material_name, _link = _get_material_name(material_name)
 
-            if material_name + "_asset" not in bpy.data.materials:
-                all_material_names_to_load.append(material_name)
-
             all_material_names.append(material_name)
 
-    if all_material_names_to_load:
-        _load_asset_mats(all_material_names_to_load)
-
-    for material_name in all_material_names:
-        material_name_asset = material_name + "_asset"
-        if material_name_asset in bpy.data.materials:
-            new_mat = bpy.data.materials[material_name_asset]
-        else:
-            new_mat = bpy.data.materials.new(material_name_asset)
-        mesh_obj.data.materials.append(new_mat)
+    for mat in load_asset_mats(all_material_names):
+        mesh_obj.data.materials.append(mat)
 
     # create a new bmesh
     bm = bmesh.new()
@@ -385,6 +397,9 @@ def import_fileref(fileref, options):
             instance.location = source.location
             instance.rotation_mode = "QUATERNION"
             instance.rotation_quaternion = source.rotation_quaternion
+            materials_remap = options.get("materials_remap")
+            if materials_remap:
+                remap_object_materials(instance, materials_remap)
             instances.append(instance)
     else:
         # make collection instances
@@ -402,7 +417,9 @@ def import_content_to_blender(root_collection, content, options):
     res = []
 
     for idx, obj in enumerate(content):
-        if isinstance(obj, Entities):
+        if isinstance(obj, NewOptions):
+            options = {**options, **obj.options}
+        elif isinstance(obj, Entities):
             models = {}
             models_used = {}
             for i, model in obj.models.items():
@@ -566,7 +583,7 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
     )
 
     def execute(self, context):
-        # delete_scene(GAMEDATA_SCENE_NAME) # just for dev
+        # delete_scene(GAMEDATA_SCENE_NAME)  # just for dev
 
         start_times()
 
