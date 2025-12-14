@@ -64,7 +64,14 @@ def _load_external_file(files_cache, log, root_path, recursive, relative_path):
 
     if file_path.endswith(".Material.Gbx"):
         material_name = os.path.basename(file_path).split(".")[0]
+
+        # Add modifier
+        folders = file_path.replace("\\", "/").split("/")
+        if len(folders) >= 3 and folders[-3].lower() == "modifier":
+            material_name = folders[-2] + "_" + material_name
+
         files_cache[file_path] = create_custom_material(material_name)
+        files_cache[file_path]._fakeMaterial = True
     elif not force_recursive and (
         not recursive
         or not file_path.lower().endswith(".gbx")

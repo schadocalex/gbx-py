@@ -155,8 +155,7 @@ def create_raw_mesh(obj_name, raw_mesh):
                 if material.gameplayId != "No":
                     material_name += f"_{material.gameplayId}"
             elif isinstance(material, RawMaterial):
-                material_name = material.link
-                material_name, _link = _get_material_name(material_name)
+                material_name, _link = _get_material_name(material.link)
 
             all_material_names.append(material_name)
 
