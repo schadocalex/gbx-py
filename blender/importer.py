@@ -6,12 +6,13 @@ import bmesh
 from mathutils import Vector, Quaternion
 import traceback
 from hashlib import sha256
-from time import process_time_ns
+from time import process_time_ns, process_time
+from pathlib import Path
 
 # from src.nice.api import *
-from ..src.parser import parse_file, parse_bytes
+from ..src.parser import parse_file as p_parse_file, parse_bytes as p_parse_bytes
 from ..src.utils.content import (
-    extract_content,
+    extract_content as p_extract_content,
     RawMesh,
     Entities,
     RawMaterial,
@@ -37,7 +38,7 @@ REGEXP_GBX = re.compile(r"\.gbx$", re.I)
 
 times_profiler = {}
 times_state = None
-TIMES_BLENDER = "import"
+TIMES_BLENDER = "generic blender"
 TIMES_PARSE = "parse"
 
 
@@ -60,6 +61,36 @@ def change_times(new_state):
     times_state = now, new_state
 
 
+def profile(func):
+    def timeit(*args, **kwargs):
+        _, old_state = times_state
+        change_times(func.__name__)
+        try:
+            res = func(*args, **kwargs)
+        except Exception as e:
+            change_times(old_state)
+            raise e
+        change_times(old_state)
+        return res
+
+    return timeit
+
+
+@profile
+def parse_file(*args, **kwargs):
+    return p_parse_file(*args, **kwargs)
+
+
+@profile
+def parse_bytes(*args, **kwargs):
+    return p_parse_bytes(*args, **kwargs)
+
+
+@profile
+def extract_content(*args, **kwargs):
+    return p_extract_content(*args, **kwargs)
+
+
 def start_times():
     reset_times()
     change_times(TIMES_BLENDER)
@@ -70,6 +101,7 @@ def show_times():
         print(f"{k} time: {v // 1_000_000}ms")
 
 
+@profile
 def get_gamedata_collection():
     game_data_scene = bpy.data.scenes.get(GAMEDATA_SCENE_NAME)
     if game_data_scene is None:
@@ -81,34 +113,38 @@ def get_gamedata_collection():
     return game_data_scene.collection
 
 
+@profile
 def delete_collection(collection):
     for child in collection.children:
         delete_collection(child)
+        collection.children.unlink(child)
         bpy.data.collections.remove(child)
 
-    for obj in collection.objects:
-        if obj.type == "MESH":
-            mesh = obj.data
-            bpy.data.objects.remove(obj)
-            if mesh.users == 0:
-                bpy.data.meshes.remove(mesh)
-        elif obj.type == "EMPTY":
-            bpy.data.objects.remove(obj)
+    # for obj in collection.objects:
+    #     if obj.type == "MESH":
+    #         bpy.data.objects.remove(obj)
+    #     elif obj.type == "EMPTY":
+    #         bpy.data.objects.remove(obj)
 
 
+@profile
 def delete_scene(scene_name):
     scene = bpy.data.scenes.get(scene_name)
     if scene is None:
         return
 
-    delete_collection(scene.collection)
+    # delete_collection(scene.collection)
     bpy.data.scenes.remove(scene)
 
+    bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
 
+
+@profile
 def pos_to_blender(pos):
     return Vector((pos.x, -pos.z, pos.y))
 
 
+@profile
 def loc_to_blender(loc):
     return (
         Vector((loc.pos.x, -loc.pos.z, loc.pos.y)),
@@ -116,8 +152,40 @@ def loc_to_blender(loc):
     )
 
 
+@profile
+def load_asset_mats_once():
+    prefs = bpy.context.preferences
+    filepaths = prefs.filepaths
+    asset_libraries = filepaths.asset_libraries
+
+    blend_files = set()
+    for asset_library in asset_libraries:
+        library_path = Path(asset_library.path)
+        blend_files.update(fp for fp in library_path.glob("**/*.blend") if fp.is_file())
+
+    for blend_file in blend_files:
+        with bpy.data.libraries.load(str(blend_file), assets_only=True, link=True) as (data_from, data_to):
+            data_to.materials = [name for name in data_from.materials if name not in bpy.data.materials]
+
+
+@profile
 def load_asset_mats(all_mats):
-    _load_asset_mats([mat for mat in all_mats if mat + "_asset" not in bpy.data.materials])
+    # all_mats_to_load = [mat + "_asset" for mat in all_mats if mat + "_asset" not in bpy.data.materials]
+
+    # prefs = bpy.context.preferences
+    # filepaths = prefs.filepaths
+    # asset_libraries = filepaths.asset_libraries
+
+    # print("load_asset_mats", all_mats_to_load)
+
+    # if all_mats_to_load:
+    #     for asset_library in asset_libraries:
+    #         library_path = Path(asset_library.path)
+    #         blend_files = [fp for fp in library_path.glob("**/*.blend") if fp.is_file()]
+    #         for blend_file in blend_files:
+    #             with bpy.data.libraries.load(str(blend_file), assets_only=True, link=True) as (data_from, data_to):
+    #                 data_to.materials = [name for name in all_mats_to_load if name in data_from.materials]
+
     result = []
     for mat in all_mats:
         material_name_asset = mat + "_asset"
@@ -129,6 +197,7 @@ def load_asset_mats(all_mats):
     return result
 
 
+@profile
 def remap_object_materials(obj, remap):
     for i, slot in enumerate(obj.material_slots):
         if slot.material.link in remap:
@@ -139,6 +208,7 @@ def remap_object_materials(obj, remap):
             obj.material_slots[i].material = new_mat
 
 
+@profile
 def create_raw_mesh(obj_name, raw_mesh):
     # create the mesh data
     mesh_data = bpy.data.meshes.new(f"{obj_name}_data")
@@ -240,6 +310,7 @@ def create_raw_mesh(obj_name, raw_mesh):
     return mesh_obj
 
 
+@profile
 def create_and_place_empty(obj, name):
     pos, rot = loc_to_blender(obj)
 
@@ -251,6 +322,7 @@ def create_and_place_empty(obj, name):
     return empty_obj
 
 
+@profile
 def show_errors(data, options):
     report = options.get("report")
     if not report:
@@ -263,25 +335,21 @@ def show_errors(data, options):
     data._warns = []
 
 
+@profile
 def get_content(filepath, options, is_map_import, filebytes=None):  # TODO is_map_import
     options["dirname"] = os.path.dirname(filepath) + os.path.sep
     options["filepath"] = filepath
     options["level"] = options.get("level", 0)
 
     try:
-        change_times(TIMES_PARSE)
         if filebytes is not None:
             data = parse_bytes(filebytes, filepath, recursive=False)
         else:
-            data = parse_file(filepath, recursive=False)
-        change_times(TIMES_BLENDER)
+            data = parse_file(filepath, recursive=False, files_cache=options.get("files_cache"))
         show_errors(data, options)
-        change_times(TIMES_PARSE)
         content = extract_content(data, None, options)
-        change_times(TIMES_BLENDER)
         show_errors(data, options)
     except Exception as e:
-        change_times(TIMES_BLENDER)
         tb = traceback.format_exception(e)
         report = options.get("report")
         if report:
@@ -292,6 +360,7 @@ def get_content(filepath, options, is_map_import, filebytes=None):  # TODO is_ma
     return content
 
 
+@profile
 def get_collection_without_id(collection, name):
     for child in collection.children:
         if re.sub(REGEXP_ID, "", child.name).lower() == name.lower():
@@ -299,6 +368,7 @@ def get_collection_without_id(collection, name):
     return None
 
 
+@profile
 def get_collection_from_path(collection, path):
     for child_name in path:
         child = get_collection_without_id(collection, child_name)
@@ -310,6 +380,7 @@ def get_collection_from_path(collection, path):
     return collection
 
 
+@profile
 def fileref_to_path(fileref, opts):
     # max size is 66: 10 (hash) + 42 (name) + 9 (variant) + 1 (lod) + 4 sep
     path = os.path.normpath(fileref.filepath).replace("\\", "/").split("GameData/")[-1].split("/")
@@ -329,6 +400,7 @@ def fileref_to_path(fileref, opts):
     return path
 
 
+@profile
 def fileref_to_collection_name(fileref, opts):
     # max size is 66: 10 (hash) + 42 (name) + 9 (variant) + 1 (lod) + 4 sep
     gamedata_path = os.path.normpath(fileref.filepath).lower().replace("\\", "/").split("gamedata/")[-1]
@@ -348,6 +420,7 @@ def fileref_to_collection_name(fileref, opts):
     return name
 
 
+@profile
 def import_fileref(fileref, options):
     use_fileref = options.get("use_fileref", True)
 
@@ -357,13 +430,14 @@ def import_fileref(fileref, options):
 
     if fileref.filebytes is None:
         # As collection tree
-        # path = fileref_to_path(fileref, options)
-        # collection_name = path[-1]
-        # gamedata_collection = get_collection_from_path(get_gamedata_collection(), path[:-1])
+        path = fileref_to_path(fileref, options)
+        collection_name = path[-1]
+        gamedata_collection = get_collection_from_path(get_gamedata_collection(), path[:-1])
 
         # As flat collections
-        collection_name = fileref_to_collection_name(fileref, options)
-        gamedata_collection = get_gamedata_collection()
+        # collection_name = fileref_to_collection_name(fileref, options)
+        # gamedata_collection = get_gamedata_collection()
+        # collection = gamedata_collection.children.get(collection_name)
     else:
         path = filepath.replace("\\", "/").split("/")
         collection_name = path[-1]
@@ -393,6 +467,8 @@ def import_fileref(fileref, options):
         # make linked duplicates
         for source in collection.all_objects:
             instance = bpy.data.objects.new(source.name, source.data)
+            if options.get("no_linked_duplicate", False):
+                instance.data = source.data.copy()
             instance.location = source.location
             instance.rotation_mode = "QUATERNION"
             instance.rotation_quaternion = source.rotation_quaternion
@@ -412,6 +488,7 @@ def import_fileref(fileref, options):
     return instances
 
 
+@profile
 def import_content_to_blender(root_collection, content, options):
     res = []
 
@@ -419,54 +496,30 @@ def import_content_to_blender(root_collection, content, options):
         if isinstance(obj, NewOptions):
             options = {**options, **obj.options}
         elif isinstance(obj, Entities):
-            models = {}
-            models_used = {}
-            for i, model in obj.models.items():
-                model_collection = bpy.data.collections.new(f"model{i}")
-                import_content_to_blender(model_collection, model, options)
-                models[i] = model_collection
-                models_used[i] = False
-                root_collection.children.link(model_collection)
-
+            now = process_time()
             for i, ent in enumerate(obj.ents):
                 if ent.model_idx == -1:
-                    continue  # TODO param
-                    # empty object, TODO add metadata?
-                    ent_obj = create_and_place_empty(ent.loc, f"empty{i}")
-                    root_collection.objects.link(ent_obj)
-                    res.append(ent_obj)
-                else:
-                    model_collection = models[ent.model_idx]
-                    ent_pos, ent_rot = loc_to_blender(ent.loc)
+                    continue  # create empty create_and_place_empty(ent.loc)
+                model = obj.models[ent.model_idx]
+                ent_pos, ent_rot = loc_to_blender(ent.loc)
+                for new_obj in import_content_to_blender(root_collection, model, options):
+                    pos_offset = Vector((0.0, 0.0, 0.0))
+                    if ent.loc.rotate_from_center and "block_size" in new_obj.instance_collection:
+                        bs = new_obj.instance_collection["block_size"]
+                        rot = ent_rot @ Vector((32.0 * bs[0], -32.0 * bs[2], 0.0))
+                        pos_offset = Vector((-rot[0] if rot[0] < 0 else 0, -rot[1] if rot[1] > 0 else 0, 0))
 
-                    for j, (obj_name, obj) in enumerate(model_collection.all_objects.items()):
-                        new_obj = obj.copy()
-                        new_obj.name = f"{obj_name}_e{i}m{ent.model_idx}"
+                    if ent.loc.pivot_position is not None:
+                        pos_offset = ent_rot @ pos_to_blender(ent.loc.pivot_position)
 
-                        # new_obj.data = new_obj.data.copy() # TODO param? avoid meshes to be linked
-
-                        pos_offset = Vector((0.0, 0.0, 0.0))
-                        if ent.loc.rotate_from_center and "block_size" in new_obj.instance_collection:
-                            bs = new_obj.instance_collection["block_size"]
-                            rot = ent_rot @ Vector((32.0 * bs[0], -32.0 * bs[2], 0.0))
-                            pos_offset = Vector((-rot[0] if rot[0] < 0 else 0, -rot[1] if rot[1] > 0 else 0, 0))
-
-                        if ent.loc.pivot_position is not None:
-                            pos_offset = ent_rot @ pos_to_blender(ent.loc.pivot_position)
-
-                        new_obj.location = ent_pos + pos_offset + (ent_rot @ new_obj.location)
-                        new_obj.rotation_mode = "QUATERNION"
-                        new_obj.rotation_quaternion = ent_rot.cross(new_obj.rotation_quaternion)
-
-                        root_collection.objects.link(new_obj)
-
-                        res.append(new_obj)
-
-            for idx, model in models.items():
-                # TODO find a way to not add them so we don't have to remove them after the copies?
-                for obj in model.all_objects.values():
-                    model.objects.unlink(obj)
-                root_collection.children.unlink(model)
+                    new_obj.location = ent_pos + pos_offset + (ent_rot @ new_obj.location)
+                    new_obj.rotation_mode = "QUATERNION"
+                    new_obj.rotation_quaternion = ent_rot.cross(new_obj.rotation_quaternion)
+                    res.append(new_obj)
+                if obj.log and (process_time() - now) > 5.0:
+                    now = process_time()
+                    print(f"{i + 1}/{len(obj.ents)}")
+            return res
 
         elif isinstance(obj, MeshTree):
             obj_pos, obj_rot = loc_to_blender(obj.loc)
@@ -487,7 +540,6 @@ def import_content_to_blender(root_collection, content, options):
                 mesh.rotation_mode = "QUATERNION"
                 mesh.rotation_quaternion = obj_rot
                 root_collection.objects.link(mesh)
-                bpy.ops.object.shade_auto_smooth()  # TODO check if object is selected?
                 res.append(mesh)
 
             if obj.surface:
@@ -533,6 +585,7 @@ def import_content_to_blender(root_collection, content, options):
                         instance.location = pos + (rot @ instance.location)
                         instance.rotation_mode = "QUATERNION"
                         instance.rotation_quaternion = rot.cross(instance.rotation_quaternion)
+                    res.append(instance)
         elif isinstance(obj, Metadata):
             assert obj.name is not None and obj.value is not None
             root_collection[obj.name] = obj.value
@@ -582,9 +635,8 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
     )
 
     def execute(self, context):
-        # delete_scene(GAMEDATA_SCENE_NAME)  # just for dev
-
         start_times()
+        delete_scene(GAMEDATA_SCENE_NAME)  # just for dev
 
         dirname = os.path.dirname(self.filepath) + os.path.sep
 
@@ -595,6 +647,7 @@ class TM_OT_NICE_Item_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelpe
             "lod": self.lod,
             "merge_objects": self.merge_objects,
             "instance_max_level": 0,
+            "no_linked_duplicate": True,
         }
 
         for file in self.files:
@@ -662,8 +715,9 @@ class TM_OT_NICE_Map_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelper
 
         start_times()
 
-        # delete_scene(GAMEDATA_SCENE_NAME)  # just for DEV
+        delete_scene(GAMEDATA_SCENE_NAME)  # just for DEV
         delete_scene(MAP_SCENE_NAME)
+        load_asset_mats_once()
         root_collection = bpy.context.scene.collection
 
         bpy.ops.scene.new(type="EMPTY")
@@ -681,6 +735,7 @@ class TM_OT_NICE_Map_Import(bpy.types.Operator, bpy_extras.io_utils.ImportHelper
             "instance_max_level": 1,
             "filter_grassfence": True,
             "gamedata_folder": GAMEDATA_FOLDER,
+            "files_cache": {},
         }
 
         content = get_content(self.filepath, options, True)

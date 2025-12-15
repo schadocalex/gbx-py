@@ -8,8 +8,11 @@ from construct import Container
 from .gbx_structs import GbxStruct, GbxStructWithoutBodyParsed
 
 
-def parse_bytes(raw_bytes, filepath="", log=False, recursive=False):
+def parse_bytes(raw_bytes, filepath="", /, log=False, recursive=False, files_cache=None):
     """Use this for in-memory reading"""
+    if files_cache is None:
+        files_cache = {}
+
     file_dir = os.path.dirname(filepath)
 
     gbx_data = {}
@@ -21,7 +24,7 @@ def parse_bytes(raw_bytes, filepath="", log=False, recursive=False):
         gbx_data=gbx_data,
         nodes=nodes,
         filename=filepath,
-        load_external_file=partial(_load_external_file, {}, log, file_dir, recursive),
+        load_external_file=partial(_load_external_file, files_cache, log, file_dir, recursive),
         errors=errors,
         warns=warns,
     )
@@ -33,7 +36,7 @@ def parse_bytes(raw_bytes, filepath="", log=False, recursive=False):
     return data
 
 
-def parse_file(file_path, recursive=True, log=False):
+def parse_file(file_path, /, recursive=True, log=False, files_cache=None):
     file_path = os.path.abspath(file_path)
 
     if not os.path.exists(file_path):
@@ -45,7 +48,7 @@ def parse_file(file_path, recursive=True, log=False):
         print(file_path)
 
     with open(file_path, "rb") as f:
-        return parse_bytes(f.read(), file_path, log, recursive)
+        return parse_bytes(f.read(), file_path, recursive=recursive, log=log, files_cache=files_cache)
 
 
 def _load_external_file(files_cache, log, root_path, recursive, relative_path):

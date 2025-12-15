@@ -63,6 +63,7 @@ class Entity:
 class Entities:
     models = None
     ents = None
+    log = False
 
 
 class BlockVariant:
@@ -105,13 +106,6 @@ def warn(opts, s):
     print(opts["root"]._warns[-1])
 
 
-def label_all_meshes(content, label):
-    for obj in content:
-        if isinstance(obj, RawMesh):
-            obj.label = label
-    return content
-
-
 def loop_objects(content):
     if content is None:
         return
@@ -126,6 +120,13 @@ def loop_objects(content):
             yield from loop_objects(obj.content)
         else:
             yield obj
+
+
+def label_all_meshes(content, label):
+    for obj in loop_objects(content):
+        if isinstance(obj, RawMesh):
+            obj.label = label
+    return content
 
 
 def remap_materials(content, remap):
@@ -296,10 +297,11 @@ def extract_content(data, parent, opts):
         content = []
 
         content += label_all_meshes(extract_content(data.body.Mesh, data, opts), "_notcollidable_")
-        if data.body.DynaShape._index > 0:
-            content += label_all_meshes(extract_content(data.body.DynaShape, data, opts), "_dynashape_")
-        if data.body.StaticShape._index > 0:
-            content += label_all_meshes(extract_content(data.body.StaticShape, data, opts), "_staticshape_")
+        if not opts.get("visible_only", False):
+            if data.body.DynaShape._index > 0:
+                content += label_all_meshes(extract_content(data.body.DynaShape, data, opts), "_dynashape_")
+            if data.body.StaticShape._index > 0:
+                content += label_all_meshes(extract_content(data.body.StaticShape, data, opts), "_staticshape_")
 
         return content
 
@@ -484,6 +486,8 @@ def extract_content(data, parent, opts):
 
         chunk = data.body[0x915D000]
         remap = {}
+        if not chunk.RemapFolder:
+            return []  # TODO?
         prefix = chunk.RemapFolder.split("\\")[-2] + "_"
         for fid in chunk.Remapping.body[0x90F4005].fids:
             material_link = fid.filePath.split("\\")[-1].replace(".Material.Gbx", "")
@@ -536,6 +540,7 @@ def match_embedded(data, fileref, allfiles, model):
 
 def extract_map(data, parent, opts):
     map_ents = Entities()
+    map_ents.log = True
     map_ents.models = {}
     map_ents.ents = []
 
