@@ -399,28 +399,6 @@ def decode_lookbackstring(obj, ctx):
 def encode_lookbackstring(obj, ctx):
     gbx_data = ctx._root._params.gbx_data
     idx = 0x40000000
-
-    if obj == "Unassigned":
-        idx = 0xBFFFFFFF
-    elif obj == "":
-        idx = 0xFFFFFFFF
-    elif obj in GbxCollectionIdsFromStr:
-        idx = GbxCollectionIdsFromStr[obj]
-    elif obj in gbx_data["lookbackstring_table"]:
-        # known string
-        idx = 0x40000000 | gbx_data["lookbackstring_table"][obj]
-    else:
-        # new string
-        gbx_data["lookbackstring_index"] += 1
-        gbx_data["lookbackstring_table"][obj] = gbx_data["lookbackstring_index"]
-        idx = 0x40000000
-
-    return Container(version=3, index=idx, string=obj)
-
-
-def encode_collection_lookbackstring(obj, ctx):
-    gbx_data = ctx._root._params.gbx_data
-    idx = 0x40000000
     text = str(obj)
 
     if text == "Unassigned":
@@ -432,35 +410,28 @@ def encode_collection_lookbackstring(obj, ctx):
     elif len(text) > 1 and text[0] == "U" and text[1:].isdigit():
         idx = int(text[1:])
     elif text in gbx_data["lookbackstring_table"]:
+        # known string
         idx = 0x40000000 | gbx_data["lookbackstring_table"][text]
     else:
+        # new string
         gbx_data["lookbackstring_index"] += 1
         gbx_data["lookbackstring_table"][text] = gbx_data["lookbackstring_index"]
         idx = 0x40000000
 
     return Container(version=3, index=idx, string=text)
 
-
 class TGbxLookbackString(str):
     pass
 
 
-_GbxLookbackStringStruct = Struct(
-    "version" / If(need_version, ExprValidator(Int32ul, obj_ == 3)),
-    "index" / Int32ul,
-    "string" / If(need_string, GbxString),
-)
-
 GbxLookbackString = ExprAdapter(
-    _GbxLookbackStringStruct,
+    Struct(
+        "version" / If(need_version, ExprValidator(Int32ul, obj_ == 3)),
+        "index" / Int32ul,
+        "string" / If(need_string, GbxString),
+    ),
     lambda *args: TGbxLookbackString(decode_lookbackstring(*args)),
     encode_lookbackstring,
-)
-
-GbxCollectionLookbackString = ExprAdapter(
-    _GbxLookbackStringStruct,
-    lambda *args: TGbxLookbackString(decode_lookbackstring(*args)),
-    encode_collection_lookbackstring,
 )
 
 
@@ -501,7 +472,7 @@ class GbxLookbackStringContext(Construct):
 
 GbxMeta = Struct(
     "id" / GbxLookbackString,
-    "collection" / GbxCollectionLookbackString,
+    "collection" / GbxLookbackString,
     "author" / GbxLookbackString,
 )
 
@@ -1095,7 +1066,27 @@ body_chunks[0x03043029] = Struct(
 body_chunks[0x0304302A] = Struct(
     "u01" / GbxBool,
 )
-body_chunks[0x03043040] = Struct("_unknownChunkId" / GreedyBytes)
+body_chunks[0x03043040] = GbxLookbackStringContext(
+    Struct(
+        "version" / Int32ul,  # 8
+        "u01" / Int32sl,
+        "size" / Int32sl,
+        "_listVersion" / Int32ul,
+        "anchoredObjects" / GbxArrayOf(GbxClass),
+        "itemsOnItem"
+        / If(
+            lambda this: this.version >= 1 and this.version != 5 and this.version < 8,
+            GbxArrayOf(GbxInt2),
+        ),
+        StopIf(this.version < 5),
+        "blockIndexes" / GbxArrayOf(Int32sl),
+        "snapItemGroups" / If(this.version < 7, GbxArrayOf(Int32sl)),
+        "itemIndexes" / If(this.version >= 6, GbxArrayOf(Int32sl)),
+        "snapItemGroups" / If(this.version >= 7, GbxArrayOf(Int32sl)),
+        "u07" / If(this.version != 6, GbxArrayOf(Int32sl)),
+        "snappedIndexes" / GbxArrayOf(Int32sl),
+    )
+)
 body_chunks[0x03043048] = Struct(
     "version" / Int32ul,
     "listBlocksVersion" / Int32ul,
