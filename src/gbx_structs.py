@@ -399,24 +399,26 @@ def decode_lookbackstring(obj, ctx):
 def encode_lookbackstring(obj, ctx):
     gbx_data = ctx._root._params.gbx_data
     idx = 0x40000000
+    text = str(obj)
 
-    if obj == "Unassigned":
+    if text == "Unassigned":
         idx = 0xBFFFFFFF
-    elif obj == "":
+    elif text == "":
         idx = 0xFFFFFFFF
-    elif obj in GbxCollectionIdsFromStr:
-        idx = GbxCollectionIdsFromStr[obj]
-    elif obj in gbx_data["lookbackstring_table"]:
+    elif text in GbxCollectionIdsFromStr:
+        idx = GbxCollectionIdsFromStr[text]
+    elif len(text) > 1 and text[0] == "U" and text[1:].isdigit():
+        idx = int(text[1:])
+    elif text in gbx_data["lookbackstring_table"]:
         # known string
-        idx = 0x40000000 | gbx_data["lookbackstring_table"][obj]
+        idx = 0x40000000 | gbx_data["lookbackstring_table"][text]
     else:
         # new string
         gbx_data["lookbackstring_index"] += 1
-        gbx_data["lookbackstring_table"][obj] = gbx_data["lookbackstring_index"]
+        gbx_data["lookbackstring_table"][text] = gbx_data["lookbackstring_index"]
         idx = 0x40000000
 
-    return Container(version=3, index=idx, string=obj)
-
+    return Container(version=3, index=idx, string=text)
 
 class TGbxLookbackString(str):
     pass
