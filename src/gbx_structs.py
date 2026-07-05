@@ -3232,20 +3232,18 @@ body_chunks[0x090C6003] = Struct(
 
 body_chunks[0x090F9000] = Struct(
     "version" / Int32ul,  # 1
-    "u01" / GbxFloat,
-    "u02" / GbxFloat,
-    "u03" / GbxFloat,
-    "u04" / GbxFloat,
-    "u05" / GbxFloat,
-    "u06" / GbxFloat,
-    "u07" / GbxFloat,
-    "u08" / GbxFloat,
-    "u09" / GbxFloat,
-    "u10" / GbxFloat,
-    "u11" / GbxFloat,
-    "u12" / GbxFloat,
+    "Spot" / GbxBool,
+    "Color" / GbxVec3,
+    "Intensity" / GbxFloat,
+    "Distance" / GbxFloat,
+    "PointEmissionRadius" / GbxFloat,
+    "PointEmissionLength" / GbxFloat,
+    "SpotInnerAngle" / GbxFloat,
+    "SpotOuterAngle" / GbxFloat,
+    "SpotEmissionSizeX" / GbxFloat,
+    "SpotEmissionSizeY" / GbxFloat,
     StopIf(this.version < 1),
-    "u13" / GbxFloat,
+    "NightOnly" / GbxBool,
 )
 
 # 0912F CPlugDynaModel
